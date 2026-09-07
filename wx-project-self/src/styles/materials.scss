@@ -1,0 +1,29 @@
+// Adapted from the reference materials layer. Original branding and decorations removed.
+.cl-glass { background:var(--cl-surface); border:1px solid var(--cl-border); box-shadow:var(--cl-shadow), inset 0 1px 0 var(--cl-highlight); }
+.cl-btn, .cl-icon-btn { background-image:linear-gradient(180deg,rgba(255,255,255,.075),transparent 70%); box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 5px rgba(25,35,51,.025); }
+.cl-input:focus-within,.cl-textarea:focus-within,.cl-picker:focus-within { border-color:var(--cl-blue); box-shadow:0 0 0 3px var(--cl-blue-soft); }
+.cl-input[aria-invalid="true"],.cl-textarea[aria-invalid="true"] { border-color:var(--cl-danger); }
+.cl-btn[disabled],.cl-icon-btn[disabled] { transform:none; box-shadow:none; background-image:none; }
+/* #ifdef H5 */
+button:focus-visible,[role="button"]:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible { outline:3px solid var(--cl-blue); outline-offset:3px; }
+[role="switch"]:focus-visible,[role="slider"]:focus-visible { outline:3px solid var(--cl-blue); outline-offset:4px; border-radius:8px; }
+@supports ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
+  .cl-glass,uni-tabbar .uni-tabbar { background:var(--cl-glass); backdrop-filter:blur(14px) saturate(1.12); -webkit-backdrop-filter:blur(14px) saturate(1.12); }
+}
+uni-modal .uni-modal,uni-actionsheet .uni-actionsheet,uni-toast .uni-toast,uni-toast .uni-simple-toast__text {
+  color:var(--cl-text); background:var(--cl-surface); border:1px solid var(--cl-border); border-radius:20px;
+  box-shadow:0 20px 55px rgba(25,35,51,.18),inset 0 1px 0 var(--cl-highlight); overflow:hidden;
+}
+uni-modal .uni-modal { width:min(380px,calc(100vw - 40px)); }
+uni-modal .uni-modal__hd,uni-modal .uni-modal__bd,uni-modal .uni-modal__ft,
+uni-actionsheet .uni-actionsheet__menu,uni-actionsheet .uni-actionsheet__cell,uni-actionsheet .uni-actionsheet__action { color:var(--cl-text); background:transparent; }
+uni-modal .uni-modal__bd { color:var(--cl-muted); line-height:1.8; }
+uni-modal .uni-modal__btn:focus-visible { outline:3px solid var(--cl-blue); outline-offset:-4px; }
+uni-modal .uni-mask { background:rgba(25,35,51,.3); }
+uni-actionsheet .uni-actionsheet__cell:active { background:var(--cl-primary-soft); }
+html[data-glass="reduced"] .cl-glass,html[data-glass="reduced"] uni-tabbar .uni-tabbar { background:var(--cl-surface) !important; backdrop-filter:none; -webkit-backdrop-filter:none; }
+/* #endif */
+@media (prefers-reduced-transparency:reduce),(prefers-contrast:more) { .cl-glass { background:var(--cl-surface); backdrop-filter:none; -webkit-backdrop-filter:none; } }
+/* #ifndef H5 */
+.cl-glass { background:var(--cl-surface); backdrop-filter:none; -webkit-backdrop-filter:none; }
+/* #endif */

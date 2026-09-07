@@ -1,0 +1,622 @@
+/* One control layer for Element Plus and custom controls; see docs/liquid-glass-controls.md. */
+:root {
+  --glass-radius: 18px;
+  --glass-face: linear-gradient(135deg, var(--glass-edge), transparent 58%);
+  --glass-control-face: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.22),
+    transparent 62%
+  );
+  --glass-button-face: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.025),
+    transparent 70%
+  );
+  --glass-button-edge: rgba(255, 255, 255, 0.14);
+  --glass-dialog-highlight: rgba(255, 255, 255, 0.7);
+  --glass-control-shadow:
+    inset 0 1px 0 var(--glass-button-edge), 0 1px 2px rgba(18, 35, 42, 0.06);
+  --glass-button-hover-shadow:
+    inset 0 1px 0 var(--glass-button-edge), 0 2px 5px rgba(18, 35, 42, 0.09);
+  --glass-button-press-shadow: inset 0 1px 3px rgba(18, 35, 42, 0.12);
+  --el-transition-duration: 320ms;
+  --el-transition-duration-fast: 180ms;
+}
+html[data-theme="dark"] {
+  --glass-button-edge: rgba(255, 255, 255, 0.07);
+  --glass-dialog-highlight: rgba(255, 255, 255, 0.065);
+  --glass-control-shadow:
+    inset 0 1px 0 var(--glass-button-edge), 0 1px 2px rgba(0, 0, 0, 0.16);
+  --glass-button-hover-shadow:
+    inset 0 1px 0 var(--glass-button-edge), 0 2px 5px rgba(0, 0, 0, 0.2);
+  --glass-button-press-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* Only bounded, floating surfaces get a live filter. Content stays solid. */
+.glass-control,
+.el-popper,
+.el-message,
+.el-notification,
+.search-results,
+.el-image-viewer__btn {
+  background: var(--glass-face), var(--glass-bg);
+  border: 1px solid var(--line);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.25);
+}
+.el-popper,
+.el-popper.is-light,
+.el-popper.is-dark,
+.el-message,
+.el-notification {
+  color: var(--text-main);
+  border-radius: var(--glass-radius);
+}
+.el-popper.is-dark {
+  --el-text-color-primary: var(--text-main);
+}
+.el-popper.el-popover {
+  padding: 18px;
+  line-height: 1.65;
+}
+.el-popper .el-popper__arrow::before {
+  background: var(--glass-bg);
+  border-color: var(--line);
+}
+.el-popper
+  :is(
+    .el-dropdown-menu,
+    .el-select-dropdown,
+    .el-tree,
+    .el-cascader-panel,
+    .el-picker-panel,
+    .el-autocomplete-suggestion
+  ) {
+  color: var(--text-main);
+  background: transparent;
+  border-radius: inherit;
+  box-shadow: none;
+}
+.el-popper .el-dropdown-menu {
+  padding: 6px;
+}
+.el-dropdown-menu__item,
+.el-select-dropdown__item,
+.el-cascader-node,
+.el-tree-node__content,
+.el-autocomplete-suggestion li {
+  border-radius: 10px;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-dropdown-menu__item {
+  min-height: 40px;
+  padding: 0 14px;
+}
+.el-dropdown-menu__item--divided {
+  border-color: var(--line);
+}
+.el-select-dropdown__item {
+  margin: 2px 6px;
+}
+.el-popper .el-dropdown-menu__item:not(.is-disabled):is(:hover, :focus),
+.el-select-dropdown__item.is-hovering,
+.el-autocomplete-suggestion li:hover,
+.el-tree-node:focus > .el-tree-node__content {
+  color: var(--primary-deep);
+  background: var(--primary-soft);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+}
+.el-dropdown-menu__item.is-disabled,
+.el-select-dropdown__item.is-disabled {
+  color: var(--text-faint);
+}
+
+/* A collapsed menu uses this same shell, not another glass layer inside it. */
+.el-popper.sidebar-menu-popper {
+  padding: 6px;
+}
+.sidebar-menu-popper .el-menu--popup {
+  min-width: 180px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 12px;
+  box-shadow: none;
+}
+.sidebar-menu-popper .el-menu-item {
+  height: 44px;
+  margin: 2px 0;
+  padding: 0 16px;
+  color: var(--text-main);
+  border-radius: 12px;
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast),
+    transform var(--motion-fast);
+}
+.sidebar-menu-popper .el-menu-item:is(:hover, :focus, .is-active) {
+  color: var(--primary-deep);
+  background: var(--primary-soft);
+}
+.sidebar-menu-popper .el-menu-item:focus-visible {
+  outline: 2px solid var(--primary-deep);
+  outline-offset: -2px;
+}
+.sidebar-menu-popper .el-menu-item:active {
+  transform: scale(0.98);
+}
+
+/* Placement determines the reveal edge, including flipped poppers near a viewport edge.
+   translate is separate from Popper positioning; typography is never scaled. */
+.el-popper,
+.search-results {
+  --glass-closed: inset(0 0 85% 0 round 18px);
+  --glass-offset: 0 -6px;
+}
+.el-popper[data-popper-placement^="top"] {
+  --glass-closed: inset(85% 0 0 0 round 18px);
+  --glass-offset: 0 6px;
+}
+.el-popper[data-popper-placement^="right"] {
+  --glass-closed: inset(0 85% 0 0 round 18px);
+  --glass-offset: -8px 0;
+}
+.el-popper[data-popper-placement^="left"] {
+  --glass-closed: inset(0 0 0 85% round 18px);
+  --glass-offset: 8px 0;
+}
+:is(.el-popper, .search-results):is(
+  .el-zoom-in-top-enter-active,
+  .el-zoom-in-top-leave-active,
+  .el-zoom-in-bottom-enter-active,
+  .el-zoom-in-bottom-leave-active,
+  .el-zoom-in-left-enter-active,
+  .el-zoom-in-left-leave-active,
+  .el-fade-in-linear-enter-active,
+  .el-fade-in-linear-leave-active,
+  .glass-panel-enter-active,
+  .glass-panel-leave-active
+) {
+  transition:
+    opacity var(--motion-fast),
+    clip-path var(--motion-panel),
+    translate var(--motion-panel);
+  transform: none;
+}
+:is(.el-popper, .search-results):is(
+  .el-zoom-in-top-enter-from,
+  .el-zoom-in-top-leave-to,
+  .el-zoom-in-bottom-enter-from,
+  .el-zoom-in-bottom-leave-to,
+  .el-zoom-in-left-enter-from,
+  .el-zoom-in-left-leave-to,
+  .el-fade-in-linear-enter-from,
+  .el-fade-in-linear-leave-to,
+  .glass-panel-enter-from,
+  .glass-panel-leave-to
+) {
+  opacity: 0;
+  clip-path: var(--glass-closed);
+  translate: var(--glass-offset);
+}
+:is(.el-popper, .search-results):is(
+  .el-zoom-in-top-enter-to,
+  .el-zoom-in-top-leave-from,
+  .el-zoom-in-bottom-enter-to,
+  .el-zoom-in-bottom-leave-from,
+  .el-zoom-in-left-enter-to,
+  .el-zoom-in-left-leave-from,
+  .el-fade-in-linear-enter-to,
+  .el-fade-in-linear-leave-from,
+  .glass-panel-enter-to,
+  .glass-panel-leave-from
+) {
+  opacity: 1;
+  clip-path: inset(0 round 18px);
+  translate: 0;
+}
+:is(.el-popper, .search-results)[class*="-leave-active"] {
+  pointer-events: none;
+}
+
+/* Buttons, pagination, upload triggers and custom actions share immediate press feedback.
+   Surface tint remains semantic (primary/danger); no blur in every table cell. */
+button,
+a.quick-action {
+  -webkit-tap-highlight-color: transparent;
+}
+:is(button, .el-pager li, .el-upload, .el-radio-button__inner) {
+  transition:
+    transform var(--motion-fast),
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-switch__core,
+.el-slider__button,
+.el-upload--picture-card,
+.el-upload-dragger {
+  background-image: var(--glass-control-face);
+  box-shadow: var(--glass-control-shadow);
+}
+.el-button:not(.is-text):not(.is-link),
+.el-pagination.is-background :is(button, .el-pager li),
+.el-radio-button__inner {
+  background-image: var(--glass-button-face);
+  box-shadow: var(--glass-control-shadow);
+}
+/* Keep white labels above 4.5:1 on saturated action fills; highlights live at the edge. */
+.el-button--primary,
+.el-button--danger,
+.el-pager li.is-active,
+.el-radio-button.is-active,
+.el-switch.is-checked {
+  --glass-control-face: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.04),
+    transparent 62%
+  );
+}
+:is(button, .el-pager li, .el-upload):not(:disabled):not(.is-disabled):active {
+  transform: scale(0.975);
+}
+button:not(:disabled):not(.is-disabled):hover,
+.el-upload:not(.is-disabled):hover {
+  box-shadow: var(--glass-button-hover-shadow);
+}
+button:not(:disabled):not(.is-disabled):active,
+.el-pager li:not(.is-disabled):active {
+  box-shadow: var(--glass-button-press-shadow);
+}
+.el-button:not(.is-disabled):focus-visible {
+  outline: 2px solid var(--primary-deep);
+  outline-offset: 3px;
+}
+.el-button:is(.is-text, .is-link),
+.el-button:is(.is-text, .is-link):is(:hover, :active) {
+  box-shadow: none;
+}
+.el-button.is-disabled:not(.is-text):not(.is-link),
+.el-pagination :is(button:disabled, .el-pager li.is-disabled) {
+  background-image: none;
+  box-shadow: none;
+}
+.el-button:is(.is-text, .is-link):hover {
+  background: var(--primary-soft);
+}
+.el-button--danger:is(.is-text, .is-link):hover {
+  background: var(--danger-soft);
+}
+.el-pagination.is-background :is(button, .el-pager li) {
+  border-radius: 10px;
+}
+.el-pager li:not(.is-disabled):active,
+.el-radio-button:not(.is-disabled):active .el-radio-button__inner {
+  transform: scale(0.95);
+}
+.el-input-number__decrease,
+.el-input-number__increase {
+  background-image: var(--glass-control-face);
+  transition:
+    background-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-input-number__decrease:active,
+.el-input-number__increase:active {
+  box-shadow: inset 0 2px 5px var(--primary-soft);
+}
+
+/* Fields retain readable solid interiors; their focus edge is the material feedback. */
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+  background-image: var(--glass-control-face);
+}
+.el-input:where(:not(.is-disabled)) .el-input__wrapper:where(:hover),
+.el-select__wrapper:where(:not(.is-disabled):hover),
+.el-textarea:where(:not(.is-disabled)) .el-textarea__inner:where(:hover) {
+  box-shadow:
+    inset 0 0 0 1px var(--line-strong),
+    inset 0 1px 0 var(--glass-edge) !important;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+  box-shadow:
+    inset 0 0 0 1px var(--primary-deep),
+    0 0 0 3px var(--primary-soft),
+    inset 0 1px 0 var(--glass-edge) !important;
+}
+.el-form-item.is-error
+  :is(.el-input__wrapper, .el-select__wrapper, .el-textarea__inner) {
+  box-shadow:
+    inset 0 0 0 1px var(--danger),
+    0 0 0 3px var(--danger-soft) !important;
+}
+.el-form-item__error.el-zoom-in-top-enter-active,
+.el-form-item__error.el-zoom-in-top-leave-active {
+  transform: none;
+  transition:
+    opacity var(--motion-fast),
+    translate var(--motion-fast);
+}
+.el-form-item__error.el-zoom-in-top-enter-from,
+.el-form-item__error.el-zoom-in-top-leave-to {
+  opacity: 0;
+  translate: 0 -2px;
+}
+.el-form-item__error.el-zoom-in-top-enter-to,
+.el-form-item__error.el-zoom-in-top-leave-from {
+  opacity: 1;
+  translate: 0;
+}
+.el-switch__core {
+  transition:
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-switch__action {
+  box-shadow:
+    0 1px 4px rgba(0, 0, 0, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  transition:
+    left var(--motion-normal),
+    transform var(--motion-fast);
+}
+.el-switch:not(.is-disabled):active .el-switch__action {
+  transform: scaleX(1.12);
+}
+.el-radio__inner,
+.el-checkbox__inner {
+  background-image: var(--glass-control-face);
+  transition:
+    background-color var(--motion-fast),
+    border-color var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-radio__input:not(.is-disabled):hover .el-radio__inner,
+.el-checkbox__input:not(.is-disabled):hover .el-checkbox__inner {
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+.el-checkbox__inner::after,
+.el-radio__inner::after {
+  transition-duration: 180ms;
+}
+.el-tabs__active-bar,
+.el-segmented__item-selected {
+  transition:
+    transform var(--motion-normal),
+    width var(--motion-normal),
+    height var(--motion-normal);
+  border-radius: 8px;
+}
+.el-slider__bar,
+.el-progress-bar__inner {
+  transition: background-color var(--motion-fast);
+}
+.el-tag {
+  transition:
+    background-color var(--motion-fast),
+    border-color var(--motion-fast);
+}
+.el-collapse-item__header {
+  transition:
+    background-color var(--motion-fast),
+    color var(--motion-fast);
+}
+
+/* One shell owns the soft corner light. Interior bands never restart the gradient;
+   the opaque base keeps long forms readable without a live blur. */
+.el-dialog,
+.el-message-box {
+  background:
+    radial-gradient(
+      ellipse 90% 150px at 0 0,
+      var(--glass-dialog-highlight),
+      transparent 75%
+    ),
+    radial-gradient(
+      ellipse 80% 120px at 100% 100%,
+      rgba(214, 63, 120, 0.045),
+      transparent 75%
+    ),
+    var(--surface-solid);
+  border: 1px solid var(--line-strong);
+  box-shadow:
+    0 24px 80px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 var(--glass-button-edge);
+}
+.el-dialog__header,
+.el-dialog__footer {
+  background: transparent;
+}
+.el-drawer__header,
+.el-drawer__footer {
+  background-image: var(--glass-face);
+}
+.el-message-box {
+  padding: 22px;
+}
+.el-dialog__headerbtn,
+.el-message-box__headerbtn,
+.el-drawer__close-btn {
+  border-radius: 12px;
+}
+.dialog-fade-enter-active,
+.dialog-fade-leave-active,
+.msgbox-fade-enter-active,
+.msgbox-fade-leave-active {
+  animation: none;
+  transition: opacity var(--motion-panel);
+}
+.dialog-fade-enter-active .el-overlay-dialog,
+.dialog-fade-leave-active .el-overlay-dialog {
+  animation: none;
+}
+:is(.dialog-fade-enter-active, .dialog-fade-leave-active) .el-dialog,
+:is(.msgbox-fade-enter-active, .msgbox-fade-leave-active) .el-message-box {
+  transition:
+    opacity var(--motion-fast),
+    translate var(--motion-panel),
+    clip-path var(--motion-panel);
+}
+.dialog-fade-enter-from,
+.dialog-fade-leave-to,
+.msgbox-fade-enter-from,
+.msgbox-fade-leave-to {
+  opacity: 0;
+}
+:is(.dialog-fade-enter-from, .dialog-fade-leave-to) .el-dialog,
+:is(.msgbox-fade-enter-from, .msgbox-fade-leave-to) .el-message-box {
+  translate: 0 -10px;
+  clip-path: inset(5% 3% round 22px);
+}
+:is(.dialog-fade-enter-to, .dialog-fade-leave-from) .el-dialog,
+:is(.msgbox-fade-enter-to, .msgbox-fade-leave-from) .el-message-box {
+  translate: 0;
+  clip-path: inset(0 round 20px);
+}
+.el-drawer {
+  transition: transform var(--motion-panel);
+}
+.el-drawer-fade-enter-active,
+.el-drawer-fade-leave-active {
+  transition: background-color var(--motion-panel);
+}
+.el-message,
+.el-notification {
+  transition:
+    opacity var(--motion-fast),
+    transform var(--motion-panel),
+    top var(--motion-panel);
+}
+.el-alert {
+  transition:
+    opacity var(--motion-fast),
+    background-color var(--motion-fast);
+}
+.el-image-viewer__actions__inner {
+  background: transparent;
+}
+.el-image-viewer__btn {
+  color: var(--text-main);
+  opacity: 1;
+  transition:
+    scale var(--motion-fast),
+    box-shadow var(--motion-fast);
+}
+.el-image-viewer__btn:not(.el-image-viewer__actions):active,
+.el-image-viewer__actions .el-icon:active {
+  scale: 0.95;
+}
+.el-image-viewer__actions .el-icon {
+  border-radius: 8px;
+  transition:
+    scale var(--motion-fast),
+    background-color var(--motion-fast);
+}
+.el-image-viewer__actions .el-icon:hover {
+  background: var(--primary-soft);
+}
+
+@supports not (
+  (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+) {
+  :root,
+  html[data-theme] {
+    --glass-bg: var(--surface-solid);
+    --header-bg: var(--surface-solid);
+    --sidebar-bg: var(--surface-solid);
+  }
+}
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  :root,
+  html[data-theme] {
+    --glass-bg: var(--surface-solid);
+    --header-bg: var(--surface-solid);
+    --sidebar-bg: var(--surface-solid);
+    --glass-blur: 0px;
+  }
+  .glass-control,
+  .el-popper,
+  .el-message,
+  .el-notification,
+  .search-results,
+  .el-image-viewer__btn {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+html[data-glass="reduced"] {
+  --glass-bg: var(--surface-solid);
+  --header-bg: var(--surface-solid);
+  --sidebar-bg: var(--surface-solid);
+  --glass-blur: 0px;
+}
+html[data-glass="reduced"]
+  :is(
+    .glass-control,
+    .el-popper,
+    .el-message,
+    .el-notification,
+    .search-results,
+    .el-image-viewer__btn
+  ) {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    transition-duration: 0ms !important;
+  }
+  :is(button, .el-pager li, .el-upload):active {
+    transform: none !important;
+  }
+  .el-image-viewer__btn:active,
+  .el-image-viewer__actions .el-icon:active {
+    scale: none !important;
+  }
+}
+/* A leaving overlay must not swallow a new trigger click. Vue cancels the
+   reversible transition when modelValue becomes true again. */
+.dialog-fade-leave-active,
+.el-drawer-fade-leave-active,
+.msgbox-fade-leave-active {
+  pointer-events: none;
+}
+/* Bright semantic colors in dark mode need dark ink on filled actions. */
+html[data-theme="dark"]
+  .el-button--primary:not(.is-plain):not(.is-text):not(.is-link) {
+  --el-button-text-color: #192333;
+  --el-button-hover-text-color: #192333;
+  --el-button-active-text-color: #192333;
+}
+
+/* The developer gallery preference uses the same reduction as the OS query. */
+html.cl-motion-reduced { --motion-fast: 0ms; --motion-normal: 0ms; --motion-panel: 0ms; }
+html.cl-motion-reduced *, html.cl-motion-reduced *::before, html.cl-motion-reduced *::after { animation-duration: 0ms !important; transition-duration: 0ms !important; scroll-behavior: auto !important; }
+html.cl-motion-reduced :is(button, .el-pager li, .el-upload):active, html.cl-motion-reduced .recent-item:hover .item-image img { transform: none !important; }
+html.cl-motion-reduced .el-image-viewer__btn:active, html.cl-motion-reduced .el-image-viewer__actions .el-icon:active { scale: none !important; }
+/* Keep filled labels readable while hovering; Element's default pale primary
+   hover tint is appropriate for borders, but too light behind white text. */
+.el-button--primary:not(.is-plain):not(.is-text):not(.is-link):not(.is-disabled) {
+  --el-button-hover-bg-color: var(--el-color-primary-dark-2);
+  --el-button-hover-border-color: var(--el-color-primary-dark-2);
+  --el-button-active-bg-color: var(--el-color-primary-dark-2);
+  --el-button-active-border-color: var(--el-color-primary-dark-2);
+}
+html[data-theme="dark"] .el-button--primary:not(.is-plain):not(.is-text):not(.is-link):not(.is-disabled) {
+  --el-button-hover-bg-color: color-mix(in srgb, var(--cl-primary) 88%, white);
+  --el-button-hover-border-color: var(--cl-primary);
+  --el-button-active-bg-color: var(--cl-primary);
+  --el-button-active-border-color: var(--cl-primary);
+}

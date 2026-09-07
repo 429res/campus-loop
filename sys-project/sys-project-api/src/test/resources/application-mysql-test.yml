@@ -1,0 +1,14 @@
+# Only explicitly named, disposable MySQL schemas are accepted by the integration test guard.
+spring:
+  datasource:
+    url: ${TEST_DB_URL}
+    username: ${TEST_DB_USERNAME}
+    password: ${TEST_DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    clean-disabled: true
+campus:
+  bootstrap-enabled: false
+  bootstrap-only: false
+  demo-enabled: false
+  cors-origins: http://localhost:5174

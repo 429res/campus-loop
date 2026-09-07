@@ -1,0 +1,21 @@
+{
+  "pages": [
+    { "path": "pages/home/home", "style": { "navigationBarTitleText": "Campus Loop" } },
+    { "path": "pages/matches/matches", "style": { "navigationBarTitleText": "交换灵感" } },
+    { "path": "pages/publish/publish", "style": { "navigationBarTitleText": "发布闲置" } },
+    { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的循环" } },
+    { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情" } },
+    { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
+  ],
+  "globalStyle": { "navigationBarTextStyle": "black", "navigationBarTitleText": "Campus Loop", "navigationBarBackgroundColor": "#ffffff", "backgroundColor": "#f4f6fa" },
+  "tabBar": {
+    "color": "#596578", "selectedColor": "#d63f78", "backgroundColor": "#ffffff", "borderStyle": "white",
+    "list": [
+      { "pagePath": "pages/home/home", "text": "发现", "iconPath": "static/nav-home.png", "selectedIconPath": "static/nav-home-active.png" },
+      { "pagePath": "pages/matches/matches", "text": "交换灵感", "iconPath": "static/nav-match.png", "selectedIconPath": "static/nav-match-active.png" },
+      { "pagePath": "pages/publish/publish", "text": "发布", "iconPath": "static/nav-add.png", "selectedIconPath": "static/nav-add-active.png" },
+      { "pagePath": "pages/profile/profile", "text": "我的", "iconPath": "static/nav-user.png", "selectedIconPath": "static/nav-user-active.png" }
+    ]
+  }
+}

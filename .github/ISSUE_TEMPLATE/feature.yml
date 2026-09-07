@@ -1,0 +1,20 @@
+name: 功能任务
+description: 创建四人可分工、可验收的功能
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: 用户目标与验收标准
+      description: 描述可观察的行为，包括空状态和失败情况。
+    validations:
+      required: true
+  - type: textarea
+    id: contract
+    attributes:
+      label: 接口、数据与跨端影响
+      description: 列出状态、迁移、共享文件、需要协作的角色。
+  - type: textarea
+    id: verification
+    attributes:
+      label: 验证方案
+      description: 分别考虑自动测试、浏览器、隔离数据库和微信平台。

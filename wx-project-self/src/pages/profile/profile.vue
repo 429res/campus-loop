@@ -1,0 +1,26 @@
+<script setup>
+import LoopButton from '../../components/LoopButton.vue'
+import { ref } from 'vue'
+import { onShow } from '@dcloudio/uni-app'
+import LoopLayout from '../../components/LoopLayout.vue'
+import http, { TOKEN_KEY, USER_KEY, clearSession } from '../../common/http'
+import { showAppModal } from '../../common/modal'
+const user = ref(null), loading = ref(false), error = ref('')
+async function load() {
+  user.value = null; error.value = ''
+  if (!uni.getStorageSync(TOKEN_KEY)) return
+  loading.value = true
+  try { user.value = await http.get('/api/auth/me',{}, {silent:true});uni.setStorageSync(USER_KEY,user.value) } catch(e) {error.value=e.message} finally {loading.value = false}
+}
+function logout() { showAppModal({title:'退出登录',content:'退出当前账号？主题设置会保留。',danger:true,async success(result){if(!result.confirm) return;try {await http.post('/api/auth/logout',{})}catch(e){if(e.status !== 401) return}clearSession();user.value=null}}) }
+const login = () => uni.navigateTo({url:'/pages/login/login'})
+const gallery = () => uni.navigateTo({url:'/pages/controls/controls'})
+const publish = () => uni.switchTab({url:'/pages/publish/publish'})
+onShow(load)
+</script>
+<template>
+  <LoopLayout><view class="cl-page-heading"><text class="cl-title">我的循环</text><text class="cl-subtitle">每一件流转的好物，都记录着你的校园故事。</text></view><view v-if="loading" class="cl-empty"><text class="cl-label">正在读取账号…</text></view><view v-else-if="error" class="cl-panel cl-empty"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton><LoopButton class="cl-btn" @click="login">重新登录</LoopButton></view><view v-else class="profile-card cl-panel"><view class="profile-avatar">{{ user ? user.displayName?.slice(0,1) || '同' : '↻' }}</view><view class="profile-copy"><text class="profile-name">{{ user?.displayName || '你好，校园同学' }}</text><text class="cl-subtitle">{{ user ? `@${user.username} · ${user.role === 'ADMIN' ? '管理员' : '校园用户'}` : '登录后，发布闲置与需求，发现交换灵感。' }}</text></view><LoopButton v-if="user" class="cl-btn" @click="logout">退出登录</LoopButton><LoopButton v-else class="cl-btn cl-btn--primary" @click="login">登录</LoopButton></view><view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="publish"><text class="profile-action-icon">＋</text><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="gallery"><text class="profile-action-icon blue">◫</text><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><text class="profile-action-arrow">↗</text></LoopButton></view><view class="cl-section-heading"><text class="cl-section-title">接下来，一起完善</text><text class="cl-tag cl-tag--muted">待开发</text></view><view class="cl-panel pending-grid"><view v-for="module in [{name:'我有什么 / 我想要',desc:'独立需求清单编辑与管理'},{name:'我的交换',desc:'邀请、确认、交接、取消与超时'},{name:'收藏夹',desc:'收藏物品与跨设备读取'},{name:'物品履历',desc:'用户自述、双方确认与管理员核验'},{name:'个人资料',desc:'头像、资料编辑与校园身份'},{name:'举报与争议',desc:'处理流程与结果记录'}]" :key="module.name" class="pending-module"><text class="cl-field-title">{{ module.name }}</text><text class="cl-hint">{{ module.desc }}</text><text class="pending-label">规划中 · 尚未开放</text></view></view></LoopLayout>
+</template>
+<style scoped>
+.profile-card{display:flex;align-items:center;gap:20px;padding:30px}.profile-avatar{width:76px;height:76px;border-radius:25px;background:var(--cl-primary-soft);color:var(--cl-primary);display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:700;flex-shrink:0}.profile-copy{flex:1;min-width:0}.profile-name{display:block;font-size:22px;font-weight:750;margin-bottom:6px}.profile-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:22px}.profile-action{position:relative;color:var(--cl-text);text-align:left;display:flex;flex-direction:column;align-items:flex-start;gap:9px;width:100%}.profile-action-icon{display:flex;align-items:center;justify-content:center;width:38px;height:38px;background:var(--cl-primary-soft);color:var(--cl-primary);border-radius:12px;font-size:25px;margin-bottom:5px}.profile-action-icon.blue{color:var(--cl-blue);background:var(--cl-blue-soft)}.profile-action-title{font-size:17px;font-weight:700}.profile-action-arrow{position:absolute;top:24px;right:24px;color:var(--cl-muted)}.pending-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:26px}.pending-module{display:flex;flex-direction:column;gap:8px}.pending-label{font-size:10px;color:var(--cl-muted)}@media(max-width:650px){.profile-card{padding:22px;gap:12px;flex-wrap:wrap}.profile-avatar{width:54px;height:54px;border-radius:19px;font-size:25px}.profile-name{font-size:20px}.profile-copy .cl-subtitle{font-size:11px}.profile-card>.cl-btn{margin-left:66px}.profile-actions{gap:12px}.profile-action{padding:17px}.profile-action-title{font-size:14px}.profile-action .cl-hint{font-size:10px}.pending-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 16px}}
+</style>

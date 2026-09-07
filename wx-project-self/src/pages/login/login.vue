@@ -1,0 +1,24 @@
+<script setup>
+import LoopButton from '../../components/LoopButton.vue'
+import { ref } from 'vue'
+import LoopLayout from '../../components/LoopLayout.vue'
+import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
+const username = ref(''), password = ref(''), busy = ref(false), error = ref('')
+async function login() {
+  if (busy.value) return
+  error.value = ''
+  if (!username.value.trim() || !password.value) { error.value = '请填写用户名和密码'; return }
+  busy.value = true
+  try {
+    const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true})
+    uni.setStorageSync(TOKEN_KEY,result.token); uni.setStorageSync(USER_KEY,result.user); password.value = ''
+    uni.switchTab({url:'/pages/profile/profile'})
+  } catch(e) { error.value = e.message } finally { busy.value = false }
+}
+</script>
+<template>
+  <LoopLayout><view class="login-layout"><view class="login-copy"><text class="login-kicker">WELCOME BACK</text><text class="login-title">好物的下一站，<br/>从这里开始。</text><text class="cl-subtitle">把闲置交给需要的人，<br/>也找到你的校园小确幸。</text><image src="/static/demo/book.svg" mode="aspectFit" class="login-art"/></view><view class="cl-panel login-panel"><text class="cl-title">登录 Campus Loop</text><text class="cl-subtitle login-intro">使用在本地初始化时创建的开发账号</text><form class="cl-form" @submit="login"><view class="cl-field"><text class="cl-field-title">用户名</text><input v-model="username" class="cl-input" aria-label="用户名" placeholder="输入用户名" :aria-invalid="!!error" :disabled="busy" maxlength="60" /></view><view class="cl-field"><text class="cl-field-title">密码</text><input v-model="password" class="cl-input" aria-label="密码" placeholder="输入密码" password :disabled="busy" maxlength="128" confirm-type="done" @confirm="login" /></view><text v-if="error" class="cl-error" role="alert">{{ error }}</text><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="busy" :loading="busy">{{ busy ? '登录中…' : '登录，开始循环' }}</LoopButton><text class="cl-hint">账号由团队成员在各自开发环境创建。注册、找回密码及微信授权将在后续阶段实现。</text></form></view></view></LoopLayout>
+</template>
+<style scoped>
+.login-layout{display:grid;grid-template-columns:1fr 1fr;gap:70px;max-width:930px;margin:55px auto 70px;align-items:center}.login-copy{padding:10px 20px}.login-kicker{font-size:11px;letter-spacing:3px;color:var(--cl-primary)}.login-title{display:block;font-size:36px;font-weight:800;line-height:1.55;margin:20px 0}.login-art{width:240px;height:180px;border-radius:20px;margin-top:20px;transform:rotate(-6deg)}.login-panel{padding:36px}.login-intro{margin:12px 0 30px;font-size:13px}@media(max-width:700px){.login-layout{grid-template-columns:1fr;gap:24px;margin:24px auto 40px;max-width:420px}.login-copy{display:none}.login-panel{padding:25px}.login-panel .cl-title{font-size:23px}}
+</style>

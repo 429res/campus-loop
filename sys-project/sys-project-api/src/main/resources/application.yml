@@ -1,0 +1,43 @@
+server:
+  port: ${SERVER_PORT:8088}
+  error:
+    include-message: never
+    include-stacktrace: never
+spring:
+  application:
+    name: campus-loop
+  datasource:
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3308}/${DB_NAME:campus_loop_dev}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    username: ${DB_USERNAME:campus_loop}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      connection-timeout: 10000
+  flyway:
+    enabled: true
+    clean-disabled: true
+    locations: classpath:db/migration
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+  jackson:
+    time-zone: UTC
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+campus:
+  jwt-secret: ${JWT_SECRET}
+  session-hours: 8
+  upload-dir: ${UPLOAD_DIR:../.local/uploads}
+  cors-origins: ${CORS_ORIGINS:http://localhost:5174,http://127.0.0.1:5174,http://localhost:5175,http://127.0.0.1:5175}
+  bootstrap-enabled: ${CAMPUS_BOOTSTRAP_ENABLED:false}
+  bootstrap-admin-username: ${CAMPUS_ADMIN_USERNAME:}
+  bootstrap-admin-password: ${CAMPUS_ADMIN_PASSWORD:}
+  bootstrap-user-username: ${CAMPUS_USER_USERNAME:}
+  bootstrap-user-password: ${CAMPUS_USER_PASSWORD:}
+  bootstrap-only: ${CAMPUS_BOOTSTRAP_ONLY:false}
+  demo-enabled: ${CAMPUS_DEMO_ENABLED:true}

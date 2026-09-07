@@ -1,0 +1,4 @@
+package edu.campusloop.web.category.mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import edu.campusloop.web.category.entity.Category;
+public interface CategoryMapper extends BaseMapper<Category> {}

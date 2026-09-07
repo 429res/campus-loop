@@ -1,0 +1,95 @@
+name: Campus Loop CI
+on:
+  push:
+    branches: [main, 'feature/**', 'fix/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: campus-loop-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  admin-build:
+    name: admin-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: project-self/package-lock.json
+      - run: npm install -g npm@12.0.2
+      - run: node scripts/repository-check.mjs
+      - run: npm ci
+        working-directory: project-self
+      - run: npm run build
+        working-directory: project-self
+  user-build:
+    name: user-build (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [h5, mp-weixin]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: wx-project-self/package-lock.json
+      - run: npm install -g npm@12.0.2
+      - run: npm ci
+        working-directory: wx-project-self
+      - run: npm run build:${{ matrix.target }}
+        working-directory: wx-project-self
+  backend-tests:
+    name: backend-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.20.1'
+          cache: maven
+      - run: ./mvnw -B -ntp verify
+        working-directory: sys-project
+  mysql-tests:
+    name: mysql-tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.20.1'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: node scripts/mysql-test.mjs
+  windows-smoke:
+    name: windows-smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17.0.20.1'
+          cache: maven
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: |
+            project-self/package-lock.json
+            wx-project-self/package-lock.json
+      - run: npm install -g npm@12.0.2
+      - run: node scripts/run.mjs doctor
+      - run: node scripts/run.mjs install
+      - run: node scripts/run.mjs build

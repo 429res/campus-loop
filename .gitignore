@@ -1,0 +1,35 @@
+# Dependencies and generated output
+**/node_modules/
+**/dist/
+**/unpackage/
+**/target/
+**/.vite/
+**/coverage/
+**/playwright-report/
+**/test-results/
+# Local secrets, databases, uploads and logs
+.env
+.env.*
+!.env.example
+!**/.env.example
+.local/
+**/uploads/
+**/logs/
+*.log
+*.pid
+*.key
+*.pem
+*.p12
+*.jks
+*.sql.gz
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.iml
+Thumbs.db
+# WeChat developer local settings
+**/project.private.config.json
+
+# Generated from UniApp public environment
+wx-project-self/src/manifest.json
