@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
 
-// setup-java v4 consumes Adoptium's SemVer alias, not Java's four-part runtime version.
+// setup-java consumes Adoptium's SemVer alias, not Java's four-part runtime version.
 // Both official Linux/Windows jdk-17.0.20.1+1 metadata files declare semver 17.0.20+101.
 const executable = process.env.JAVA_HOME
   ? join(process.env.JAVA_HOME, 'bin', process.platform === 'win32' ? 'java.exe' : 'java')

@@ -10,8 +10,10 @@ export function spawnCommand(command, args, options = {}) {
   if (![executable, ...args].every(value => safe.test(value))) {
     throw new Error('Windows batch commands accept only fixed CLI arguments; use a native executable for paths or shell text.')
   }
-  const line = `"${executable}" ${args.map(value => `"${value}"`).join(' ')}`
-  return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `"${line}"`], {
+  // Tokens are validated above and contain no spaces or shell metacharacters.
+  // Extra nested quotes make cmd.exe search for a literal quoted npm.cmd.
+  const line = `${executable} ${args.join(' ')}`
+  return spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', line], {
     ...options, shell: false, windowsVerbatimArguments: true,
   })
 }
