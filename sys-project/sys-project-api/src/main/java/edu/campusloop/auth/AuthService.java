@@ -5,7 +5,10 @@ import edu.campusloop.web.user.mapper.UserMapper;
 import edu.campusloop.web.auth.entity.AuthSession;
 import edu.campusloop.web.auth.mapper.AuthSessionMapper;
 import edu.campusloop.web.auth.dto.LoginRequest;
+import edu.campusloop.web.auth.dto.ChangePasswordRequest;
+import edu.campusloop.web.auth.dto.UpdateProfileRequest;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
 import javax.crypto.SecretKey;
@@ -30,7 +33,7 @@ public class AuthService {
         this.dummyHash=passwords.encode(UUID.randomUUID().toString());
     }
     @Transactional public LoginResult login(LoginRequest request) {
-        User user=users.selectOne(new QueryWrapper<User>().eq("username", request.username().trim()));
+        User user=users.selectOne(new QueryWrapper<User>().eq("username", request.username().trim()).last("FOR UPDATE"));
         boolean valid=passwords.matches(request.password(), user == null || user.getPasswordHash() == null ? dummyHash : user.getPasswordHash());
         if (user == null || user.getPasswordHash() == null || !valid || !"ACTIVE".equals(user.getStatus())) throw new ApiException(401,"账号或密码不正确");
         Instant now=Instant.now(), expiry=now.plusSeconds(hours * 3600L);
@@ -41,6 +44,22 @@ public class AuthService {
         String token=Jwts.builder().issuer("campus-loop").subject(user.getId().toString()).id(id)
             .issuedAt(Date.from(now)).expiration(Date.from(expiry)).signWith(key).compact();
         return new LoginResult(token,info(user));
+    }
+    @Transactional public UserInfo updateProfile(long userId, UpdateProfileRequest request) {
+        int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("display_name",request.displayName().trim()));
+        if(updated!=1) throw new ApiException(401,"账号不可用");
+        User user=users.selectById(userId);
+        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
+        return info(user);
+    }
+    @Transactional public void changePassword(long userId, ChangePasswordRequest request) {
+        User user=users.selectOne(new QueryWrapper<User>().eq("id",userId).last("FOR UPDATE"));
+        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
+        if(!passwords.matches(request.currentPassword(),user.getPasswordHash())) throw new ApiException(400,"旧密码不正确");
+        String passwordHash=passwords.encode(request.newPassword());
+        int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("password_hash",passwordHash));
+        if(updated!=1) throw new ApiException(409,"账号状态冲突，请重试");
+        sessions.delete(new QueryWrapper<AuthSession>().eq("user_id",userId));
     }
     public User authenticate(String token) {
         Claims claims=claims(token); AuthSession session=sessions.selectById(claims.getId());

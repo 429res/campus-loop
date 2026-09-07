@@ -17,9 +17,11 @@ import javax.sql.DataSource;
 import java.nio.file.*;
 import java.time.*;
 import java.util.*;
+import java.util.concurrent.*;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import javax.imageio.ImageIO;
+import org.springframework.test.web.servlet.MvcResult;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -105,6 +107,82 @@ class CampusIntegrationTest {
         jdbc.update("UPDATE cl_auth_session SET expires_at=? WHERE user_id=?",LocalDateTime.now(ZoneOffset.UTC).minusMinutes(1),expiryId);
         mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+expiring)).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/auth/me").header("Authorization","Bearer invalid")).andExpect(status().isUnauthorized());
+    }
+    @Test void profileUpdatePersistsAndRejectsProtectedFields() throws Exception {
+        String username="test_"+UUID.randomUUID().toString().substring(0,12), password=UUID.randomUUID().toString();
+        long userId=account(username,password,"USER");String token=login(username,password);
+        User original=users.selectById(userId);String originalHash=original.getPasswordHash();
+        mvc.perform(patch("/api/auth/me").contentType("application/json").content("{}"))
+            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(401));
+        Map<String,Object> protectedFields=new LinkedHashMap<>();
+        protectedFields.put("displayName","不应保存");protectedFields.put("id",999999);protectedFields.put("username","attacker");
+        protectedFields.put("role","ADMIN");protectedFields.put("status","DISABLED");protectedFields.put("passwordHash","not-a-hash");
+        mvc.perform(patch("/api/auth/me").header("Authorization","Bearer "+token).contentType("application/json")
+            .content(json.writeValueAsString(protectedFields))).andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+        User unchanged=users.selectById(userId);
+        assertEquals("集成测试同学",unchanged.getDisplayName());assertEquals(username,unchanged.getUsername());assertEquals("USER",unchanged.getRole());
+        assertEquals("ACTIVE",unchanged.getStatus());assertEquals(originalHash,unchanged.getPasswordHash());
+        String displayName="资料持久化 "+UUID.randomUUID().toString().substring(0,8);
+        mvc.perform(patch("/api/auth/me").header("Authorization","Bearer "+token).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("displayName","  "+displayName+"  "))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(userId))
+            .andExpect(jsonPath("$.data.username").value(username)).andExpect(jsonPath("$.data.displayName").value(displayName))
+            .andExpect(jsonPath("$.data.role").value("USER")).andExpect(jsonPath("$.data.status").doesNotExist())
+            .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+token)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.displayName").value(displayName));
+        assertEquals(displayName,jdbc.queryForObject("SELECT display_name FROM cl_user WHERE id=?",String.class,userId));
+        User updated=users.selectById(userId);assertEquals(originalHash,updated.getPasswordHash());assertEquals("USER",updated.getRole());
+    }
+    @Test void passwordChangeRejectsWrongCurrentPasswordAndRevokesEverySession() throws Exception {
+        String username="test_"+UUID.randomUUID().toString().substring(0,12), oldPassword=UUID.randomUUID().toString(), newPassword=UUID.randomUUID().toString();
+        long userId=account(username,oldPassword,"USER");String first=login(username,oldPassword),second=login(username,oldPassword);
+        String originalHash=users.selectById(userId).getPasswordHash();
+        mvc.perform(post("/api/auth/password").contentType("application/json").content("{}"))
+            .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(401));
+        mvc.perform(post("/api/auth/password").header("Authorization","Bearer "+first).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("currentPassword","wrong-"+UUID.randomUUID(),"newPassword",newPassword))))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value(400));
+        assertEquals(originalHash,users.selectById(userId).getPasswordHash());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isOk());
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+second)).andExpect(status().isOk());
+        mvc.perform(post("/api/auth/password").header("Authorization","Bearer "+first).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("currentPassword",oldPassword,"newPassword",newPassword))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data").doesNotExist());
+        assertNotEquals(originalHash,users.selectById(userId).getPasswordHash());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+second)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",oldPassword))))
+            .andExpect(status().isUnauthorized());
+        String replacement=login(username,newPassword);
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+replacement)).andExpect(status().isOk()).andExpect(jsonPath("$.data.id").value(userId));
+    }
+    @Test void concurrentOldPasswordLoginCannotSurvivePasswordChange() throws Exception {
+        String username="test_"+UUID.randomUUID().toString().substring(0,12), oldPassword=UUID.randomUUID().toString(), newPassword=UUID.randomUUID().toString();
+        long userId=account(username,oldPassword,"USER");String changeToken=login(username,oldPassword);
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> oldLogin=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/login").contentType("application/json")
+                .content(json.writeValueAsString(Map.of("username",username,"password",oldPassword)))).andReturn();});
+            Future<MvcResult> passwordChange=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/password")
+                .header("Authorization","Bearer "+changeToken).contentType("application/json")
+                .content(json.writeValueAsString(Map.of("currentPassword",oldPassword,"newPassword",newPassword)))).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            MvcResult loginResult=oldLogin.get(30,TimeUnit.SECONDS),changeResult=passwordChange.get(30,TimeUnit.SECONDS);
+            assertEquals(200,changeResult.getResponse().getStatus());
+            assertTrue(Set.of(200,401).contains(loginResult.getResponse().getStatus()));
+            if(loginResult.getResponse().getStatus()==200) {
+                String racedToken=json.readTree(loginResult.getResponse().getContentAsString()).at("/data/token").asText();
+                mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+racedToken)).andExpect(status().isUnauthorized());
+            }
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+changeToken)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",oldPassword))))
+            .andExpect(status().isUnauthorized());
+        assertFalse(login(username,newPassword).isBlank());
     }
     @Test void recommendationsAreReadOnlyAndFixturesAreRepeatable() throws Exception {
         long items=jdbc.queryForObject("SELECT COUNT(*) FROM cl_item",Long.class),users=jdbc.queryForObject("SELECT COUNT(*) FROM cl_user",Long.class);
