@@ -13,7 +13,14 @@ try { env = localEnv(!['install','build','test','mysql-test','doctor','wechat'].
 if (process.platform === 'darwin' && !process.env.JAVA_HOME) {
   try { env.JAVA_HOME = execFileSync('/usr/libexec/java_home',['-v','17'],{encoding:'utf8'}).trim() } catch {}
 }
-if (env.JAVA_HOME) env.PATH = join(env.JAVA_HOME,'bin') + (win ? ';' : ':') + env.PATH
+if (env.JAVA_HOME) {
+  // A copied Windows environment is an ordinary case-sensitive JS object.
+  // Preserve the runner's `Path` before normalizing it to one PATH entry.
+  const pathKeys = Object.keys(env).filter(key => win ? key.toLowerCase() === 'path' : key === 'PATH')
+  const originalPath = env[pathKeys.at(-1)] || ''
+  for (const key of pathKeys) delete env[key]
+  env.PATH = join(env.JAVA_HOME, 'bin') + (win ? ';' : ':') + originalPath
+}
 async function run(command, args, cwd = root, extra = {}) {
   return new Promise((ok, fail) => {
     const childEnv = command === 'npm' ? frontendEnvironment(env) : env

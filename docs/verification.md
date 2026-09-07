@@ -45,3 +45,5 @@ H5六路由在375px与768px均无横向溢出，详情另行同尺寸验证；�
 2026-09-07 npm audit发现继承的UniApp工具链65项依赖告警（14高、17中、34低，无critical；包含传递/元依赖重复传播，非65个独立漏洞）。保持Vite5.2.8和匹配的DCloud锁定版本以保证本次H5/微信构建兼容；专项升级在路线图中列为外部部署前要求。开发服务只监听回环地址，不对校园网络开放旧开发服务器。未执行会跨版本破坏适配的audit fix --force。管理端可兼容修复的Axios告警已在迁移说明中记录兼容的1.x安全更新（1.13.2→1.20.0，更新后管理端audit为0）。
 
 Windows云端首轮发现cmd.exe对嵌套命令引号处理不同，已改为校验固定安全参数后直接传入命令；原生java/docker仍保持shell:false。Windows CI检出目录包含空格，以验证真实路径处理。Actions版本已按官方当前发布更新至checkout7.0.1、setup-node7.0.0、setup-java6.0.0；实际结果见Actions。
+
+Windows环境的Path在复制成普通JavaScript对象后需要显式按大小写归一化。为JDK添加bin目录时现保留原Path，并移除重复键，避免npm和系统命令从PATH中丢失；由含空格目录的Windows构建继续验收。
