@@ -22,6 +22,8 @@
 
 测试隔离防止环境变量覆盖：即使外部SPRING_DATASOURCE_URL、SPRING_FLYWAY_URL存在，测试也强制使用已校验的H2或明确的本机campus_loop_*test连接。Windows脚本保留原生参数边界，避免带空格路径被shell拆开。
 
+CI 的 `setup-java@v4` 不接受四段 Java 版本。已按 [Temurin 官方发布元数据](https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.20.1%2B1/OpenJDK17U-jdk_x64_linux_hotspot_17.0.20.1_1.tar.gz.json)使用精确 SemVer `17.0.20+101`（对应实际 `17.0.20.1+1`），Linux/Windows 均额外检查运行时版本和 Eclipse Adoptium 厂商；JDK 基线没有降级。修复后云端执行结果以 Actions 为准。
+
 ## 边界与已知提醒
 
 - 匹配上限200件AVAILABLE候选，超过返回422；正式规模化需候选分区。

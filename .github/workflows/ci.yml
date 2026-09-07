@@ -54,8 +54,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.20.1'
+          # Official Adoptium SemVer for runtime 17.0.20.1+1 (patch 1, build 1).
+          java-version: '17.0.20+101'
           cache: maven
+      - name: Verify exact JDK runtime
+        run: node scripts/verify-ci-java.mjs
       - run: ./mvnw -B -ntp verify
         working-directory: sys-project
   mysql-tests:
@@ -66,8 +69,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.20.1'
+          # Official Adoptium SemVer for runtime 17.0.20.1+1 (patch 1, build 1).
+          java-version: '17.0.20+101'
           cache: maven
+      - name: Verify exact JDK runtime
+        run: node scripts/verify-ci-java.mjs
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
@@ -80,8 +86,11 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17.0.20.1'
+          # Official Adoptium SemVer for runtime 17.0.20.1+1 (patch 1, build 1).
+          java-version: '17.0.20+101'
           cache: maven
+      - name: Verify exact JDK runtime
+        run: node scripts/verify-ci-java.mjs
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
