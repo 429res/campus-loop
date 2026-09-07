@@ -4,6 +4,8 @@
 
 当前迭代实现登录、发布、列表、详情、后台记录与匹配推荐；确认、交接、争议和履历审核属于后续迭代，见 [路线图](docs/roadmap.md)。此工程是开发基础，不是完整可上线业务系统。
 
+全员使用 Codex 开发时，共同遵循根 [AGENTS.md](AGENTS.md)；首次接入见 [CONTRIBUTING](CONTRIBUTING.md)，可认领模块与依赖顺序见 [四人模块计划](docs/team-work-plan.md)。
+
 ## 环境与目录
 
 | 工具 | 固定版本 | 用途 |

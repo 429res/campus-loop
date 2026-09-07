@@ -2,6 +2,8 @@
 
 初始迭代只承诺可安装、可运行、可继续开发的三端工程。实际验证结论见 [verification.md](verification.md)，以下已实现项不等于在每个真实平台都验收通过。
 
+以下保留产品范围与实现状态；带任务 ID、主责、依赖及逐项验收的认领清单见 [四人模块计划](team-work-plan.md)。认领后用 GitHub Issue/PR 跟踪进度，合并实际功能时同步更新此处状态，不能把计划当成已完成。
+
 ## 初始化实现范围
 
 - 单仓三端、各自前端 lockfile、Maven Wrapper、独立 MySQL Compose、环境加载和本地账号初始化。
