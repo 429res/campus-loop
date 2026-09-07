@@ -4,7 +4,7 @@
 
 | 原实现 | 本项目处理 | 原因 |
 | --- | --- | --- |
-| Vue 3、Vite 8、Element Plus、Pinia、Router、Axios 及 package-lock.json | 保留原依赖声明与锁定版本；仅改包名及根目录约定的 engines/packageManager | 避免改变已适配的工具链；UniApp 保持独立版本 |
+| Vue 3、Vite 8、Element Plus、Pinia、Router、Axios 及 package-lock.json | 以原依赖声明与锁定版本为起点；改包名及 engines/packageManager，Axios 安全更新见下文 | 避免改变已适配的工具链；UniApp 保持独立版本 |
 | `src/http/index.js` | 保留 Axios 实例、Bearer 请求拦截、超时、401 失效与统一错误提示模式，调整 API 地址/会话键/返回检查 | 新项目同源代理及独立后端，无旧项目端口/缓存键 |
 | 用户 Pinia store | 保留 sessionStorage 会话恢复、刷新用户和清除逻辑；调整为 `id/username/displayName/role` | 当前 ADMIN/USER 契约；细粒度菜单权限后续实现 |
 | `SysDialog.vue` | 迁入具名内容槽、尺寸/加载/禁用、确认与取消事件，重绑语义 token | 保留公共弹窗结构；修复快速切换时滚动锁竞争 |
@@ -20,3 +20,14 @@
 公开环境变量仅包括 `VITE_API_BASE_URL` 和开发代理 `VITE_API_PROXY`。Vite 开发端口 5174，代理 `/api` 与 `/uploads` 至新后端 8088。部署静态构建时由同源网关转发 API/上传，或在构建前显式配置公开 API 地址；`vite preview` 不代表生产 API 网关。
 
 原创占位 SVG 位于 `public/demo/`，与用户端共享相同图形，图形只表达书籍/相机/台灯/自行车，不引用外部链接。
+
+## Axios 最小范围安全更新
+
+2026-09-07 对锁文件执行实际 `npm audit --json`：原先直接依赖 Axios **1.13.2** 被汇总为 1 个 high 依赖告警，涉及浏览器 Cookie 名称正则拒绝服务及配置原型污染等多项公告。核对 [Axios 官方安全公告](https://github.com/axios/axios/security/advisories/GHSA-hfxv-24rg-xrqf) 与 [维护者 1.18.0 安全修复说明](https://github.com/axios/axios/releases/tag/v1.18.0) 后，只执行 `npm update axios --ignore-scripts --no-fund --no-audit`，未使用全量 `npm audit fix`。
+
+- Axios 锁定解析版本：**1.13.2 → 1.20.0**，仍满足原有 `^1.13.2` 的 1.x 兼容范围；未升级框架或构建工具。
+- 仅其依赖树同步变化：`proxy-from-env` 1.1.0 → 2.1.0，新增 `https-proxy-agent` 5.0.1、`agent-base` 6.0.2、`debug` 4.4.3、`ms` 2.1.3。其他已锁定依赖版本未改变。
+- Node 24.20.0、npm 12.0.2、前端工具链与 API 包装器保持不变。
+- 更新后实际重跑管理端生产构建与 npm 安全审计。构建通过；当前审计结果为 **0 vulnerabilities**。构建仍提示 Element Plus 全量主包较大，属于后续按需导入优化项。
+
+安全审计是当日 npm 公告快照，不代表永远不存在新漏洞；团队继续使用已提交锁文件进行 `npm ci`。

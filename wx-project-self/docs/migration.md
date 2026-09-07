@@ -18,3 +18,11 @@
 前端只使用公开配置：`VITE_API_BASE_URL`、`VITE_API_PROXY`、`VITE_MINI_API_BASE_URL`、`VITE_WECHAT_APP_ID`。H5 API 默认走 `/api`、`/uploads` 代理，微信开发工具默认访问 `127.0.0.1:8088`。真实设备请配置可访问的 HTTPS API 和微信合法服务器域名。
 
 原创 SVG 占位素材与管理端共享相同画稿，保存在 `src/static/demo/`。PNG 导航图标为项目自产，无临时外链。
+
+H5 启动统一使用 Vite 的 `127.0.0.1:5175` 默认值。需要并行工作区时用公开环境变量 `VITE_DEV_PORT` 覆盖端口、`VITE_API_PROXY` 覆盖后端地址；不要反复追加 `--port` / `--host` CLI 参数。
+
+## 继承的依赖风险
+
+初始化时对原锁定 UniApp 工具链运行的 `npm audit` 报告 65 项问题，其中 14 项 high。该快照随审计数据库变化，并不表示这些问题都可从已部署页面利用；也不构成可忽略的结论。本次为保持 UniApp 构建兼容性未执行 `npm audit fix --force` 或统一升级 Vite。
+
+正式发布前必须逐项核对依赖链、运行时暴露及修复版本，在独立分支更新到兼容的 UniApp 工具链并重新验证 H5、微信构建和真实流程。未完成这项工作前，本初始化工程仅作为隔离开发基础，不标记为生产发布就绪。

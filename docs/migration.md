@@ -4,7 +4,7 @@
 
 | 参考实现 | 处理 | 原因 |
 | --- | --- | --- |
-| 两前端 package.json + package-lock.json | 以原锁文件为起点保留依赖和构建器，调整包名/脚本 | 管理端 Vite8、UniApp Vite5分别适配 |
+| 两前端 package.json + package-lock.json | 以原锁文件为起点保留构建器，调整包名/脚本；管理端Axios安全更新见子目录记录 | 管理端 Vite8、UniApp Vite5分别适配 |
 | 管理端 Axios、Pinia会话/路由拦截 | 适配新字段、Bearer令牌、角色与错误 | 原认证接口及品牌不同 |
 | SysDialog、UploadImage、Liquid Glass公共样式 | 保留有效模式，重设语义变量、端点与控件覆盖 | 新品牌和统一交互体系 |
 | UniApp http/modal/materials/motion | 适配新API、主题和原生控件策略 | 复用超时、错误、原生桥接与降级 |
