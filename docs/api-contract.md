@@ -11,6 +11,8 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /health | 公开 | 服务状态，不泄露配置 |
 | POST /auth/login | 公开 | `{username,password}` → `{token,user:{id,username,displayName,role}}` |
 | GET /auth/me | 登录 | 用户公开字段；每次服务端验证签名、到期、会话撤销与账号状态 |
+| PATCH /auth/me | 登录 | 仅 `{displayName}` → 从数据库回读的 `{id,username,displayName,role}` |
+| POST /auth/password | 登录 | `{currentPassword,newPassword}`；成功后撤销该账号全部会话，返回 `data: null` |
 | POST /auth/logout | 登录 | 撤销当前会话，前端清本地令牌 |
 | GET /categories | 公开 | `[{id,name}]` |
 | GET /items | 公开 | query `page=1&size=12&keyword=&categoryId=` → 分页 |
@@ -20,6 +22,10 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /admin/items | ADMIN | 与公开列表相同分页字段；可查看管理记录 |
 | GET /admin/stats | ADMIN | `{users,items,availableItems,recommendations}` |
 | GET /matches | 公开 | 2/3循环推荐数组；无副作用 |
+
+本人资料写入只接受 `displayName`，去除首尾空白后长度为1–64字符。用户身份、`id`、`username`、`role`、`status` 和密码哈希均由服务端会话与数据库确定；请求出现未声明字段或试图写入受保护字段返回400，且不产生部分更新。成功结果沿用登录用户公开结构，消费端可直接替换本地用户资料。
+
+修改密码的 `currentPassword` 必填，`newPassword` 为12–64字符且UTF-8编码不超过72字节。旧密码不正确、新密码格式不正确或请求含未声明字段返回400，不修改密码也不撤销会话；未登录或会话已撤销返回401。成功时密码哈希更新与该账号全部会话删除位于同一事务，包含发起请求的当前会话及其他设备会话；消费端收到200后必须立即清除本地令牌、用户缓存并跳转登录页。登录与改密按同一用户行串行化，保证改密提交后不存在通过旧密码取得的有效会话；旧密码登录失败，新密码可重新登录。
 
 分页统一 `{records,total,page,size}`；page从1开始，size1–100；keyword最多100字符；不要由消费端猜测records/list/rows。空结果为records空数组、total0。
 
