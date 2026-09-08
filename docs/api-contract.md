@@ -227,7 +227,7 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
 | POST /exchanges/{id}/handoff | B-04已实现，见下述契约 |
-| GET/POST /items/{id}/history | 事件、来源、发生/记录时间、证据；提交自述不能设置管理员级别 |
+| GET/POST /items/{id}/history | B-05.1已实现，见自述/查询契约；确认/核验未实现 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
 交接已由B-04接入；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
@@ -245,3 +245,15 @@ READY首次交接必须原截止前；任一handedOffAt/receivedAt非空后允�
 `POST /exchanges/{id}/dispute`：严格请求 `{version,reason}`，原因trim后1–1000字，仅READY已开始交接的本人参与者可登记，原截止不阻止登记；转DISPUTED保留owner、需求和占用。原登记者相同原因可用旧但非未来版本重放；裁决与恢复推进未实现。上述成功返回最新ExchangeView；未知字段400，失效身份401、不可用参与者403、非参与者404、状态/版本/引用冲突409。GET仍只读，管理员没有代办权。
 
 ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），participants追加handedOffNote/receivedNote（未声明null，可选说明省略后为空串）。READY未开始且未截止allowedActions=[HANDED_OFF,RECEIVED,CANCEL]；开始后按本人未提交类别返回HANDED_OFF/RECEIVED及DISPUTE；终态空。等待期仍遵循B-03，动作集合与锁内规则共用。两方/三方、错误、精确重放与C/D恢复样例见[B-04](b04-exchange-handoff.md)。
+
+### B-05.1 自述履历、私有证据与查询（已实现）
+
+GET `/items/{id}/history?page=1&size=12`及GET `/items/{id}/history/{eventId}`支持匿名公开基础字段和可选有效认证，page≥1/size1–100、recordedAt/id降序；错误/重复/未知参数400，有无效Authorization则401。公开物品沿用AVAILABLE/RESERVED/EXCHANGED；非公开物品仅当前owner/ADMIN读取全部基础履历，其他作者或该件关联交换交出/接收双方按事件过滤（含total），无权限404。当前owner不自动获得旧私有证据。
+
+POST `/items/{id}/history`严格接收`{eventType,statement,occurredAt,timeUnknown,relatedExchangeId,correctsEventId,evidenceUploadIds}`，七字段必填。eventType仅REPAIR/TRANSFER，声明trim后1–2000字；未知时间须null/true，已知须UTC ISO8601秒精度/false且在可声明持有时间窗口、不晚于数据库UTC（最早1970-01-01T00:00:01Z）。两种关联ID可为null或正整数；证据为0–5个不同私有上传UUID。作者/来源/记录时间/owner等越权字段一律400；只写SELF_REPORTED，不转移物品或修改B-04交换事实。
+
+当前owner自述本人持有期间；曾经owner须relatedExchangeId对应B-04已完成的该物品本人交出记录；未完成交换409、其他人403。修正仅本人SELF_REPORTED追加correctsEventId，继承原关联/时间窗口，禁止覆盖原文；同一节点最多一个直接修正，旧链尾409。旧缺乏授权窗口自述只读。无PUT/PATCH/DELETE覆盖路径，方法不支持返回405；参与者追加确认和管理员核验不在本片。
+
+POST `/uploads/evidence`复用现有图片校验/重编码与本地存储，返回`{uploadId}`；证据存公开目录之外。只允许本人PRIVATE_EVIDENCE引用，旧PUBLIC上传不能转成私有证据，也不能把私有证据作为公开物品图片。GET `/history-evidence/{uploadId}`须登录，仅上传者预览或其已关联事件授权者（作者/该件交换的交出与接收双方/ADMIN）可读，其余404。三方环的另一人不自动授权；ADMIN不预览他人未引用上传。返回image/png、private/no-store、nosniff，无静态私有路径。公开POST /uploads仍返回原{url}且现有图片语义不变。
+
+HistoryView为`id,itemId,eventType,statement,evidenceLevel,authorDisplayName,occurredAt,timeUnknown,recordedAt,correctsEventId,correctedByEventId,confirmedAt,verifiedAt,authorId,relatedExchangeId,evidence,canCorrect`。无私有授权时authorId/relatedExchangeId/evidence均null，不泄露证据数量；有权限时evidence为`[{uploadId,url,mediaType}]`。来源保留SELF_REPORTED/BOTH_CONFIRMED/ADMIN_VERIFIED；本片仅提交前者，B-04仍由原始事务生成中者。JSON读取不缓存，响应按Authorization区分。不同来源、权限矩阵和C/D恢复样例见[B-05.1](b05-self-reported-history.md)。

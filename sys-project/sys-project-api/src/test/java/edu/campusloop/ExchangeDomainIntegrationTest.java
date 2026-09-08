@@ -24,6 +24,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 @AutoConfigureMockMvc(print=MockMvcPrint.NONE)
 @ActiveProfiles(resolver=CampusIntegrationTest.Profile.class)
 class ExchangeDomainIntegrationTest {
+    private static final java.nio.file.Path TEST_UPLOADS=temporaryUploads();
+    private static java.nio.file.Path temporaryUploads() {
+        try{return java.nio.file.Files.createTempDirectory("campus-b05-public-test-");}catch(java.io.IOException e){throw new java.io.UncheckedIOException(e);}
+    }
+    @AfterAll static void removeTestUploadDirectories() throws Exception {
+        java.nio.file.Files.deleteIfExists(TEST_UPLOADS);
+        java.nio.file.Files.deleteIfExists(TEST_UPLOADS.resolveSibling(TEST_UPLOADS.getFileName()+"-evidence"));
+    }
     @DynamicPropertySource static void isolatedDatabase(DynamicPropertyRegistry registry) {
         boolean mysql=Boolean.getBoolean("campus.mysql-test");
         String url=mysql?System.getenv("TEST_DB_URL"):"jdbc:h2:mem:campus_loop_exchange_domain_test;MODE=MySQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1";
@@ -35,6 +43,7 @@ class ExchangeDomainIntegrationTest {
         registry.add("spring.datasource.driver-class-name",()->mysql?"com.mysql.cj.jdbc.Driver":"org.h2.Driver");
         registry.add("spring.flyway.url",()->url);registry.add("spring.flyway.user",()->username);registry.add("spring.flyway.password",()->password);
         registry.add("campus.bootstrap-enabled",()->false);registry.add("campus.registration-mode",()->"DEVELOPMENT_SELF_SERVICE");
+        registry.add("campus.upload-dir",()->TEST_UPLOADS.toString());
         registry.add("campus.jwt-secret",()->UUID.randomUUID().toString()+UUID.randomUUID());
     }
     @Autowired MockMvc mvc;
@@ -52,7 +61,20 @@ class ExchangeDomainIntegrationTest {
         baseline=businessRows();prefix="b03_"+UUID.randomUUID().toString().substring(0,8);
         a=account(false);b=account(false);c=account(false);outsider=account(false);admin=account(true);
     }
-    @AfterEach void removeOnlyOwnFixtures() {
+    @AfterEach void removeOnlyOwnFixtures() throws Exception {
+        List<Long> histories=new ArrayList<>();
+        for(long user:users) histories.addAll(jdbc.queryForList("SELECT id FROM cl_item_history WHERE source_user_id=?",Long.class,user));
+        for(long id:histories.stream().distinct().sorted(Comparator.reverseOrder()).toList()) {
+            jdbc.update("DELETE FROM cl_history_evidence WHERE history_id=?",id);
+            jdbc.update("DELETE FROM cl_item_history WHERE id=?",id);
+        }
+        for(long user:users) {
+            for(String id:jdbc.queryForList("SELECT id FROM cl_upload WHERE owner_id=?",String.class,user)) {
+                java.nio.file.Files.deleteIfExists(TEST_UPLOADS.resolve(id+".png"));
+                java.nio.file.Files.deleteIfExists(TEST_UPLOADS.resolveSibling(TEST_UPLOADS.getFileName()+"-evidence").resolve(id+".png"));
+            }
+            jdbc.update("DELETE FROM cl_upload WHERE owner_id=?",user);
+        }
         for(long user:users) exchanges.addAll(jdbc.queryForList("SELECT id FROM cl_exchange WHERE initiator_id=?",Long.class,user));
         for(long exchange:new LinkedHashSet<>(exchanges)) {
             jdbc.update("DELETE FROM cl_item_history WHERE exchange_id=?",exchange);
@@ -990,9 +1012,143 @@ class ExchangeDomainIntegrationTest {
         assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,fourth));
     }
 
+    @Autowired edu.campusloop.web.history.service.HistoryService histories;
+    private Map<String,Object> statement(String type,String text,Long exchange,Long corrects,List<String> evidence) {
+        Map<String,Object> body=new LinkedHashMap<>();body.put("eventType",type);body.put("statement",text);
+        body.put("occurredAt",null);body.put("timeUnknown",true);body.put("relatedExchangeId",exchange);body.put("correctsEventId",corrects);body.put("evidenceUploadIds",evidence);return body;
+    }
+    private String evidenceUpload(Account actor,boolean privateEvidence) throws Exception {
+        var pixels=new java.awt.image.BufferedImage(2,2,java.awt.image.BufferedImage.TYPE_INT_RGB);
+        var bytes=new java.io.ByteArrayOutputStream();javax.imageio.ImageIO.write(pixels,"png",bytes);
+        var file=new org.springframework.mock.web.MockMultipartFile("file","fictional.png","image/png",bytes.toByteArray());
+        var response=mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart(privateEvidence?"/api/uploads/evidence":"/api/uploads")
+            .file(file).header("Authorization","Bearer "+actor.token())).andReturn().getResponse();
+        assertEquals(200,response.getStatus());var data=json.readTree(response.getContentAsString()).path("data");
+        return privateEvidence?data.path("uploadId").asText():data.path("url").asText().substring(9,data.path("url").asText().length()-4);
+    }
+    private void evidenceRead(String id,Account actor,int status) throws Exception {
+        var req=org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/api/history-evidence/"+id);
+        if(actor!=null) req.header("Authorization","Bearer "+actor.token());
+        var response=mvc.perform(req).andReturn().getResponse();assertEquals(status,response.getStatus());
+        if(status==200) {assertEquals("image/png",response.getContentType());assertTrue(response.getHeader("Cache-Control").contains("no-store"));assertEquals("nosniff",response.getHeader("X-Content-Type-Options"));assertTrue(response.getContentAsByteArray().length>0);}
+    }
+    @Test void selfReportedUnknownAndKnownTimePersistAndPublicProjectionHidesPrivateEvidence() throws Exception {
+        long item=item(a,1);String evidence=evidenceUpload(a,true);evidenceRead(evidence,a,200);evidenceRead(evidence,admin,404);evidenceRead(evidence,null,401);
+        var before=exchangeClock.now();var created=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR"," 更换虚构零件 ",null,null,List.of(evidence)),200);
+        long event=created.path("id").asLong();assertTrue(created.path("timeUnknown").asBoolean());assertTrue(created.path("occurredAt").isNull());
+        assertEquals("SELF_REPORTED",created.path("evidenceLevel").asText());assertEquals(a.id(),created.path("authorId").asLong());
+        var recorded=java.time.Instant.parse(created.path("recordedAt").asText());assertFalse(recorded.isBefore(before.toInstant(java.time.ZoneOffset.UTC)));assertFalse(recorded.isAfter(exchangeClock.now().toInstant(java.time.ZoneOffset.UTC)));
+        assertEquals(created,call("GET","/api/items/"+item+"/history/"+event,a.token(),null,200));
+        var publicView=call("GET","/api/items/"+item+"/history/"+event,null,null,200);
+        assertTrue(publicView.path("evidence").isNull());assertTrue(publicView.path("relatedExchangeId").isNull());assertTrue(publicView.path("authorId").isNull());assertFalse(publicView.toString().contains(evidence));
+        evidenceRead(evidence,b,404);evidenceRead(evidence,admin,200);
+        assertEquals(404,mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get("/uploads/"+evidence+".png")).andReturn().getResponse().getStatus());
+        var known=statement("TRANSFER","平台外流转自述，不变更owner",null,null,List.of());known.put("timeUnknown",false);known.put("occurredAt",before.minusDays(1).toInstant(java.time.ZoneOffset.UTC).toString());
+        var second=call("POST","/api/items/"+item+"/history",a.token(),known,200);
+        assertFalse(second.path("timeUnknown").asBoolean());assertEquals(known.get("occurredAt"),second.path("occurredAt").asText());assertEquals(a.id(),jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,item));
+        var rows=businessRows();var page=call("GET","/api/items/"+item+"/history?page=1&size=1",null,null,200);
+        assertEquals(2,page.path("total").asInt());assertEquals(second.path("id"),page.path("records").get(0).path("id"));
+        assertEquals(event,call("GET","/api/items/"+item+"/history?page=2&size=1",null,null,200).path("records").get(0).path("id").asLong());assertEquals(rows,businessRows());
+    }
+    @Test void selfReportRejectsForgedCredibilityAuthorsInvalidTimesAndForeignOrPublicEvidence() throws Exception {
+        long item=item(a,1);String foreign=evidenceUpload(b,true),publicId=evidenceUpload(a,false);var rows=businessRows();
+        for(String field:List.of("ownerId","authorId","sourceUserId","evidenceLevel","sourceLevel","recordedAt","verifiedByUserId")) {
+            var body=statement("REPAIR","自述",null,null,List.of());body.put(field,"ADMIN_VERIFIED");call("POST","/api/items/"+item+"/history",a.token(),body,400);
+        }
+        for(String id:List.of(foreign,publicId)) call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","自述",null,null,List.of(id)),400);
+        call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","自述",null,null,List.of(foreign,foreign)),400);
+        call("POST","/api/items/"+item+"/history",b.token(),statement("REPAIR","越权",null,null,List.of()),403);
+        call("POST","/api/items/"+item+"/history",admin.token(),statement("REPAIR","管理员不能代自述",null,null,List.of()),403);
+        call("POST","/api/items/"+item+"/history",null,statement("REPAIR","无登录",null,null,List.of()),401);
+        call("POST","/api/items/"+item+"/history",a.token(),statement("EXCHANGED","伪造真实交换",null,null,List.of()),400);
+        var future=statement("REPAIR","未来",null,null,List.of());future.put("timeUnknown",false);future.put("occurredAt",exchangeClock.now().plusSeconds(30).toInstant(java.time.ZoneOffset.UTC).toString());call("POST","/api/items/"+item+"/history",a.token(),future,400);
+        future.put("timeUnknown",true);call("POST","/api/items/"+item+"/history",a.token(),future,400);
+        for(String query:List.of("page=0","size=101","page=1&page=2","ownerId=1")) call("GET","/api/items/"+item+"/history?"+query,null,null,400);
+        call("GET","/api/items/"+item+"/history","invalid-token",null,401);
+        assertEquals(rows,businessRows());
+        var bad=new org.springframework.mock.web.MockMultipartFile("file","fake.svg","image/svg+xml","not an image".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals(400,mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart("/api/uploads/evidence").file(bad).header("Authorization","Bearer "+a.token())).andReturn().getResponse().getStatus());
+        assertEquals(rows,businessRows());
+    }
+    @Test void correctionsAppendKeepOriginalAndOnlyOriginalAuthorMayExtendSingleChain() throws Exception {
+        long item=item(a,1);String evidence=evidenceUpload(a,true);
+        long original=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","原始声明",null,null,List.of(evidence)),200).path("id").asLong();
+        var old=jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",original);
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_item_history(item_id,event_type,description,source_user_id,corrects_event_id) VALUES (?,'REPAIR','非法他人引用',?,?)",item,b.id(),original));
+        long correction=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","更正说明，保留原文",null,original,List.of(evidence)),200).path("id").asLong();
+        assertEquals(old,jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",original));
+        var originalView=call("GET","/api/items/"+item+"/history/"+original,a.token(),null,200);assertEquals("原始声明",originalView.path("statement").asText());assertEquals(correction,originalView.path("correctedByEventId").asLong());assertFalse(originalView.path("canCorrect").asBoolean());
+        var rows=businessRows();call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","分叉",null,original,List.of()),409);
+        call("POST","/api/items/"+item+"/history",b.token(),statement("REPAIR","他人更正",null,correction,List.of()),403);
+        call("POST","/api/items/"+item+"/history",admin.token(),statement("REPAIR","管理员不能覆盖",null,correction,List.of()),403);
+        for(String method:List.of("PUT","PATCH","DELETE")) {
+            var response=mvc.perform(request(HttpMethod.valueOf(method),"/api/items/"+item+"/history/"+original).header("Authorization","Bearer "+a.token()).contentType("application/json").content("{}")).andReturn().getResponse();assertEquals(405,response.getStatus());
+        }
+        assertEquals(rows,businessRows());
+        long next=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","再次修正",null,correction,List.of()),200).path("id").asLong();assertTrue(next>correction);
+    }
+    @Test void realB04TransfersProveFormerOwnershipAndEvidenceIsLimitedToExactItemPair() throws Exception {
+        long exchange=ready(3,"history-transfer");long item=jdbc.queryForObject("SELECT offered_item_id FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",Long.class,exchange,a.id());
+        String oldEvidence=evidenceUpload(a,true);long oldEvent=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","交出前自述",null,null,List.of(oldEvidence)),200).path("id").asLong();
+        call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","未完成交换不能证明",exchange,null,List.of()),409);
+        int version=almostComplete(exchange,3);lifecycle.handoff(c.id(),exchange,version,RECEIVED,"已收到");
+        var actual=jdbc.queryForMap("SELECT * FROM cl_item_history WHERE item_id=? AND event_type='EXCHANGED'",item);long fact=((Number)actual.get("id")).longValue();
+        assertEquals("BOTH_CONFIRMED",call("GET","/api/items/"+item+"/history/"+fact,null,null,200).path("evidenceLevel").asText());
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_item_history(item_id,event_type,description,source_user_id,corrects_event_id) VALUES (?,'REPAIR','禁止改写真实来源',?,?)",item,a.id(),fact));
+        String evidence=evidenceUpload(a,true);long former=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","曾经持有期间的自述",exchange,null,List.of(evidence)),200).path("id").asLong();
+        evidenceRead(evidence,a,200);evidenceRead(evidence,b,200);evidenceRead(evidence,c,404);evidenceRead(evidence,admin,200);
+        evidenceRead(oldEvidence,b,404);assertTrue(call("GET","/api/items/"+item+"/history/"+oldEvent,b.token(),null,200).path("evidence").isNull());
+        var publicView=call("GET","/api/items/"+item+"/history/"+former,c.token(),null,200);assertTrue(publicView.path("relatedExchangeId").isNull());assertTrue(publicView.path("evidence").isNull());
+        call("POST","/api/items/"+item+"/history",c.token(),statement("REPAIR","第三人",exchange,null,List.of()),403);
+        call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","无持有证明",null,null,List.of()),403);
+        var early=statement("REPAIR","接收前不属本人",null,null,List.of());early.put("timeUnknown",false);early.put("occurredAt",jdbc.queryForObject("SELECT occurred_at FROM cl_item_history WHERE id=?",java.time.LocalDateTime.class,fact).minusSeconds(1).toInstant(java.time.ZoneOffset.UTC).toString());call("POST","/api/items/"+item+"/history",b.token(),early,400);
+        for(var actor:List.of(a,b,admin)) call("POST","/api/items/"+item+"/history",actor.token(),statement("REPAIR","不能改B04事实",exchange,fact,List.of()),403);
+        assertEquals(actual,jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",fact));
+        call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","转手后仍可修正原声明",null,oldEvent,List.of(oldEvidence)),200);
+        long privateOwnerEvent=call("POST","/api/items/"+item+"/history",b.token(),statement("REPAIR","新所有者独立自述",null,null,List.of()),200).path("id").asLong();
+        jdbc.update("UPDATE cl_item SET status='HIDDEN' WHERE id=?",item);
+        call("GET","/api/items/"+item+"/history/"+privateOwnerEvent,a.token(),null,404);
+        var formerPage=call("GET","/api/items/"+item+"/history",a.token(),null,200);
+        assertTrue(formerPage.path("records").findValues("id").stream().noneMatch(value->value.asLong()==privateOwnerEvent));
+        assertEquals(formerPage.path("total").asInt()+1,call("GET","/api/items/"+item+"/history",admin.token(),null,200).path("total").asInt());
+        call("GET","/api/items/"+item+"/history",null,null,404);call("GET","/api/items/"+item+"/history",c.token(),null,404);
+        assertTrue(call("GET","/api/items/"+item+"/history",a.token(),null,200).path("total").asInt()>0);
+        assertTrue(call("GET","/api/items/"+item+"/history",admin.token(),null,200).path("total").asInt()>0);
+    }
+    @Test void historyEvidenceConstraintFailuresRollBackAppendAndReferencesTogether() throws Exception {
+        long exchange=ready(2,"history-rollback");long item=item(a,1);String evidence=evidenceUpload(a,true);
+        for(String phase:List.of("append","evidence")) {
+            var rows=businessRows();var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(statement->{if(statement.endsWith("HistoryMapper."+phase) && once.compareAndSet(false,true)) jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",exchange);});
+            try {rejected(409,()->histories.create(a.id(),item,json.convertValue(statement("REPAIR","完整回滚",null,null,List.of(evidence)),edu.campusloop.web.history.dto.HistoryRequest.class)));} finally {SqlProbe.after.remove();}
+            assertTrue(once.get());assertEquals(rows,businessRows());
+        }
+        long event=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","恢复后保存",null,null,List.of(evidence)),200).path("id").asLong();
+        var rows=businessRows();assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("DELETE FROM cl_upload WHERE id=?",evidence));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_history_evidence(history_id,upload_id) VALUES (?,?)",event,evidence));assertEquals(rows,businessRows());
+    }
+    @Test void mysqlConcurrentCorrectionsSerializeAndCannotForkOrOverwriteHistory() throws Exception {
+        mysqlOnly();long item=item(a,1);
+        long original=call("POST","/api/items/"+item+"/history",a.token(),statement("REPAIR","原文",null,null,List.of()),200).path("id").asLong();
+        var cmd=json.convertValue(statement("REPAIR","修正",null,original,List.of()),edu.campusloop.web.history.dto.HistoryRequest.class);
+        var result=race(()->histories.create(a.id(),item,cmd),()->histories.create(a.id(),item,cmd),"HistoryMapper.append","UserMapper.selectByIdForUpdate");
+        assertTrue(result.get(0)>0);assertEquals(-409L,result.get(1));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE corrects_event_id=?",Integer.class,original));
+        assertEquals("原文",jdbc.queryForObject("SELECT description FROM cl_item_history WHERE id=?",String.class,original));
+        var rows=businessRows();assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_item_history(item_id,event_type,description,source_user_id,corrects_event_id) VALUES (?,'REPAIR','非法分叉',?,?)",item,a.id(),original));assertEquals(rows,businessRows());
+    }
+    @Test void mysqlFinalTransferAndSelfReportUseCompatibleLocksAndRecheckOwnership() throws Exception {
+        mysqlOnly();long exchange=ready(2,"history-owner-race");int version=almostComplete(exchange,2);
+        long item=jdbc.queryForObject("SELECT offered_item_id FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",Long.class,exchange,a.id());
+        var cmd=json.convertValue(statement("REPAIR","并发自述",null,null,List.of()),edu.campusloop.web.history.dto.HistoryRequest.class);
+        assertEquals(List.of(exchange,-403L),race(()->lifecycle.handoff(b.id(),exchange,version,RECEIVED,"已收到"),()->histories.create(a.id(),item,cmd),"ExchangeLifecycleMapper.transition","UserMapper.selectByIdForUpdate"));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE item_id=? AND evidence_level='SELF_REPORTED'",Integer.class,item));
+    }
+
     private Map<String,List<Map<String,Object>>> businessRows() {
         Map<String,List<Map<String,Object>>> values=new LinkedHashMap<>();
-        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event","cl_item_history")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
+        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event","cl_item_history","cl_upload")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
+        values.put("cl_history_evidence",jdbc.queryForList("SELECT * FROM cl_history_evidence ORDER BY history_id,upload_id"));
         values.put("cl_exchange_demand",jdbc.queryForList("SELECT * FROM cl_exchange_demand ORDER BY exchange_id,demand_id"));
         values.put("cl_demand_item",jdbc.queryForList("SELECT * FROM cl_demand_item ORDER BY demand_id,item_id"));
         values.put("cl_item_hold",jdbc.queryForList("SELECT * FROM cl_item_hold ORDER BY item_id"));return values;

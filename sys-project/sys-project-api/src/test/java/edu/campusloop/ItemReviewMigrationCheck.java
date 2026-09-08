@@ -65,7 +65,7 @@ class ItemReviewMigrationCheck {
         var beforeParticipants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
         var beforeHandoff=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
         var beforeEvents=jdbc.queryForList("SELECT * FROM cl_exchange_event ORDER BY id");
-        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        Flyway.configure().dataSource(dataSource).target("11").cleanDisabled(true).load().migrate();
         var afterHandoff=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
         for(int i=0;i<afterHandoff.size();i++) {
             for(String column:List.of("disputed_by","dispute_reason","disputed_at")) assertNull(afterHandoff.get(i).remove(column));
@@ -77,6 +77,19 @@ class ItemReviewMigrationCheck {
             assertNull(afterParticipants.get(i).remove("handed_off_note"));assertNull(afterParticipants.get(i).remove("received_note"));
             assertEquals(beforeParticipants.get(i),afterParticipants.get(i),"V11 does not manufacture or reinterpret existing handover facts");
         }
+        jdbc.update("INSERT INTO cl_item_history(item_id,exchange_id,event_type,description,evidence_level,source_user_id,occurred_at,recorded_at) VALUES (92002,93001,'EXCHANGED','明确标记的旧迁移夹具','BOTH_CONFIRMED',91001,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO cl_upload(id,owner_id,url) VALUES ('11111111-1111-1111-1111-111111111111',91001,'/uploads/11111111-1111-1111-1111-111111111111.png')");
+        var beforeHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
+        var beforeUploads=jdbc.queryForList("SELECT * FROM cl_upload ORDER BY id");
+        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        var afterHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
+        for(int i=0;i<afterHistory.size();i++) {
+            for(String field:List.of("corrects_event_id","ownership_started_at","ownership_ended_at")) assertNull(afterHistory.get(i).remove(field));
+            assertEquals(beforeHistory.get(i),afterHistory.get(i),"V12 preserves source, authors, occurrence and record timestamps");
+        }
+        var afterUploads=jdbc.queryForList("SELECT * FROM cl_upload ORDER BY id");
+        for(int i=0;i<afterUploads.size();i++) {assertEquals("PUBLIC",afterUploads.get(i).remove("visibility"));assertEquals(beforeUploads.get(i),afterUploads.get(i));}
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_evidence",Integer.class));
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

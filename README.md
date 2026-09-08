@@ -2,7 +2,7 @@
 
 《基于需求匹配与多方置换的校园闲置物品循环管理系统》四人协作初始工程。一个仓库包含 Vue 管理端、UniApp 用户端及 Spring Boot 后端。以物品和需求为有向关系，解释双方和三方循环交换；推荐不会占用物品。
 
-当前迭代实现登录、发布、本人列表、详情、后台记录、物品审核与匹配推荐；确认、交接、争议和履历审核属于后续迭代，见 [路线图](docs/roadmap.md)。此工程是开发基础，不是完整可上线业务系统。
+当前迭代实现登录、发布、本人列表、详情、后台记录、物品审核、匹配推荐及交换生命周期；本片补充履历自述、私有图片证据和查询。履历追加确认、管理员核验与争议裁决仍属后续，见 [路线图](docs/roadmap.md)。此工程是开发基础，不是完整可上线业务系统。
 
 全员使用 Codex 开发时，共同遵循根 [AGENTS.md](AGENTS.md)；首次接入见 [CONTRIBUTING](CONTRIBUTING.md)，可认领模块与依赖顺序见 [四人模块计划](docs/team-work-plan.md)。
 
@@ -76,7 +76,7 @@ node scripts/run.mjs h5
 
 `DB_HOST/PORT/NAME/USERNAME/PASSWORD`、`JWT_SECRET`、`SERVER_PORT`、`UPLOAD_DIR` 可设置。初始化才使用 `CAMPUS_BOOTSTRAP_ENABLED` 和本地账号变量；平时的 `backend` 命令强制关闭 bootstrap。注册默认使用 `CAMPUS_REGISTRATION_MODE=CLOSED`；仅本地开发联调可显式改为 `DEVELOPMENT_SELF_SERVICE`，这不代表校园身份已核验，公开部署前必须重新确定准入。前端 `.env.example` 只含公开 API 地址、代理地址及微信 AppID；不要把任何口令放进 `VITE_*`。
 
-如需调整 API 端口，两前端对应 `.env.local` 的 `VITE_API_PROXY` 也要同步。部署 H5 默认用同域 `/api` 和 `/uploads`，配置反向代理；跨域场景设置允许来源和 `VITE_API_BASE_URL`。上传默认落在 `.local/uploads`，OSS 尚未接入，不能填凭据就假定支持。
+如需调整 API 端口，两前端对应 `.env.local` 的 `VITE_API_PROXY` 也要同步。部署 H5 默认用同域 `/api` 和 `/uploads`，配置反向代理；跨域场景设置允许来源和 `VITE_API_BASE_URL`。公开图片默认落在 `.local/uploads`；B-05私有证据放在同级 `.local/uploads-evidence`（随UPLOAD_DIR目录名派生），仅鉴权接口可读，不应将该目录配置为静态目录。备份需同时保留两目录及数据库。OSS 尚未接入，不能填凭据就假定支持。
 
 ## 使用已有本地 MySQL
 
