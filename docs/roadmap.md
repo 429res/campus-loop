@@ -34,9 +34,9 @@ B-02 独立需求匹配、requiredTags/最低成色硬条件、正式交换和 D
 
 ### A-01 分批状态
 
-- 第一批“本人资料与修改密码”已通过 PR #2 合入；字段、错误和成员D接入说明见 [a01-profile-password.md](a01-profile-password.md)。
+- 第一批“本人资料与修改密码”已通过 PR #2 合入；用户端接入状态见 [D-01 切片记录](d01-profile-password-status.md)，字段、错误和会话规则见 [a01-profile-password.md](a01-profile-password.md)。
 - 第二批“管理员查询与账号启停”已通过 PR #6 合入；成员 C 接入说明见 [a01-admin-user-status.md](a01-admin-user-status.md)。
-- 第三批“注册准入和注册接口”已在功能分支实现，采用默认关闭、仅显式开启的开发自助注册，待审核、CI及合入；字段、错误和成员D接入说明见 [a01-registration-admission.md](a01-registration-admission.md)。
+- 第三批“注册准入和注册接口”已通过 PR #8 合入，采用默认关闭、仅显式开启的开发自助注册；字段、错误和成员D接入说明见 [a01-registration-admission.md](a01-registration-admission.md)。
 - A-01 的更多个人资料、细粒度权限、完整账号审计及真实校园准入仍未完成；本切片完成不代表整个A-01完成。
 
 ## 后续业务
