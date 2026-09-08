@@ -31,6 +31,7 @@ const links = [
   { path: "/users", label: "账号管理", icon: User },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/disputes", label: "交换争议", icon: Warning },
+  { path: "/reports", label: "举报队列", icon: Warning },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
 ];
