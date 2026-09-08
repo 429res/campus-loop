@@ -301,3 +301,7 @@ HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保�
 ### B-05.3 管理员单事件核验（已实现）
 
 管理队列、详情、决定、版本与幂等字段、证据门槛及利益冲突规则见[B-05.3](b05-admin-verification.md)。HistoryView增加verification；通过时仅本事件evidenceLevel显示ADMIN_VERIFIED，原recordedEvidenceLevel/confirmation保留。私有理由/快照仅ADMIN；普通时间线不返回核验人ID或证据摘要。
+
+### B-06 性能切片兼容
+
+分类建边索引仅改变independent-v2的内部边构建；字段、结果顺序、理由与全部422上限不变，没有候选分页或部分推荐成功。正式创建仍实时事务重校验。见[B-06基准与边界](b06-matching-benchmark.md)。
