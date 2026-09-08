@@ -17,16 +17,24 @@ flowchart LR
 
 H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL。前端不读取数据库或 JWT 密钥。业务服务不依赖外部 AI。JWT 会话到期和退出由服务器验证，角色来源于数据库，不能相信客户端传入的 role。
 
+本人资料更新只对登录用户的 `display_name` 做定向更新并从数据库回读，不能用客户端 DTO 或请求前读取的完整用户对象覆盖 `id/username/role/status/password_hash`。修改密码先校验当前密码，再在一个事务内更新 BCrypt 哈希并删除该用户全部会话；当前请求成功后也必须重新登录。登录和改密都以同一用户行为锁边界：旧密码登录若先完成，其新会话会被随后改密删除；改密若先完成，后续旧密码校验失败。这样避免“删除会话后并发旧登录又插入有效会话”的竞态。
+
+管理员启停账号也复用用户行锁，并用 `cl_user.version` 条件更新避免两名管理员静默覆盖。所有启停写操作先按用户 id 顺序锁定管理员账号，重新确认操作者仍为可用管理员，再锁定目标账号；这既串行化“两个管理员互相停用”的管理入口竞态，也与只锁单一账号的登录形成一致顺序。当前管理员不得停用自己，最后一个可用管理员不得停用。停用状态、全会话删除和不含敏感认证材料的审计同事务提交；启用不恢复已删除会话。
+
+注册采用默认关闭的准入模式。只有显式启用 `DEVELOPMENT_SELF_SERVICE` 时，服务端才在事务中将经过校验的公共字段写成唯一用户名、BCrypt 哈希及固定 `USER/ACTIVE`；客户端不能提供角色、状态、密码哈希或其他用户字段。数据库用户名唯一约束是并发最终防线，冲突整笔回滚为409。成功注册不创建会话，仍通过现有登录流程验证账号状态并建立数据库会话。此开发模式不证明校园身份；校园身份提供方、邀请码或公开准入在获得团队决策与授权配置前保持未实现。
+
 ## 数据模型
 
 | 实体 | 当前/后续 | 字段与约束 |
 | --- | --- | --- |
-| 用户 | 当前 | id、唯一 username、密码哈希、displayName、ADMIN/USER、status ACTIVE/DISABLED |
+| 用户 | 当前 | id、唯一 username、密码哈希、displayName、ADMIN/USER、status ACTIVE/DISABLED、version |
+| 账号状态审计 | 当前 | target、operator、前后状态、理由、前后版本、记录时间；不保存口令或令牌 |
 | 登录会话 | 当前 | token id、用户、到期；注销删除当前会话行，验证签名后检查有效会话 |
 | 分类 | 当前 | id、name；物品与需求引用有效分类 |
 | 物品 | 当前 | owner、title、description、category、condition 1–5、tags、imageUrl、AVAILABLE 等状态、version、时间 |
 | 物品附带需求 | 当前最小实现 | wantedCategoryId、wantedTags；每件物品一条需求，构成“我有/我想要”的可运行样例 |
-| 独立需求清单 | 后续 A/B/D | demand id、owner、category、requiredTags、preferredTags、最低成色、status、version；允许暂时没有可提供物品 |
+| 独立需求清单 | B-01 分支已实现 | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
+| 需求候选关联 | B-01 分支已实现 | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
 | 交换及参与者 | 预留模型/后续实现 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | 后续 B | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
@@ -34,6 +42,16 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 收藏 | 后续 C/D | unique(user,item)，幂等添加/删除 |
 
 实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。当前初始化直接发布为 AVAILABLE，管理员可查看记录；审核状态机接入后新增物品转为 PENDING_REVIEW，迁移与两端需同步发布。
+
+## B-01 独立需求边界
+
+独立需求和物品附带需求按入口分离：新 CRUD 只写 cl_demand/cl_demand_item，旧发布与推荐只读写 cl_item 的 wanted 字段。不迁移、不双写、不自动清空旧 wanted 字段。停用独立需求不改变旧演示推荐；本轮没有把独立需求接入算法。
+
+需求创建默认 ACTIVE，允许空候选集合。编辑、状态切换和逻辑删除锁定需求行并核对 version，更新成功 version+1；替换候选在同一事务内按 item id 升序锁定现有物品，复核归属、AVAILABLE 和无占用。候选可被本人多条需求共享，基数不代表未来交换允许复用物品。读取实时展示 offerable；物品状态、占用或归属变化不会自动改写需求，后续匹配与创建必须重新校验。
+
+INACTIVE 可查可编辑，可切换 ACTIVE（恢复前重校验关联）。DELETED 是接口不可恢复的墓碑，保留内容、原关联和 ID 供历史引用，普通查询/写入返回404；不提供物理删除操作。关联外键采用 RESTRICT，后续持久引用也必须保留非级联外键，不能级联删除历史需求。正式交换引用下的编辑/停用限制需在 B-03 与 A 共同确定，本轮不建立交换引用。
+
+需求结构使用 V4，接在 main 的 V3 用户状态管理迁移之后，不改写 V1–V3。A/D 的候选基数复核仍待团队确认。B-02 再确认新旧需求的切换、每条流向选择哪条需求、requiredTags/最低成色是否为硬条件及规则版本，B-01 不开放这些未定字段。详见 [B-01 接入说明](b01-independent-demands.md)。
 
 ## 可解释的匹配
 

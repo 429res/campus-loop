@@ -4,6 +4,8 @@
 
 当前迭代实现登录、发布、列表、详情、后台记录与匹配推荐；确认、交接、争议和履历审核属于后续迭代，见 [路线图](docs/roadmap.md)。此工程是开发基础，不是完整可上线业务系统。
 
+全员使用 Codex 开发时，共同遵循根 [AGENTS.md](AGENTS.md)；首次接入见 [CONTRIBUTING](CONTRIBUTING.md)，可认领模块与依赖顺序见 [四人模块计划](docs/team-work-plan.md)。
+
 ## 环境与目录
 
 | 工具 | 固定版本 | 用途 |
@@ -72,7 +74,7 @@ node scripts/run.mjs h5
 
 根目录 `.env.example` 是字段说明，不是运行凭据。`scripts/env.mjs` 使用 Node 原生 `parseEnv` 读取根 `.env` 并传给子进程；现有系统环境变量优先，脚本将 `UPLOAD_DIR` 解析为仓库内绝对路径。Spring Boot `application.yml` 引用这些环境变量。直接在 IDE 启动 Java 时，要给运行配置设置同样的环境变量；Spring Boot 不会自动读取根 `.env`。
 
-`DB_HOST/PORT/NAME/USERNAME/PASSWORD`、`JWT_SECRET`、`SERVER_PORT`、`UPLOAD_DIR` 可设置。初始化才使用 `CAMPUS_BOOTSTRAP_ENABLED` 和本地账号变量；平时的 `backend` 命令强制关闭 bootstrap。前端 `.env.example` 只含公开 API 地址、代理地址及微信 AppID；不要把任何口令放进 `VITE_*`。
+`DB_HOST/PORT/NAME/USERNAME/PASSWORD`、`JWT_SECRET`、`SERVER_PORT`、`UPLOAD_DIR` 可设置。初始化才使用 `CAMPUS_BOOTSTRAP_ENABLED` 和本地账号变量；平时的 `backend` 命令强制关闭 bootstrap。注册默认使用 `CAMPUS_REGISTRATION_MODE=CLOSED`；仅本地开发联调可显式改为 `DEVELOPMENT_SELF_SERVICE`，这不代表校园身份已核验，公开部署前必须重新确定准入。前端 `.env.example` 只含公开 API 地址、代理地址及微信 AppID；不要把任何口令放进 `VITE_*`。
 
 如需调整 API 端口，两前端对应 `.env.local` 的 `VITE_API_PROXY` 也要同步。部署 H5 默认用同域 `/api` 和 `/uploads`，配置反向代理；跨域场景设置允许来源和 `VITE_API_BASE_URL`。上传默认落在 `.local/uploads`，OSS 尚未接入，不能填凭据就假定支持。
 

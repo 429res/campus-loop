@@ -1,11 +1,11 @@
 {
   "pages": [
-    { "path": "pages/home/home", "style": { "navigationBarTitleText": "Campus Loop" } },
+    { "path": "pages/home/home", "style": { "navigationBarTitleText": "Campus Loop", "enablePullDownRefresh": true } },
     { "path": "pages/matches/matches", "style": { "navigationBarTitleText": "交换灵感" } },
     { "path": "pages/publish/publish", "style": { "navigationBarTitleText": "发布闲置" } },
     { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的循环" } },
     { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
-    { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情" } },
+    { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情", "enablePullDownRefresh": true } },
     { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
   ],
   "globalStyle": { "navigationBarTextStyle": "black", "navigationBarTitleText": "Campus Loop", "navigationBarBackgroundColor": "#ffffff", "backgroundColor": "#f4f6fa" },

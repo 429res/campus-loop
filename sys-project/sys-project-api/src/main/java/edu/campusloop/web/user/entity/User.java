@@ -12,5 +12,6 @@ public class User {
     private String displayName;
     private String role;
     private String status;
+    private Integer version;
     private java.time.LocalDateTime createdAt;
 }
