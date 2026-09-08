@@ -20,6 +20,9 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /items/{id} | 公开 | 可见物品详情 |
 | POST /items | 登录 | 发布输入 → 持久化后的物品详情 |
 | POST /uploads | 登录 | multipart字段`file`，返回`{url}` |
+| PUT /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:true}`；目标须公开可见，重复幂等 |
+| DELETE /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:false}`；重复取消、目标不可见/不存在也稳定成功 |
+| GET /favorites | 登录 | query `page=1&size=12` → 当前会话本人收藏分页，含不可见占位记录 |
 | GET /admin/items | ADMIN | 与公开列表相同分页字段；可查看管理记录 |
 | GET /admin/users | ADMIN | query `page=1&size=12&keyword=&role=&status=` → 账号安全字段分页 |
 | PATCH /admin/users/{id}/status | ADMIN | 仅 `{status,version,reason}` → 数据库回读的账号安全字段；条件更新并审计 |
@@ -52,6 +55,18 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
 管理概览统计：推荐规模正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无推荐为0）。仅候选或推荐规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示“— / 推荐规模超限，暂不统计”，不得显示为0。其他接口或数据库错误仍按正常错误链路处理。
+
+## A-02 第二批：收藏与 D-02 消费契约
+
+三个收藏接口只操作服务端会话对应的 user_id；管理员也只能访问本人收藏，没有按用户ID查询、他人收藏列表或收藏者计数接口。写接口不接受查询参数，只允许无 body 或空 JSON 对象 `{}`；携带 userId/ownerId/itemId/status 等任意请求字段或查询参数400。路径 id 须为正整数；未登录/会话失效401，非法ID或分页400。GET 仅接受 page、size 各一次（默认1/12，page≥1、size1–100），其他/重复查询参数400。
+
+添加只允许当前公开详情可见的 `AVAILABLE/RESERVED/EXCHANGED`，可收藏本人公开物品；收藏不是可交换承诺，不检查/建立占用。不存在、`DRAFT/PENDING_REVIEW/HIDDEN` 等非公开目标统一404，即使是自己的非公开物品或此前已经收藏也一样。重复添加成功200且保留原关系、收藏时间和排序位置；并发添加只留下一个 `(user_id,item_id)` 关系。取消只删除当前会话的关系，不受物品可见性限制；不存在、未收藏、已取消均返回200及 `{itemId,favorited:false}`，不披露目标是否存在，不删除物品/历史/上传。再次添加会创建新的收藏时间与排序位置。
+
+列表 data 沿用 `{records,total,page,size}`，record 为 `{itemId,favoritedAt,itemVisible,item}`：`favoritedAt` 为UTC ISO8601；`itemVisible=true` 时 item 为当前公开 `ItemView`，与 GET /items/{id} 一致；目标不可见时 `itemVisible=false,item=null`，不返回其标题、图片、状态、归属或其他非公开字段。占位仅保留本人此前收藏的 itemId 和收藏时间，D 显示“物品暂不可见”，允许取消且不打开详情。即使当前会话恰好拥有该物品，也不扩大收藏里的公开可见性。itemVisible 不能用于判断可交换性，RESERVED/EXCHANGED 仍是公开可见。
+
+total 为当前用户全部收藏关系数，包含不可见占位；先按关系在数据库分页，再在同一只读快照读取物品可见内容，不因过滤造成短页/错误计数。按收藏 created_at/id 降序，时间相同用关系ID稳定排序；无收藏时 records=[]、total=0，超出末页 records=[]、total仍为全部关系数。物品下架不会自动删除关系或保留旧内容快照；将来目标再次公开可见，列表自然恢复当前内容（不代表本批提供重新上架功能）。
+
+新增 Flyway V5 建立 cl_favorite，unique(user_id,item_id)、用户/物品非级联外键及分页索引，V1–V4不改。添加/取消都先锁目标物品再处理关系，与物品状态变更串行；列表不加物品写锁。接口响应是本次操作完成时的结果，随后另一个会话仍可改变该用户收藏，D 在失败/响应不确定时应回读，不用本地数组代替持久化。D-02 的接口、空值、幂等与错误说明见 [a02-favorites.md](a02-favorites.md)，已在 [Issue #17](https://github.com/429res/campus-loop/issues/17) 同步，页面接入/消费确认尚未完成。
 
 ## B-01 独立需求与本人物品关联
 
@@ -108,7 +123,6 @@ B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
-| PUT/DELETE /items/{id}/favorite | 当前用户幂等收藏，unique(user,item) |
 | POST/PATCH/DELETE /admin/categories（路径待 A 确认） | C-01 最小依赖草案，尚未实现：仅 ADMIN；名称 trim 后 1–64 字符且唯一；PATCH/DELETE 必须携带服务端版本，过期版本返回409；被物品 `categoryId` 或 `wantedCategoryId` 引用时禁止级联删除并返回409。排序与可用状态尚无契约，本轮前端不提供对应写控件。 |
 | POST /exchanges | 物品有序列表、规则版本、idempotencyKey；事务重校验、锁定、唯一占用；冲突409 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
