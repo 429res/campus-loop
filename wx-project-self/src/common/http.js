@@ -23,32 +23,50 @@ const unpack = (response, token, options = {}) => {
   error.uncertain = options.uncertainOnFailure === true && [408, 502, 503, 504].includes(response.statusCode)
   throw error
 }
-const request = (method, url, data = {}, options = {}) => new Promise((resolve, reject) => {
+const abortedError = () => Object.assign(new Error('请求已取消'), { code: 'ABORTED' })
+const request = (method, url, data = {}, options = {}) => {
   const token = uni.getStorageSync(TOKEN_KEY)
-  uni.request({
-    url: `${baseUrl}${url}`, method, data, timeout: 15000,
-    header: { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    success(response) { try { resolve(unpack(response, token, options)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
-    fail(result) {
-      const uncertain = options.uncertainOnFailure === true
-      const timeout = /timeout/i.test(result?.errMsg || '')
-      const error = new Error(uncertain ? '未收到服务器响应，操作结果无法确认' : timeout ? '请求超时，请稍后重试' : '无法连接服务器，请检查后端服务')
-      error.code = timeout ? 'TIMEOUT' : 'NETWORK_ERROR'
-      error.uncertain = uncertain
-      if (!options.silent) showError(error.message)
-      reject(error)
-    },
+  let task
+  const promise = new Promise((resolve, reject) => {
+    task = uni.request({
+      url: `${baseUrl}${url}`, method, data, timeout: options.timeout || 15000,
+      header: { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      success(response) { try { resolve(unpack(response, token, options)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
+      fail(result) {
+        const aborted = /abort/i.test(result?.errMsg || '')
+        const uncertain = !aborted && options.uncertainOnFailure === true
+        const timeout = /timeout/i.test(result?.errMsg || '')
+        const error = aborted ? abortedError() : new Error(uncertain ? '未收到服务器响应，操作结果无法确认' : timeout ? '请求超时，请稍后重试' : '无法连接服务器，请检查后端服务')
+        if (!aborted) error.code = timeout ? 'TIMEOUT' : 'NETWORK_ERROR'
+        error.uncertain = uncertain
+        if (!aborted && !options.silent) showError(error.message)
+        reject(error)
+      },
+    })
   })
-})
-const upload = filePath => new Promise((resolve, reject) => {
+  promise.abort = () => task?.abort()
+  return promise
+}
+const upload = (filePath, options = {}) => {
   const token = uni.getStorageSync(TOKEN_KEY)
-  uni.uploadFile({
-    url: `${baseUrl}/api/uploads`, filePath, name: 'file', timeout: 30000,
-    header: token ? { Authorization: `Bearer ${token}` } : {},
-    success(response) { try { resolve(unpack(response, token)) } catch (error) { showError(error.message); reject(error) } },
-    fail() { const error = new Error('图片上传失败，请重试'); showError(error.message); reject(error) },
+  let task
+  const promise = new Promise((resolve, reject) => {
+    task = uni.uploadFile({
+      url: `${baseUrl}/api/uploads`, filePath, name: 'file', timeout: 30000,
+      header: token ? { Authorization: `Bearer ${token}` } : {},
+      success(response) { try { resolve(unpack(response, token)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
+      fail(result) {
+        const aborted = /abort/i.test(result?.errMsg || '')
+        const error = aborted ? abortedError() : new Error('图片上传失败，请重试')
+        if (!aborted && !options.silent) showError(error.message)
+        reject(error)
+      },
+    })
   })
-})
+  promise.abort = () => task?.abort()
+  return promise
+}
+export const isAbortError = error => error?.code === 'ABORTED'
 export const imageUrl = (path, title = '') => {
   if (path?.startsWith('/uploads/')) return baseUrl + path
   if (path?.startsWith('/demo/')) return path.replace('/demo/', '/static/demo/')

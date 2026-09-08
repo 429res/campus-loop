@@ -22,6 +22,9 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import javax.imageio.ImageIO;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.http.HttpMethod;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.dao.DataIntegrityViolationException;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -57,18 +60,19 @@ class CampusIntegrationTest {
         registry.add("spring.flyway.user",()->username);
         registry.add("spring.flyway.password",()->password);
         registry.add("campus.bootstrap-enabled",()->false);
+        registry.add("campus.registration-mode",()->"DEVELOPMENT_SELF_SERVICE");
         registry.add("campus.jwt-secret",()->UUID.randomUUID().toString()+UUID.randomUUID());
         registry.add("campus.upload-dir",()->UPLOADS.toString());
     }
     @Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired UserMapper users;
     @Autowired PasswordService passwords;@Autowired JdbcTemplate jdbc;@Autowired DataSource ds;
-    String memberToken,adminToken; long memberId; String memberName,memberPassword;
+    String memberToken,adminToken; long memberId,adminId; String memberName,memberPassword,adminName;
     @BeforeAll void setup() throws Exception {
         new ResourceDatabasePopulator(new ClassPathResource("db/demo-data.sql")).execute(ds);
         memberName="test_"+UUID.randomUUID().toString().substring(0,12);memberPassword=UUID.randomUUID().toString();
         memberId=account(memberName,memberPassword,"USER");
-        String adminName="test_"+UUID.randomUUID().toString().substring(0,12), adminPassword=UUID.randomUUID().toString();
-        account(adminName,adminPassword,"ADMIN");memberToken=login(memberName,memberPassword);adminToken=login(adminName,adminPassword);
+        adminName="test_"+UUID.randomUUID().toString().substring(0,12);String adminPassword=UUID.randomUUID().toString();
+        adminId=account(adminName,adminPassword,"ADMIN");memberToken=login(memberName,memberPassword);adminToken=login(adminName,adminPassword);
     }
     long account(String username,String password,String role){
         User user=new User();user.setUsername(username);user.setPasswordHash(passwords.encode(password));user.setDisplayName("集成测试同学");
@@ -96,6 +100,204 @@ class CampusIntegrationTest {
         mvc.perform(get("/api/items").param("size","101")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/items/999999999")).andExpect(status().isNotFound());
         mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username","demo_leaf","password",UUID.randomUUID().toString())))).andExpect(status().isUnauthorized());
+    }
+    @Test void adminUserQueryIsProtectedFilteredAndSafe() throws Exception {
+        String username="filter_"+UUID.randomUUID().toString().substring(0,10);
+        long userId=account(username,UUID.randomUUID().toString(),"USER");
+        mvc.perform(get("/api/admin/users")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(401));
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+memberToken))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(403));
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("keyword",username)
+            .param("role","USER").param("status","ACTIVE").param("page","1").param("size","1"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1))
+            .andExpect(jsonPath("$.data.records[0].id").value(userId)).andExpect(jsonPath("$.data.records[0].username").value(username))
+            .andExpect(jsonPath("$.data.records[0].role").value("USER")).andExpect(jsonPath("$.data.records[0].status").value("ACTIVE"))
+            .andExpect(jsonPath("$.data.records[0].version").value(0)).andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.records[0].token").doesNotExist());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("role","OWNER"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("status","LOCKED"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("size","101"))
+            .andExpect(status().isBadRequest());
+    }
+    @Test void adminDisableRevokesSessionsAuditsAndRequiresFreshLoginAfterEnable() throws Exception {
+        String username="status_"+UUID.randomUUID().toString().substring(0,10),password=UUID.randomUUID().toString();
+        long userId=account(username,password,"USER");String first=login(username,password),second=login(username,password);
+        String itemTitle="停用保留历史物品 "+UUID.randomUUID();
+        String itemBody=json.writeValueAsString(Map.of("title",itemTitle,"description","状态测试物品","categoryId",1,"conditionLevel",4,
+            "tags",List.of("测试"),"wantedCategoryId",2,"wantedTags",List.of()));
+        long itemId=json.readTree(mvc.perform(post("/api/items").header("Authorization","Bearer "+first).contentType("application/json").content(itemBody))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).at("/data/id").asLong();
+
+        String disable=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","  账号状态验收  "));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(json.writeValueAsString(Map.of("status","DISABLED","version",0,
+                "reason","不应执行","role","ADMIN","passwordHash","not-a-hash"))))
+            .andExpect(status().isBadRequest());
+        assertEquals("ACTIVE",users.selectById(userId).getStatus());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+memberToken)
+            .contentType("application/json").content(disable)).andExpect(status().isForbidden());
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(disable)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("DISABLED")).andExpect(jsonPath("$.data.version").value(1))
+            .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        assertEquals("DISABLED",jdbc.queryForObject("SELECT status FROM cl_user WHERE id=?",String.class,userId));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        assertEquals("账号状态验收",jdbc.queryForObject("SELECT reason FROM cl_user_status_audit WHERE target_user_id=?",String.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+second)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",password))))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/items/"+itemId)).andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value(itemTitle));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item WHERE id=?",Integer.class,itemId));
+
+        String enable=json.writeValueAsString(Map.of("status","ACTIVE","version",1,"reason","确认恢复使用"));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(enable)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE")).andExpect(jsonPath("$.data.version").value(2));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isUnauthorized());
+        assertFalse(login(username,password).isBlank());
+        mvc.perform(get("/api/admin/users/"+userId+"/status-audits").header("Authorization","Bearer "+adminToken))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(2))
+            .andExpect(jsonPath("$.data.records[0].operatorUsername").value(adminName))
+            .andExpect(jsonPath("$.data.records[0].reason").value("确认恢复使用"))
+            .andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.records[0].token").doesNotExist());
+    }
+    @Test void staleAndConcurrentStatusWritesDoNotOverwrite() throws Exception {
+        String username="conflict_"+UUID.randomUUID().toString().substring(0,8);
+        long userId=account(username,UUID.randomUUID().toString(),"USER");
+        String secondAdminName="admin_"+UUID.randomUUID().toString().substring(0,8),secondAdminPassword=UUID.randomUUID().toString();
+        account(secondAdminName,secondAdminPassword,"ADMIN");String secondAdminToken=login(secondAdminName,secondAdminPassword);
+        String body=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","并发停用测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> first=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+adminToken).contentType("application/json").content(body)).andReturn();});
+            Future<MvcResult> second=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+secondAdminToken).contentType("application/json").content(body)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            Set<Integer> statuses=Set.of(first.get(30,TimeUnit.SECONDS).getResponse().getStatus(),second.get(30,TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(Set.of(200,409),statuses);
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals("DISABLED",users.selectById(userId).getStatus());assertEquals(1,users.selectById(userId).getVersion());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(body)).andExpect(status().isConflict());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+    }
+    @Test void concurrentLoginCannotSurviveDisableAndAdminCannotDisableSelf() throws Exception {
+        String username="race_"+UUID.randomUUID().toString().substring(0,10),password=UUID.randomUUID().toString();
+        long userId=account(username,password,"USER");String body=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","并发登录停用测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> loginResult=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/login").contentType("application/json")
+                .content(json.writeValueAsString(Map.of("username",username,"password",password)))).andReturn();});
+            Future<MvcResult> disableResult=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+adminToken).contentType("application/json").content(body)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            MvcResult loginResponse=loginResult.get(30,TimeUnit.SECONDS),disableResponse=disableResult.get(30,TimeUnit.SECONDS);
+            assertEquals(200,disableResponse.getResponse().getStatus());assertTrue(Set.of(200,401).contains(loginResponse.getResponse().getStatus()));
+            if(loginResponse.getResponse().getStatus()==200) {
+                String racedToken=json.readTree(loginResponse.getResponse().getContentAsString()).at("/data/token").asText();
+                mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+racedToken)).andExpect(status().isUnauthorized());
+            }
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+adminId+"/status").header("Authorization","Bearer "+adminToken).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("status","DISABLED","version",users.selectById(adminId).getVersion(),"reason","不允许自我停用"))))
+            .andExpect(status().isConflict());
+        assertEquals("ACTIVE",users.selectById(adminId).getStatus());
+    }
+    @Test void concurrentAdminsCannotDisableEachOtherAndRemoveEveryEntry() throws Exception {
+        String firstName="guard_"+UUID.randomUUID().toString().substring(0,8),firstPassword=UUID.randomUUID().toString();
+        String secondName="guard_"+UUID.randomUUID().toString().substring(0,8),secondPassword=UUID.randomUUID().toString();
+        long firstId=account(firstName,firstPassword,"ADMIN"),secondId=account(secondName,secondPassword,"ADMIN");
+        String firstToken=login(firstName,firstPassword),secondToken=login(secondName,secondPassword);
+        String disableFirst=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","交叉停用保护"));
+        String disableSecond=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","交叉停用保护"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> byFirst=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+secondId+"/status")
+                .header("Authorization","Bearer "+firstToken).contentType("application/json").content(disableSecond)).andReturn();});
+            Future<MvcResult> bySecond=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+firstId+"/status")
+                .header("Authorization","Bearer "+secondToken).contentType("application/json").content(disableFirst)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            int firstStatus=byFirst.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            int secondStatus=bySecond.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==200).count());
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==401).count());
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(1,List.of(users.selectById(firstId),users.selectById(secondId)).stream().filter(user->"ACTIVE".equals(user.getStatus())).count());
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE role='ADMIN' AND status='ACTIVE' AND password_hash IS NOT NULL",Integer.class)>0);
+    }
+    @Test void developmentRegistrationPersistsSafeUserAndUsesExistingLogin() throws Exception {
+        String username="reg_"+UUID.randomUUID().toString().substring(0,12),password="Valid-"+UUID.randomUUID();
+        String displayName="注册同学 "+UUID.randomUUID().toString().substring(0,6);
+        JsonNode response=json.readTree(mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username","  "+username+"  ","password",password,"displayName","  "+displayName+"  "))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.username").value(username))
+            .andExpect(jsonPath("$.data.displayName").value(displayName)).andExpect(jsonPath("$.data.role").value("USER"))
+            .andExpect(jsonPath("$.data.status").doesNotExist()).andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.token").doesNotExist()).andReturn().getResponse().getContentAsString());
+        long userId=response.at("/data/id").asLong();User stored=users.selectById(userId);
+        assertEquals("USER",stored.getRole());assertEquals("ACTIVE",stored.getStatus());assertNotEquals(password,stored.getPasswordHash());
+        assertTrue(stored.getPasswordHash().startsWith("$2"));assertTrue(passwords.matches(password,stored.getPasswordHash()));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        String token=login(username,password);
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+token)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value(userId));
+    }
+    @Test void registrationRejectsInvalidAndProtectedFieldsWithoutPartialUser() throws Exception {
+        String username="invalid_"+UUID.randomUUID().toString().substring(0,10),password="Valid-"+UUID.randomUUID();
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username","bad name","password",password,"displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password","too-short","displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password","密".repeat(25),"displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password",password,"displayName","   "))))
+            .andExpect(status().isBadRequest());
+        Map<String,Object> protectedFields=new LinkedHashMap<>(Map.of("username",username,"password",password,"displayName","不应注册"));
+        protectedFields.put("role","ADMIN");protectedFields.put("status","ACTIVE");protectedFields.put("passwordHash","not-a-hash");
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(json.writeValueAsString(protectedFields)))
+            .andExpect(status().isBadRequest());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,username));
+    }
+    @Test void duplicateAndConcurrentRegistrationKeepExactlyOneUser() throws Exception {
+        String sequentialName="dup_"+UUID.randomUUID().toString().substring(0,10),password="Valid-"+UUID.randomUUID();
+        String sequentialBody=json.writeValueAsString(Map.of("username",sequentialName,"password",password,"displayName","重复注册测试"));
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(sequentialBody)).andExpect(status().isOk());
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(sequentialBody))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.msg").value("用户名已存在"));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,sequentialName));
+
+        String concurrentName="race_"+UUID.randomUUID().toString().substring(0,9);
+        String concurrentBody=json.writeValueAsString(Map.of("username",concurrentName,"password",password,"displayName","并发注册测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> first=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/register")
+                .contentType("application/json").content(concurrentBody)).andReturn();});
+            Future<MvcResult> second=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/register")
+                .contentType("application/json").content(concurrentBody)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            int firstStatus=first.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            int secondStatus=second.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==200).count());
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==409).count());
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,concurrentName));
+        User stored=users.selectOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<User>().eq("username",concurrentName));
+        assertEquals("USER",stored.getRole());assertEquals("ACTIVE",stored.getStatus());assertTrue(passwords.matches(password,stored.getPasswordHash()));
     }
     @Test void logoutActuallyRevokesAndExpiredSessionIsRejected() throws Exception {
         String token=login(memberName,memberPassword);
@@ -217,6 +419,290 @@ class CampusIntegrationTest {
         mvc.perform(get("/api/health")).andExpect(status().isOk()).andExpect(jsonPath("$.data.database").value("UP"));
         mvc.perform(get("/api/categories")).andExpect(status().isOk()).andExpect(jsonPath("$.data.length()").value(6));
         mvc.perform(get("/api/admin/stats").header("Authorization","Bearer "+adminToken)).andExpect(status().isOk()).andExpect(jsonPath("$.data.items").isNumber());
+    }
+
+    @Test void independentDemandPersistsWithoutItemsAcrossSessionsAndSupportsPagingAndStatus() throws Exception {
+        String username="test_"+UUID.randomUUID().toString().substring(0,12), password=UUID.randomUUID().toString();
+        long ownerId=account(username,password,"USER");String token=login(username,password);
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item WHERE owner_id=?",Integer.class,ownerId));
+        JsonNode first=demandCall("POST","/api/demands",token,demandBody(2,"无物品也可保存",List.of(" USB ","usb","便携"),List.of()),200);
+        long firstId=first.path("id").asLong();
+        assertEquals(ownerId,first.path("ownerId").asLong());assertEquals("ACTIVE",first.path("status").asText());
+        assertEquals(0,first.path("version").asInt());assertEquals(json.valueToTree(List.of("usb","便携")),first.path("preferredTags"));
+        assertEquals(0,first.path("offeredItems").size());assertFalse(first.path("createdAt").asText().isBlank());assertFalse(first.path("updatedAt").asText().isBlank());
+        assertEquals("无物品也可保存",jdbc.queryForObject("SELECT description FROM cl_demand WHERE id=?",String.class,firstId));
+        assertEquals(ownerId,jdbc.queryForObject("SELECT owner_id FROM cl_demand WHERE id=?",Long.class,firstId));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item WHERE owner_id=?",Integer.class,ownerId));
+        demandCall("POST","/api/auth/logout",token,null,200);
+        String newSession=login(username,password);
+        assertEquals(first,demandCall("GET","/api/demands/"+firstId,newSession,null,200));
+        JsonNode second=demandCall("POST","/api/demands",newSession,demandBody(1,"",List.of(),List.of()),200);
+        JsonNode page=demandCall("GET","/api/demands?page=1&size=1",newSession,null,200);
+        assertEquals(2,page.path("total").asInt());assertEquals(1,page.path("page").asInt());assertEquals(1,page.path("size").asInt());
+        assertEquals(second.path("id"),page.at("/records/0/id"));
+        assertEquals(firstId,demandCall("GET","/api/demands?page=2&size=1",newSession,null,200).at("/records/0/id").asLong());
+        assertEquals(0,demandCall("GET","/api/demands?page=3&size=1",newSession,null,200).path("records").size());
+        JsonNode edited=demandCall("PATCH","/api/demands/"+firstId,newSession,Map.of("version",0,"description","只改说明"),200);
+        assertEquals(1,edited.path("version").asInt());assertEquals(first.path("categoryId"),edited.path("categoryId"));
+        assertEquals(first.path("preferredTags"),edited.path("preferredTags"));assertEquals(first.path("createdAt"),edited.path("createdAt"));
+        demandCall("PATCH","/api/demands/"+firstId+"/status",newSession,Map.of("version",1,"status","INACTIVE"),200);
+        assertEquals(second.path("id"),demandCall("GET","/api/demands?status=ACTIVE",newSession,null,200).at("/records/0/id"));
+        JsonNode inactive=demandCall("GET","/api/demands?status=INACTIVE",newSession,null,200);
+        assertEquals(1,inactive.path("total").asInt());assertEquals(firstId,inactive.at("/records/0/id").asLong());
+        JsonNode sameState=demandCall("PATCH","/api/demands/"+firstId+"/status",newSession,Map.of("version",2,"status","INACTIVE"),200);
+        assertEquals(3,sameState.path("version").asInt());
+        JsonNode active=demandCall("PATCH","/api/demands/"+firstId+"/status",newSession,Map.of("version",3,"status","ACTIVE"),200);
+        assertEquals(4,active.path("version").asInt());assertEquals("ACTIVE",active.path("status").asText());
+        assertEquals(2,demandCall("GET","/api/demands?status=ACTIVE",newSession,null,200).path("total").asInt());
+    }
+    @Test void independentDemandRequiresItsOwnerAndRejectsProtectedOrUnknownFields() throws Exception {
+        String owner=demandUser(),other=demandUser();
+        Map<String,Object> body=demandBody(1,"本人需求",List.of(),List.of());
+        JsonNode created=demandCall("POST","/api/demands",owner,body,200);long id=created.path("id").asLong();
+        for(String path:List.of("/api/demands","/api/demands/"+id,"/api/demands/offerable-items")) demandCall("GET",path,null,null,401);
+        demandCall("POST","/api/demands",null,body,401);
+        demandCall("PATCH","/api/demands/"+id,null,Map.of("version",0,"description","不能修改"),401);
+        demandCall("PATCH","/api/demands/"+id+"/status",null,Map.of("version",0,"status","INACTIVE"),401);
+        demandCall("DELETE","/api/demands/"+id+"?version=0",null,null,401);
+        for(String forbidden:List.of(other,adminToken)) {
+            demandCall("GET","/api/demands/"+id,forbidden,null,403);
+            demandCall("PATCH","/api/demands/"+id,forbidden,Map.of("version",0,"description","不能修改"),403);
+            demandCall("PATCH","/api/demands/"+id+"/status",forbidden,Map.of("version",0,"status","INACTIVE"),403);
+            demandCall("DELETE","/api/demands/"+id+"?version=0",forbidden,null,403);
+        }
+        assertEquals(0,demandCall("GET","/api/demands",other,null,200).path("total").asInt());
+        for(String protectedField:List.of("ownerId","owner","id","status","version","createdAt","updatedAt","requiredTags","minimumConditionLevel","unknown")) {
+            Map<String,Object> invalid=new LinkedHashMap<>(body);invalid.put(protectedField,1);
+            demandCall("POST","/api/demands",owner,invalid,400);
+        }
+        for(String protectedField:List.of("ownerId","id","status","createdAt","requiredTags","minimumConditionLevel","unknown")) {
+            Map<String,Object> invalid=new LinkedHashMap<>(Map.of("version",0,"description","不得部分写入"));invalid.put(protectedField,1);
+            demandCall("PATCH","/api/demands/"+id,owner,invalid,400);
+        }
+        demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",0,"status","INACTIVE","ownerId",1),400);
+        assertEquals(created,demandCall("GET","/api/demands/"+id,owner,null,200));
+        assertEquals(1,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+        demandCall("GET","/api/demands/999999999",owner,null,404);
+    }
+    @Test void independentDemandValidatesNullPartialFieldsAndRequestBoundaries() throws Exception {
+        String token=demandUser();Map<String,Object> body=demandBody(1,"校验基线",List.of("保留"),List.of());
+        JsonNode created=demandCall("POST","/api/demands",token,body,200);long id=created.path("id").asLong();
+        for(String field:List.of("categoryId","description","preferredTags","offeredItemIds")) {
+            Map<String,Object> missing=new LinkedHashMap<>(body);missing.remove(field);demandCall("POST","/api/demands",token,missing,400);
+            Map<String,Object> explicitNull=new LinkedHashMap<>(body);explicitNull.put(field,null);demandCall("POST","/api/demands",token,explicitNull,400);
+            Map<String,Object> patchNull=new LinkedHashMap<>();patchNull.put("version",0);patchNull.put(field,null);
+            demandCall("PATCH","/api/demands/"+id,token,patchNull,400);
+        }
+        demandCall("PATCH","/api/demands/"+id,token,Map.of("version",0),400);
+        demandCall("PATCH","/api/demands/"+id,token,Map.of("description","缺少版本"),400);
+        for(Object invalidVersion:List.of(-1,0.5,"0",2147483648L)) {
+            demandCall("PATCH","/api/demands/"+id,token,Map.of("version",invalidVersion,"description","非法版本"),400);
+            demandCall("PATCH","/api/demands/"+id+"/status",token,Map.of("version",invalidVersion,"status","INACTIVE"),400);
+        }
+        Map<String,Object> nullVersion=new LinkedHashMap<>();nullVersion.put("version",null);nullVersion.put("description","不能写入");
+        demandCall("PATCH","/api/demands/"+id,token,nullVersion,400);
+        for(Object invalidCategory:List.of(0,-1,999999999,1.5,"1")) {
+            Map<String,Object> invalid=new LinkedHashMap<>(body);invalid.put("categoryId",invalidCategory);demandCall("POST","/api/demands",token,invalid,400);
+            demandCall("PATCH","/api/demands/"+id,token,Map.of("version",0,"categoryId",invalidCategory),400);
+        }
+        for(List<?> invalidTags:List.of(List.of(" "),List.of("x".repeat(21)),Collections.nCopies(9,"标签"),Arrays.asList((String)null),List.of(1))) {
+            Map<String,Object> invalid=new LinkedHashMap<>(body);invalid.put("preferredTags",invalidTags);demandCall("POST","/api/demands",token,invalid,400);
+        }
+        Map<String,Object> tooLong=new LinkedHashMap<>(body);tooLong.put("description","x".repeat(2001));demandCall("POST","/api/demands",token,tooLong,400);
+        for(List<?> invalidIds:List.of(List.of(-1),List.of(0),List.of(1.5),List.of("1"),Arrays.asList((Long)null),java.util.stream.LongStream.rangeClosed(1,101).boxed().toList())) {
+            Map<String,Object> invalid=new LinkedHashMap<>(body);invalid.put("offeredItemIds",invalidIds);demandCall("POST","/api/demands",token,invalid,400);
+        }
+        for(String query:List.of("page=0","page=-1","size=0","size=101","size=abc","status=DELETED","status=unknown"))
+            demandCall("GET","/api/demands?"+query,token,null,400);
+        for(String query:List.of("page=0","size=0","size=101")) demandCall("GET","/api/demands/offerable-items?"+query,token,null,400);
+        for(String invalidStatus:List.of("DELETED","AVAILABLE","active","")) demandCall("PATCH","/api/demands/"+id+"/status",token,Map.of("version",0,"status",invalidStatus),400);
+        demandCall("DELETE","/api/demands/"+id,token,null,400);
+        demandCall("DELETE","/api/demands/"+id+"?version=-1",token,null,400);
+        assertEquals(created,demandCall("GET","/api/demands/"+id,token,null,200));
+        JsonNode emptyFields=demandCall("PATCH","/api/demands/"+id,token,Map.of("version",0,"description","","preferredTags",List.of()),200);
+        assertEquals("",emptyFields.path("description").asText());assertEquals(0,emptyFields.path("preferredTags").size());assertEquals(1,emptyFields.path("version").asInt());
+    }
+    @Test void demandAssociationsReuseOwnedItemsRejectDuplicatesAndApplyAtomically() throws Exception {
+        String owner=demandUser(),other=demandUser();long first=demandItem(owner),second=demandItem(owner),foreign=demandItem(other);
+        long itemCount=jdbc.queryForObject("SELECT COUNT(*) FROM cl_item",Long.class);
+        JsonNode original=demandCall("POST","/api/demands",owner,demandBody(2,"候选集合",List.of(),List.of(second,first)),200);
+        long id=original.path("id").asLong();
+        assertEquals(first,original.at("/offeredItems/0/itemId").asLong());assertEquals(second,original.at("/offeredItems/1/itemId").asLong());
+        assertTrue(original.at("/offeredItems/0/offerable").asBoolean());assertEquals("AVAILABLE",original.at("/offeredItems/0/status").asText());
+        JsonNode another=demandCall("POST","/api/demands",owner,demandBody(3,"同一物品可在另一需求",List.of(),List.of(first)),200);
+        assertEquals(first,another.at("/offeredItems/0/itemId").asLong());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=?",Integer.class,first));
+        assertEquals(itemCount,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item",Long.class));
+        assertEquals(original.path("ownerId").asLong(),jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,first));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE item_id IN (?,?)",Integer.class,first,second));
+        demandCall("POST","/api/demands",owner,demandBody(1,"重复",List.of(),List.of(first,first)),400);
+        demandCall("POST","/api/demands",owner,demandBody(1,"不存在",List.of(),List.of(999999999L)),400);
+        demandCall("POST","/api/demands",owner,demandBody(1,"外人物品",List.of(),List.of(foreign)),403);
+        demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"description","不允许部分写入","offeredItemIds",List.of(first,foreign)),403);
+        demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"offeredItemIds",List.of(first,first)),400);
+        assertEquals(original,demandCall("GET","/api/demands/"+id,owner,null,200));
+        JsonNode offerable=demandCall("GET","/api/demands/offerable-items?page=1&size=1",owner,null,200);
+        assertEquals(2,offerable.path("total").asInt());assertEquals(1,offerable.path("records").size());assertTrue(offerable.at("/records/0/offerable").asBoolean());
+        JsonNode replaced=demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"offeredItemIds",List.of(second)),200);
+        assertEquals(1,replaced.path("offeredItems").size());assertEquals(second,replaced.at("/offeredItems/0/itemId").asLong());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE demand_id=?",Integer.class,id));
+        assertEquals(2,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+    }
+    @Test void demandAssociationsRejectEveryUnavailableStateAndHeldItems() throws Exception {
+        String owner=demandUser();long item=demandItem(owner);
+        try {
+            for(String unavailable:List.of("DRAFT","PENDING_REVIEW","RESERVED","EXCHANGED","HIDDEN")) {
+                jdbc.update("UPDATE cl_item SET status=? WHERE id=?",unavailable,item);
+                demandCall("POST","/api/demands",owner,demandBody(1,"状态冲突",List.of(),List.of(item)),409);
+                assertEquals(0,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
+            }
+        } finally {jdbc.update("UPDATE cl_item SET status='AVAILABLE' WHERE id=?",item);}
+        JsonNode associated=demandCall("POST","/api/demands",owner,demandBody(1,"已有候选后来被占用",List.of(),List.of(item)),200);
+        long associatedId=associated.path("id").asLong();
+        long ownerId=jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,item);
+        String key=UUID.randomUUID().toString();LocalDateTime expires=LocalDateTime.now(ZoneOffset.UTC).plusHours(1);
+        jdbc.update("INSERT INTO cl_exchange(initiator_id,status,version,idempotency_key,expires_at) VALUES (?,'AWAITING_CONFIRMATION',0,?,?)",ownerId,key,expires);
+        long exchangeId=jdbc.queryForObject("SELECT id FROM cl_exchange WHERE initiator_id=? AND idempotency_key=?",Long.class,ownerId,key);
+        try {
+            jdbc.update("INSERT INTO cl_item_hold(item_id,exchange_id,expires_at) VALUES (?,?,?)",item,exchangeId,expires);
+            demandCall("POST","/api/demands",owner,demandBody(1,"占用冲突",List.of(),List.of(item)),409);
+            assertEquals(0,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
+            JsonNode held=demandCall("GET","/api/demands/"+associatedId,owner,null,200);
+            assertFalse(held.at("/offeredItems/0/offerable").asBoolean());assertEquals("AVAILABLE",held.at("/offeredItems/0/status").asText());
+            demandCall("PATCH","/api/demands/"+associatedId+"/status",owner,Map.of("version",0,"status","INACTIVE"),200);
+            demandCall("PATCH","/api/demands/"+associatedId+"/status",owner,Map.of("version",1,"status","ACTIVE"),409);
+            assertEquals(1,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+        } finally {
+            jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchangeId);
+            jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchangeId);
+        }
+        assertEquals(1,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
+        assertTrue(demandCall("GET","/api/demands/"+associatedId,owner,null,200).at("/offeredItems/0/offerable").asBoolean());
+        demandCall("PATCH","/api/demands/"+associatedId+"/status",owner,Map.of("version",1,"status","ACTIVE"),200);
+        demandCall("POST","/api/demands",owner,demandBody(1,"解除占用可关联",List.of(),List.of(item)),200);
+    }
+    @Test void demandReadsLiveAssociationValidityAndCanDeactivateOrClearInvalidAssociations() throws Exception {
+        String owner=demandUser(),other=demandUser();long item=demandItem(owner),otherItem=demandItem(other);
+        JsonNode created=demandCall("POST","/api/demands",owner,demandBody(2,"关联会失效",List.of(),List.of(item)),200);
+        long id=created.path("id").asLong();
+        jdbc.update("UPDATE cl_item SET status='RESERVED' WHERE id=?",item);
+        try {
+            JsonNode invalid=demandCall("GET","/api/demands/"+id,owner,null,200);
+            assertFalse(invalid.at("/offeredItems/0/offerable").asBoolean());assertEquals("RESERVED",invalid.at("/offeredItems/0/status").asText());
+            assertFalse(demandCall("GET","/api/demands",owner,null,200).at("/records/0/offeredItems/0/offerable").asBoolean());
+            JsonNode edited=demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"description","未提交关联仍可改说明"),200);
+            assertEquals(1,edited.path("offeredItems").size());assertFalse(edited.at("/offeredItems/0/offerable").asBoolean());
+            demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",1,"status","INACTIVE"),200);
+            demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",2,"status","ACTIVE"),409);
+            JsonNode stillInactive=demandCall("GET","/api/demands/"+id,owner,null,200);
+            assertEquals(2,stillInactive.path("version").asInt());assertEquals("INACTIVE",stillInactive.path("status").asText());
+            demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",2,"offeredItemIds",List.of()),200);
+            JsonNode restored=demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",3,"status","ACTIVE"),200);
+            assertEquals(0,restored.path("offeredItems").size());
+        } finally {jdbc.update("UPDATE cl_item SET status='AVAILABLE' WHERE id=?",item);}
+        JsonNode historical=demandCall("POST","/api/demands",owner,demandBody(3,"归属变化只保留引用",List.of(),List.of(item)),200);
+        long historicalId=historical.path("id").asLong(),ownerId=created.path("ownerId").asLong();
+        long otherId=jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,otherItem);
+        jdbc.update("UPDATE cl_item SET owner_id=?,status='HIDDEN' WHERE id=?",otherId,item);
+        try {
+            JsonNode redacted=demandCall("GET","/api/demands/"+historicalId,owner,null,200).at("/offeredItems/0");
+            assertEquals(item,redacted.path("itemId").asLong());assertFalse(redacted.path("offerable").asBoolean());
+            for(String field:List.of("title","categoryId","conditionLevel","status")) assertTrue(redacted.path(field).isNull(),"Historical foreign item field must be null: "+field);
+            assertEquals(0,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
+        } finally {jdbc.update("UPDATE cl_item SET owner_id=?,status='AVAILABLE' WHERE id=?",ownerId,item);}
+    }
+    @Test void demandVersionsProtectFieldsAssociationsStatusAndDeleteDuringConcurrentEdits() throws Exception {
+        String owner=demandUser();long item=demandItem(owner);
+        JsonNode created=demandCall("POST","/api/demands",owner,demandBody(2,"初始",List.of("保留"),List.of(item)),200);
+        long id=created.path("id").asLong();
+        JsonNode updated=demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"description","已更新"),200);
+        demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"description","过期内容","offeredItemIds",List.of()),409);
+        demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",0,"status","INACTIVE"),409);
+        demandCall("DELETE","/api/demands/"+id+"?version=0",owner,null,409);
+        assertEquals(updated,demandCall("GET","/api/demands/"+id,owner,null,200));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            List<Future<Integer>> writes=new ArrayList<>();
+            for(String description:List.of("并发甲","并发乙")) writes.add(executor.submit(()->{
+                ready.countDown();
+                try {
+                    if(!start.await(10,TimeUnit.SECONDS)) return -1;
+                    return mvc.perform(patch("/api/demands/"+id).header("Authorization","Bearer "+owner).contentType("application/json")
+                        .content(json.writeValueAsString(Map.of("version",1,"description",description)))).andReturn().getResponse().getStatus();
+                } catch(Exception failure) {return -2;} // Return only a safe outcome; never propagate an authenticated request dump.
+            }));
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            List<Integer> outcomes=new ArrayList<>();for(Future<Integer> write:writes) outcomes.add(write.get(30,TimeUnit.SECONDS));
+            Collections.sort(outcomes);assertEquals(List.of(200,409),outcomes);
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        JsonNode finalState=demandCall("GET","/api/demands/"+id,owner,null,200);
+        assertEquals(2,finalState.path("version").asInt());assertTrue(Set.of("并发甲","并发乙").contains(finalState.path("description").asText()));
+        assertEquals(created.path("offeredItems"),finalState.path("offeredItems"));assertEquals(created.path("preferredTags"),finalState.path("preferredTags"));
+        assertEquals(finalState.path("description").asText(),jdbc.queryForObject("SELECT description FROM cl_demand WHERE id=?",String.class,id));
+        assertEquals(2,jdbc.queryForObject("SELECT version FROM cl_demand WHERE id=?",Integer.class,id));
+    }
+    @Test void demandDeletionKeepsTombstoneAndAssociationsAndPreventsPhysicalRemoval() throws Exception {
+        String owner=demandUser();long item=demandItem(owner);
+        JsonNode created=demandCall("POST","/api/demands",owner,demandBody(2,"保留原始需求供历史引用",List.of("标签"),List.of(item)),200);
+        long id=created.path("id").asLong();
+        JsonNode deleted=demandCall("DELETE","/api/demands/"+id+"?version=0",owner,null,200);
+        assertEquals(id,deleted.path("id").asLong());assertEquals("DELETED",deleted.path("status").asText());assertEquals(1,deleted.path("version").asInt());
+        assertEquals("DELETED",jdbc.queryForObject("SELECT status FROM cl_demand WHERE id=?",String.class,id));
+        assertEquals("保留原始需求供历史引用",jdbc.queryForObject("SELECT description FROM cl_demand WHERE id=?",String.class,id));
+        assertEquals(created.path("ownerId").asLong(),jdbc.queryForObject("SELECT owner_id FROM cl_demand WHERE id=?",Long.class,id));
+        assertEquals(2,jdbc.queryForObject("SELECT category_id FROM cl_demand WHERE id=?",Integer.class,id));
+        assertEquals(json.valueToTree(List.of("标签")),json.readTree(jdbc.queryForObject("SELECT preferred_tags_json FROM cl_demand WHERE id=?",String.class,id)));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE demand_id=? AND item_id=?",Integer.class,id,item));
+        assertThrows(DataIntegrityViolationException.class,()->jdbc.update("DELETE FROM cl_demand WHERE id=?",id));
+        assertThrows(DataIntegrityViolationException.class,()->jdbc.update("DELETE FROM cl_item WHERE id=?",item));
+        demandCall("GET","/api/demands/"+id,owner,null,404);
+        demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",1,"description","无法恢复"),404);
+        demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",1,"status","ACTIVE"),404);
+        demandCall("DELETE","/api/demands/"+id+"?version=1",owner,null,404);
+        assertEquals(0,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+        assertEquals(1,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
+        JsonNode inactive=demandCall("POST","/api/demands",owner,demandBody(1,"停用后也可删除",List.of(),List.of()),200);long inactiveId=inactive.path("id").asLong();
+        demandCall("PATCH","/api/demands/"+inactiveId+"/status",owner,Map.of("version",0,"status","INACTIVE"),200);
+        demandCall("DELETE","/api/demands/"+inactiveId+"?version=1",owner,null,200);
+    }
+    @Test void independentDemandChangesNeverRewriteLegacyItemWantsOrRecommendations() throws Exception {
+        String owner=demandUser();long item=demandItem(owner);
+        JsonNode before=demandCall("GET","/api/matches",null,null,200);
+        String legacyTags=jdbc.queryForObject("SELECT wanted_tags_json FROM cl_item WHERE id=?",String.class,item);
+        long legacyCategory=jdbc.queryForObject("SELECT wanted_category_id FROM cl_item WHERE id=?",Long.class,item);
+        long holds=jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold",Long.class),exchanges=jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange",Long.class);
+        JsonNode created=demandCall("POST","/api/demands",owner,demandBody(6,"独立绿植需求",List.of("耐养"),List.of(item)),200);long id=created.path("id").asLong();
+        assertEquals(before,demandCall("GET","/api/matches",null,null,200));
+        demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"categoryId",5,"preferredTags",List.of("手作")),200);
+        assertEquals(before,demandCall("GET","/api/matches",null,null,200));
+        demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",1,"status","INACTIVE"),200);
+        assertEquals(before,demandCall("GET","/api/matches",null,null,200));
+        demandCall("DELETE","/api/demands/"+id+"?version=2",owner,null,200);
+        assertEquals(before,demandCall("GET","/api/matches",null,null,200));
+        assertEquals(legacyCategory,jdbc.queryForObject("SELECT wanted_category_id FROM cl_item WHERE id=?",Long.class,item));
+        assertEquals(legacyTags,jdbc.queryForObject("SELECT wanted_tags_json FROM cl_item WHERE id=?",String.class,item));
+        assertEquals(holds,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold",Long.class));assertEquals(exchanges,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange",Long.class));
+    }
+    private String demandUser() throws Exception {
+        String username="test_"+UUID.randomUUID().toString().substring(0,12),password=UUID.randomUUID().toString();
+        account(username,password,"USER");return login(username,password);
+    }
+    private long demandItem(String token) throws Exception {
+        return demandCall("POST","/api/items",token,Map.of("title","需求关联测试 "+UUID.randomUUID(),"description","隔离测试的现有物品",
+            "categoryId",1,"conditionLevel",4,"tags",List.of("教材"),"wantedCategoryId",2,"wantedTags",List.of("便携")),200).path("id").asLong();
+    }
+    private Map<String,Object> demandBody(long categoryId,String description,List<String> tags,List<Long> offeredItemIds) {
+        return Map.of("categoryId",categoryId,"description",description,"preferredTags",tags,"offeredItemIds",offeredItemIds);
+    }
+    private JsonNode demandCall(String method,String path,String token,Object body,int expectedStatus) throws Exception {
+        MockHttpServletRequestBuilder request=request(HttpMethod.valueOf(method),path);
+        if(token!=null) request.header("Authorization","Bearer "+token);
+        if(body!=null) request.contentType("application/json").content(json.writeValueAsString(body));
+        MvcResult result=mvc.perform(request).andReturn();
+        // Assert only safe status/code fields; never print authenticated request headers or whole responses.
+        assertEquals(expectedStatus,result.getResponse().getStatus(),method+" "+path);
+        JsonNode response=json.readTree(result.getResponse().getContentAsString());assertEquals(expectedStatus,response.path("code").asInt());
+        return response.path("data");
     }
     @AfterAll void cleanUploads() throws Exception {try(var files=Files.list(UPLOADS)){for(Path file:files.toList())Files.delete(file);}Files.delete(UPLOADS);}
 }
