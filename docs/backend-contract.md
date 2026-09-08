@@ -1,6 +1,6 @@
 # 后端实现与后续事务契约
 
-完整对外 API 以 [api-contract.md](api-contract.md) 为入口。本文说明已实现的关键行为与尚未实现的交换写入设计。
+完整对外 API 以 [api-contract.md](api-contract.md) 为入口。本文说明已实现的关键行为与后续交换动作设计。
 
 ## 已实现范围
 
@@ -43,24 +43,19 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 本切片无迁移或交换写入，不引入requiredTags/最低成色硬条件；D-02页面和消费确认单独跟踪。
 
-## 已建立的数据结构，写入待开发
+## 交换数据结构与当前能力
 
-`cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
+`cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、关联物品流向对方（不等同确认自述）、管理员核验者、发生与记录时间。
 
-这是下一阶段的表结构基础，不代表已经具备业务接口。当前 POST `/api/exchanges` 与 confirm/cancel/handoff 明确 HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
+V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff及dispute登记已接入B-04共用事务，详见[b04-exchange-handoff.md](b04-exchange-handoff.md)。B-05.1自述/证据/查询见[b05-self-reported-history.md](b05-self-reported-history.md)；参与者独立确认及来源链见[b05-participant-confirmation.md](b05-participant-confirmation.md)。历史覆盖不提供，管理员单事件核验见[b05-admin-verification.md](b05-admin-verification.md)；争议裁决与举报不得以伪成功API替代。
 
-## 交换创建与并发设计（后续实现）
+## 交换创建与并发设计
 
-建议 POST `/api/exchanges` 请求含 `{ itemIds: [..], idempotencyKey }`，由服务器重新计算和验证环方向，不能相信客户端 score、用户 ID、reason 或状态。发起人必须拥有其中一件物品。
+创建采用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}`；API字段见[契约](api-contract.md)，完整锁序、失败样例与测试见[A-03](a03-exchange-transaction.md)。ExchangeApplicationService → ExchangeCreationTransaction（唯一实现DefaultExchangeCreationTransaction）→ B纯ExchangeCycleValidator是唯一写路径。成功/重放返回持久ExchangeView；本人分页/详情仍按参与者授权，ADMIN无绕过；allowedActions按当前确认/取消规则计算。
 
-一个数据库事务中：
+创建和需求写入共用用户行互斥：用户ID升序 → 完整关联需求ID升序 → 物品/占用ID升序；需求分类选择在后，创建不改变分类引用或分类选择政策。同键先验证摘要重放，新请求在锁内重建完整B规则输入，原子写参与者/需求引用/唯一占用与RESERVED/version+1。V8精确需求引用在进行中冻结，内部快照不返回私人说明；DB UTC创建时间+24h、全员不自动确认沿用B已确认规则。已有交换的未来动作先锁exchange，其后保持相同用户/需求/物品顺序；创建与需求冻结不反向等待已有exchange锁。
 
-1. 以确定的物品 ID 升序执行 `SELECT ... FOR UPDATE`，重新读取所有拥有者、分类、需求、状态、version，并检查参与者和环规则。
-2. 读取幂等键；相同发起人 + 幂等键的相同请求返回原交换，不同 payload 返回 409。需新增规范化请求摘要字段防止幂等键被误复用。
-3. 创建 AWAITING_CONFIRMATION 交换及参与者。创建时即插入短时 `cl_item_hold`、将物品标为 RESERVED；“正式交换创建”会占用，推荐浏览不会。唯一 item_id 是跨不同交换并发的最后保障；冲突整笔回滚并返回 409。
-4. 记录 expires_at 和 version。事务提交后才通知；下一阶段使用事务 outbox，通知失败不回滚已确认交易。
-
-确认接口只允许该交换参与者。每次事务先锁 exchange，再按同一顺序锁 items，校验到期时间及当前状态；重复确认幂等。全部确认才变 READY。确认截止时间与交接截止时间区分设置，建议在下一迁移增加明确字段。
+确认/取消及内部到期统一调用ExchangeLifecycleService，共享A-03事务执行器、数据库UTC和锁序；权限、幂等、截止、V9审计与条件释放见[B-03.2](b03-invitation-rules.md)。全员确认后READY，原截止前未交接的等待/READY可由任一参与者取消；A-04扫描和交接未实现。
 
 READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双方均确认后才 COMPLETED，更新物品 EXCHANGED，并追加 BOTH_CONFIRMED 履历。禁止一个人的点击冒充所有人的确认。完成事务把物品 owner 转给对应接收人、关闭原挂牌需求，同时保留原物品永久 ID 与包含原始参与者的所有权事件。重新交换须由新拥有者重新填写需求；具体关闭字段及历史快照在后续版本迁移中补全，不能只覆盖 owner 而丢失来源。
 
@@ -71,9 +66,10 @@ READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双�
 | 当前状态 | 合法下一状态（计划） | 条件 |
 | --- | --- | --- |
 | AWAITING_CONFIRMATION | READY | 全体参与者确认且未过期 |
-| AWAITING_CONFIRMATION | CANCELLED / EXPIRED | 撤回、拒绝或确认截止到期，释放本交换占用 |
+| AWAITING_CONFIRMATION | CANCELLED / EXPIRED | 未交接时，任一参与者可在原截止前取消；达到原截止由A-04到期，条件释放本交换占用 |
 | READY | COMPLETED | 每条交接由双方完成确认 |
-| READY | CANCELLED / EXPIRED / DISPUTED | 按协商取消、交接超时或发起争议规则处理；已发生交接时不能直接释放并恢复上架 |
+| READY | CANCELLED / EXPIRED | 未交接时，任一参与者可在原截止前取消；达到原截止由A-04到期；READY不延长原截止 |
+| READY | DISPUTED | 交接异常处理留后续；已发生交接不能直接取消/到期释放并恢复上架 |
 | DISPUTED | COMPLETED / CANCELLED | 管理员基于证据裁定，保留审计 |
 | COMPLETED / CANCELLED / EXPIRED | 无 | 终态不可复活；补充证据使用新事件 |
 
@@ -84,3 +80,7 @@ READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双�
 受保护接口使用 `Authorization: Bearer <token>`。JWT 8 小时到期，MySQL 会话记录同时校验；注销删除当前会话。修改密码和管理员停用账号均在同一事务删除该账号所有会话，禁用后拒绝登录，重新启用不会恢复旧令牌。管理员重置密码尚未实现，后续也必须遵守相同撤销规则。
 
 当前运行基础面向四人本地开发。开发自助注册默认关闭，显式开启也不代表学校身份核验。公开部署前须确定真实注册准入，并补充登录限速、找回密码、学校身份策略、细粒度权限、反垃圾、上传生命周期清理、审计和运维指标；这些是后续范围，不是假装已完成的入口。数据库与 JWT 密钥仅由后端加载，前端不能持有这些凭据。
+
+## A-04到期处理
+
+自动轮询调用共用生命周期事务，仅到期未交接的AWAITING_CONFIRMATION/READY可变EXPIRED；确认/取消/超时同锁同规则，原截止不变。V10持久化失败退避，重启重新读取数据库待办；没有公共expire接口或内存唯一任务队列。后端配置、失败与恢复语义见[A-04](a04-exchange-expiry.md)。

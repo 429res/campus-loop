@@ -10,11 +10,11 @@ public final class IndependentDemandMatcher {
     public static final int MAX_RECOMMENDATIONS = 1000;
     public static final int MAX_EXPLANATION_DEMAND_IDS = 20000;
 
-    public record Participant(long userId, String displayName, long itemId, String itemTitle) {}
+    public record Participant(long userId, String displayName, long itemId, String itemTitle, int itemVersion) {}
     public record Flow(long fromUserId, String fromName, long toUserId, String toName,
                        long itemId, String itemTitle, long demandId, List<Long> matchedDemandIds,
                        long matchedCategoryId, String matchedCategoryName, List<String> matchedTags,
-                       String reason) {}
+                       String reason, int demandVersion) {}
     public record Recommendation(String id, String ruleVersion, int length, int score,
                                  List<Participant> participants, List<Flow> flows, String explanation) {}
 
@@ -35,7 +35,7 @@ public final class IndependentDemandMatcher {
         Map<Long, Map<Long, List<PreparedDemand>>> byReceiver = new HashMap<>();
         for (var demand : unambiguous(input.demands(), IndependentMatchingInput.Demand::id)) {
             if (!"ACTIVE".equals(demand.status())) continue;
-            PreparedDemand prepared = new PreparedDemand(demand.id(), normalized(demand.preferredTags()));
+            PreparedDemand prepared = new PreparedDemand(demand.id(), normalized(demand.preferredTags()), demand.version());
             for (long itemId : demand.offeredItemIds()) {
                 var item = byId.get(itemId);
                 if (item == null || item.ownerId() != demand.ownerId()) continue;
@@ -95,7 +95,7 @@ public final class IndependentDemandMatcher {
                 bestContribution = contribution;
             }
         }
-        return new Edge(selected.id(), choices.ids(), selectedTags, bestContribution);
+        return new Edge(selected.id(), choices.ids(), selectedTags, bestContribution, selected.version());
     }
 
     private static Set<String> normalized(Set<String> tags) {
@@ -120,9 +120,9 @@ public final class IndependentDemandMatcher {
         return List.copyOf(byId.values());
     }
 
-    private record PreparedDemand(long id, Set<String> preferredTags) {}
+    private record PreparedDemand(long id, Set<String> preferredTags, int version) {}
     private record DemandChoices(List<PreparedDemand> demands, List<Long> ids) {}
-    private record Edge(long demandId, List<Long> matchedDemandIds, List<String> matchedTags, int contribution) {}
+    private record Edge(long demandId, List<Long> matchedDemandIds, List<String> matchedTags, int contribution, int demandVersion) {}
 
     private static final class Results {
         private final List<IndependentMatchingInput.Offer> offers;
@@ -164,13 +164,13 @@ public final class IndependentDemandMatcher {
                 var receiver = offers.get(to);
                 Edge edge = edges[from][to];
                 contribution += edge.contribution();
-                participants.add(new Participant(provider.ownerId(), provider.ownerName(), provider.id(), provider.title()));
+                participants.add(new Participant(provider.ownerId(), provider.ownerName(), provider.id(), provider.title(), provider.version()));
                 String reason = "满足" + receiver.ownerName() + "的独立需求 #" + edge.demandId() + "：「" +
                     provider.categoryName() + "」分类" + (edge.matchedTags().isEmpty() ?
                     "；分类匹配，暂无共同偏好标签" : "；偏好标签：" + String.join("、", edge.matchedTags()));
                 flows.add(new Flow(provider.ownerId(), provider.ownerName(), receiver.ownerId(), receiver.ownerName(),
                     provider.id(), provider.title(), edge.demandId(), edge.matchedDemandIds(), provider.categoryId(),
-                    provider.categoryName(), edge.matchedTags(), reason));
+                    provider.categoryName(), edge.matchedTags(), reason, edge.demandVersion()));
             }
             int score = 60 + (int) Math.round(10.0 * contribution / canonical.length);
             recommendations.put(id, new Recommendation(id, RULE_VERSION, canonical.length, score,

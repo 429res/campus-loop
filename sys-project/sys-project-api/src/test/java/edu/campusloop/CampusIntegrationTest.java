@@ -409,7 +409,7 @@ class CampusIntegrationTest {
         } finally {jdbc.update("UPDATE cl_user SET status='ACTIVE' WHERE id=1001");}
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold",Integer.class));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange",Integer.class));
-        mvc.perform(post("/api/exchanges").header("Authorization","Bearer "+memberToken)).andExpect(status().isNotImplemented()).andExpect(jsonPath("$.code").value(501));
+        mvc.perform(post("/api/exchanges").contentType("application/json").content("{\"ruleVersion\":\"independent-v2\",\"idempotencyKey\":\"pending-test\",\"flows\":[{\"itemId\":1,\"itemVersion\":0,\"demandId\":2,\"demandVersion\":0},{\"itemId\":2,\"itemVersion\":0,\"demandId\":1,\"demandVersion\":0}]}").header("Authorization","Bearer "+memberToken)).andExpect(status().isConflict()).andExpect(jsonPath("$.code").value(409));
     }
     @Test void uploadValidatesContentAndOwnership() throws Exception {
         mvc.perform(multipart("/api/uploads").file(new MockMultipartFile("file","fake.png","image/png","not an image".getBytes())).header("Authorization","Bearer "+memberToken)).andExpect(status().isBadRequest());
@@ -1296,6 +1296,36 @@ class CampusIntegrationTest {
         assertEquals(expectedStatus,result.getResponse().getStatus(),method+" "+path);
         JsonNode response=json.readTree(result.getResponse().getContentAsString());assertEquals(expectedStatus,response.path("code").asInt());
         return response.path("data");
+    }
+    @Test void lifecyclePolicyAcceptsDatabaseUtcAndEnforcesExactDeadlineWithoutWriting() {
+        // Only the clock input is real DB data. Decisions below do NOT execute a lifecycle transaction.
+        boolean mysql=Boolean.getBoolean("campus.mysql-test");
+        String sql=mysql?"SELECT UTC_TIMESTAMP(6)":"SELECT CURRENT_TIMESTAMP";
+        Instant deadline=jdbc.queryForObject(sql,(rs,row)->mysql
+            ?rs.getObject(1,LocalDateTime.class).toInstant(ZoneOffset.UTC)
+            :rs.getObject(1,OffsetDateTime.class).toInstant());
+        var rules=new edu.campusloop.exchange.ExchangeLifecycleRules();
+        var current=new edu.campusloop.exchange.ExchangeLifecycleRules.Snapshot(91,
+            edu.campusloop.exchange.ExchangeLifecycleRules.State.AWAITING_CONFIRMATION,0,deadline,
+            Set.of(101L,102L),Set.of(),false,null);
+        var rows=matchingDomainRows();
+        var participants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
+        assertFalse(rules.expire(current,deadline.minusNanos(1)).changed());
+        assertEquals(edu.campusloop.exchange.ExchangeLifecycleRules.State.EXPIRED,rules.expire(current,deadline).next().state());
+        assertEquals(409,assertThrows(ApiException.class,()->rules.confirm(current,101,0,deadline)).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->rules.cancel(current,101,0,"虚构原因",deadline)).getStatus());
+        assertTrue(rules.cancel(current,101,0,"虚构原因",deadline.minusNanos(1)).changed());
+        assertMatchingDomainRowsUnchanged(rows);
+        assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
+    }
+    @Test void malformedOrUnauthorizedHandoffCannotWriteExchangeFacts() throws Exception {
+        var rows=matchingDomainRows();
+        var participants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
+        demandCall("POST","/api/exchanges/91/handoff",null,Map.of("version",0),401);
+        demandCall("POST","/api/exchanges/91/handoff",memberToken,Map.of("version",0),400);
+        demandCall("POST","/api/exchanges/91/handoff",memberToken,Map.of("version",0,"kind","RECEIVED","acknowledged",true),404);
+        assertMatchingDomainRowsUnchanged(rows);
+        assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
     }
     @AfterAll void cleanUploads() throws Exception {try(var files=Files.list(UPLOADS)){for(Path file:files.toList())Files.delete(file);}Files.delete(UPLOADS);}
 }

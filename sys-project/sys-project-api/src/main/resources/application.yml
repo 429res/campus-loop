@@ -7,7 +7,7 @@ spring:
   application:
     name: campus-loop
   datasource:
-    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3308}/${DB_NAME:campus_loop_dev}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3308}/${DB_NAME:campus_loop_dev}?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&forceConnectionTimeZoneToSession=true
     username: ${DB_USERNAME:campus_loop}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -42,3 +42,9 @@ campus:
   bootstrap-user-password: ${CAMPUS_USER_PASSWORD:}
   bootstrap-only: ${CAMPUS_BOOTSTRAP_ONLY:false}
   demo-enabled: ${CAMPUS_DEMO_ENABLED:true}
+
+  exchange-expiry:
+    enabled: ${CAMPUS_EXCHANGE_EXPIRY_ENABLED:true}
+    batch-size: ${CAMPUS_EXCHANGE_EXPIRY_BATCH_SIZE:50}
+    delay-ms: ${CAMPUS_EXCHANGE_EXPIRY_DELAY_MS:30000}
+    initial-delay-ms: ${CAMPUS_EXCHANGE_EXPIRY_INITIAL_DELAY_MS:1000}

@@ -17,7 +17,8 @@ const run = (command,args,cwd=root) => new Promise((ok,fail)=>{
 })
 let started=false
 try {
-  await run('docker',['run','--detach','--rm','--name',container,'-p',`127.0.0.1:${port}:3306`,'--env','MYSQL_DATABASE','--env','MYSQL_USER','--env','MYSQL_PASSWORD','--env','MYSQL_ROOT_PASSWORD','--health-cmd','mysqladmin ping -h localhost --silent','--health-interval','2s','--health-retries','60','mysql:8.4.11'])
+  // The image bootstrap server is socket-only; TCP readiness waits for the final server.
+  await run('docker',['run','--detach','--rm','--name',container,'-p',`127.0.0.1:${port}:3306`,'--env','MYSQL_DATABASE','--env','MYSQL_USER','--env','MYSQL_PASSWORD','--env','MYSQL_ROOT_PASSWORD','--health-cmd','mysqladmin ping --protocol=TCP -h 127.0.0.1 --silent','--health-interval','2s','--health-retries','60','mysql:8.4.11'])
   started=true
   let healthy=false
   for(let tries=0;tries<90;tries++) {

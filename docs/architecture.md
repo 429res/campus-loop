@@ -35,9 +35,9 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 物品附带需求 | 当前最小实现 | wantedCategoryId、wantedTags；每件物品一条需求，构成“我有/我想要”的可运行样例 |
 | 独立需求清单 | 当前（B-01已合入） | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
 | 需求候选关联 | 当前（B-01已合入） | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
-| 交换及参与者 | 预留模型/后续实现 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
-| 有效占用 | 后续 B | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
-| 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
+| 交换及参与者 | A-03创建，B-03参与者读取/确认/取消 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
+| 有效占用 | A-03 | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
+| 履历事件与证据 | B-05.1自述/证据/查询及B-05.2参与者确认已实现，管理员核验见B-05.3 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
 | 举报/争议/履历审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
 | 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
@@ -48,11 +48,11 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 
 A-02 新增 V6，仅扩展一级分类。ACTIVE/INACTIVE控制后续物品与需求选择，不回写历史物品/需求状态，不改变现有推荐候选规则。名称 trim、小写归一唯一，sortOrder/id升序；PATCH/DELETE校验version，重名或旧版本409。删除必须没有任何物品category/wanted或需求category引用，墓碑与隐藏记录同样保护；保留原外键，不能级联清空。历史读取继续解释当前分类名称。
 
-业务事务复用 CategorySelectionService 按分类ID升序加锁并验证ACTIVE，保持到引用写入提交。统一顺序为需求行（如有）→已有物品及占用（按物品ID）→所选分类（按分类ID）；分类维护只锁分类，READ_COMMITTED下非锁定统计引用，不反向锁物品或需求。这样停用/删除先提交时业务复核失败，业务先提交时删除看到引用而409；数据库外键最终兜底。细节和消费方边界见 [A-02 分类说明](a02-category-maintenance.md)。
+业务事务复用 CategorySelectionService 按分类ID升序加锁并验证ACTIVE，保持到引用写入提交。统一顺序为需求所属用户（需求写入时）→需求行（如有）→已有物品及占用（按物品ID）→所选分类（按分类ID）；分类维护只锁分类，READ_COMMITTED下非锁定统计引用，不反向锁物品或需求。这样停用/删除先提交时业务复核失败，业务先提交时删除看到引用而409；数据库外键最终兜底。细节和消费方边界见 [A-02 分类说明](a02-category-maintenance.md)。
 
 ### A-02 本人物品写入边界
 
-本人分页和详情直接由服务端会话限定当前 owner，可查看七种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。完整编辑允许 AVAILABLE/PENDING_REVIEW/REJECTED，并进入待审；下架仅限 AVAILABLE。二者都必须无占用、无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 保留记录，本轮不恢复、不编辑；DRAFT/RESERVED/EXCHANGED 不可通过本人接口修改。正式交换尚无写入实现，预留状态的保护以隔离夹具验证。
+本人分页和详情直接由服务端会话限定当前 owner，可查看七种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。完整编辑允许 AVAILABLE/PENDING_REVIEW/REJECTED，并进入待审；下架仅限 AVAILABLE。二者都必须无占用、无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 保留记录，本轮不恢复、不编辑；DRAFT/RESERVED/EXCHANGED 不可通过本人接口修改。A-03已共用B-03端口实现正式创建，物品保护由统一ItemMutationGuard处理。
 
 写事务使用 READ_COMMITTED，先锁 cl_item 行，再检查占用行及进行中的参与者引用，以免读取等待锁之前的旧快照；按 id/owner/status/version 条件更新并数据库回读，version 每次成功加1。过期占用不能由此清除。未来交换写入必须先按物品ID升序锁定相关物品，再写占用/参与者及物品状态；其他所有权、审核或交换物品变更必须同步推进物品 version。本人接口不锁 exchange 行，避免反向嵌套交换锁；不更新/删除需求关联、参与者、占用或履历。第一批使用 V1/V2；第四批 V7 在同事务追加 SUBMIT/WITHDRAW 审计，不硬删记录。详见 [A-02](a02-own-items.md)。
 
@@ -76,7 +76,7 @@ cl_item_review_audit 记录 SUBMIT/APPROVE/REJECT/WITHDRAW，内容前后快照�
 
 需求创建默认 ACTIVE，允许空候选集合。编辑、状态切换和逻辑删除锁定需求行并核对 version，更新成功 version+1；替换候选在同一事务内按 item id 升序锁定现有物品，复核归属、AVAILABLE 和无占用。候选可被本人多条需求共享，基数不代表未来交换允许复用物品。读取实时展示 offerable；物品状态、占用或归属变化不会自动改写需求，后续匹配与创建必须重新校验。
 
-INACTIVE 可查可编辑，可切换 ACTIVE（恢复前重校验关联）。DELETED 是接口不可恢复的墓碑，保留内容、原关联和 ID 供历史引用，普通查询/写入返回404；不提供物理删除操作。关联外键采用 RESTRICT，后续持久引用也必须保留非级联外键，不能级联删除历史需求。正式交换引用下的编辑/停用限制需在 B-03 与 A 共同确定，本轮不建立交换引用。
+INACTIVE 可查可编辑，可切换 ACTIVE（恢复前重校验关联）。DELETED 是接口不可恢复的墓碑，保留内容、原关联和 ID 供历史引用，普通查询/写入返回404；不提供物理删除操作。关联外键采用 RESTRICT，后续持久引用也必须保留非级联外键，不能级联删除历史需求。A-03的cl_exchange_demand引用冻结进行中交换所选需求，检查在需求行锁内完成；不反向锁exchange，终态后保留历史引用与快照。
 
 需求结构使用 V4，接在 main 的 V3 用户状态管理迁移之后，不改写 V1–V3。A/D 的候选基数复核仍待团队确认。B-02本分支的显式来源、多需求选择与规则版本见下文；消费复核单独跟踪。requiredTags/最低成色继续不开放、不启用。详见 [B-01 接入说明](b01-independent-demands.md)。
 
@@ -104,17 +104,17 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 
 资源保护均整次返回422：200件可交换物品、20000条有效需求关联、1000个返回方案、全响应流向的命中需求ID累计20000项，任一超出不返回部分结果。新增上限和多需求展示选择已在 [Issue #7](https://github.com/429res/campus-loop/issues/7) 同步，D消费复核仍待完成。分类硬匹配、标签软排序按本次明确范围保持；requiredTags/最低成色没有字段、规则或版本启用变更。详情与虚构样例见 [B-02说明](b02-independent-matching.md)。
 
-## 正式交换的事务和并发设计（后续）
+## 正式交换的事务和并发设计（A-03与B-03共用）
 
-1. `POST /api/exchanges` 输入物品有序列表、推荐规则版本和 `idempotencyKey`。服务器从登录身份出发重建流向，不相信客户端价格、owner 或匹配理由。
-2. 在事务内按物品 id 升序 `SELECT … FOR UPDATE` 锁定所有物品，再检查状态、所有权、有效需求、用户唯一、2/3 长度；按 `(creator,idempotency_key)` 唯一约束防重复。若任一不可交换则整体 409，无部分成功。
-3. 创建 `AWAITING_CONFIRMATION` 和所有参与者，原子插入 item_id 唯一的占用记录并将物品置 RESERVED。唯一键冲突转换成 409。推荐浏览永远不占用物品。
+1. `POST /api/exchanges` 复用B的严格命令、ExchangeApplicationService和ExchangeCycleValidator，A提供唯一ExchangeCreationTransaction实现。身份来自会话；推荐是前置条件，不能作为可交换证明。
+2. 新事务READ_COMMITTED：先无锁发现当前owner作为锁线索，按用户ID升序锁定（含发起人），检查发起人ACTIVE并识别同键摘要重放；新请求重校验其他用户。再按所有有效关联需求及请求需求ID升序锁定，物品ID升序锁定并检查占用/进行中引用。锁后owner不在已锁集合则409，不追加乱序用户锁。需求新增/修改/启停/删除先锁owner用户，因此完整选择输入（含新需求、未选需求、关联）直到提交都稳定；B校验器重新选择流向与需求，版本、归属、状态、2/3环及流向任一失效整体拒绝。
+3. V8仅扩展V2：保存规则、SHA-256规范化摘要、创建快照与精确需求引用/快照；旧行保留NULL，不猜测重放。原子创建AWAITING_CONFIRMATION/version=0、全员PENDING，按物品升序写唯一占用并置RESERVED/version+1，保留审核信息。锁后数据库UTC+24h为原截止，MySQL连接会话固定UTC。相同发起人/键/摘要先返回原交换，不重校验已被本次占用的物品、不延长截止；同键异内容409。约束错误在事务回滚后转409；瞬态并发错误最多三次独立事务，耗尽409。需求冻结检查只读进行中交换引用，不反向锁exchange。推荐GET没有锁或写入。完整边界及证据见[A-03说明](a03-exchange-transaction.md)。
 4. `POST /{id}/confirm` 仅参与者可执行；在锁定 exchange 后检查 version/state/deadline，重复确认幂等，全部确认后进入 READY。占用在创建事务开始，不能等到各方确认后才分别抢占。
 5. 双方或三方分别提交交接确认。全部完成时，同一事务更换物品所有者、关闭旧需求、写入不可覆盖的履历、释放占用并置 COMPLETED。履历来源初始是参与者确认，不能自动升级为管理员核验。
 6. 确认截止前可取消；取消与超时任务使用相同 exchange 行锁与条件状态更新，仅释放属于该 exchange 的占用。重试任务幂等。交接开始后不能简单取消，进入争议流程，避免已交付物品被自动重新上架。
 7. 超时使用数据库 UTC 时间、批次扫描和可恢复任务，UI 倒计时只展示。version 乐观锁用于编辑与条件状态变更，唯一占用约束作为最终防线。数据库死锁按有限次数重试，外部通知在事务提交后 outbox 发送。
 
-状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；确认前可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED → COMPLETED/CANCELLED`。当前接口只返回明确的待开发错误，没有假确认、假取消或假占用。
+状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描由A-04接通。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
 ## 履历可信度
 
@@ -123,3 +123,66 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 ## 开发隔离与边界
 
 Compose 只监听127.0.0.1，数据库端口3308，应用8088；上传目录在项目 `.local`。每位成员有自己的库和本地账号。Flyway 不含 DROP 或清空语句；演示数据只在本地初始化打开时插入。默认测试 H2，MySQL CI 使用独立临时 `_test` 库。上传默认本地文件存储，OSS、微信身份登录、消息通知均为后续适配。
+
+## B-03 第一切片：读取与A/B实现边界
+
+本人分页/详情使用同一REPEATABLE_READ只读快照，按持久参与者关系授权；发起人字段本身不替代参与者资格，ADMIN也不能绕过私有入口。以持久offered_item_id/recipient_user_id重建收到的物品，保留反向三环，不按当前owner改写历史。仅读取V2已有事实，不拼入物品后来变更的私有内容；无历史快照时不虚构需求ID/规则版本。allowedActions来自共用规则，到期读取不执行过期处理。C管理读取路径仅是独立草案。
+
+A-03基于已合入的B-03 PR #28实现唯一事务端口，复用其ExchangeDomainIntegrationTest增加真实创建、冻结、回滚及MySQL争抢测试。V8由A提供；B邀请规则分支未新增迁移或另一条创建路径。B-02新增物品/所选需求版本元数据，仍是independent-v2分类硬、标签软；纯校验器重用相同选中需求规则，过期命中不能自动替换。详见 [B-03说明](b03-exchange-domain.md) 和 [Issue #25](https://github.com/429res/campus-loop/issues/25)。
+
+## B-03.2 / A-04 共用生命周期
+
+单一ExchangeLifecycleService以ExchangeLifecycleRules决定确认、取消、到期，读取用相同参与事实和规则生成allowedActions。创建与生命周期共享ExchangeTransactionExecutor、ExchangeDatabaseClock，保留A-03的READ_COMMITTED/整事务有限重试。已有exchange先锁，再用户升序→需求升序→物品/占用升序；必要锁全部取得后再次读数据库UTC，严格小于原expiresAt才允许新用户动作。
+
+READY未交接且原24h截止前，任一参与者可取消；全员独立确认才READY。重复确认/精确取消重放不增加事件/版本或重复释放，新动作检查version。交换锁串行确认、取消、到期；V9审计事件按exchange/new_version唯一。释放核对持久流向、创建时版本、当前RESERVED/owner/version、占用集合与exchange归属及其他进行中引用，然后仅条件删除本交换占用、保留所有权恢复AVAILABLE/version+1；任何失败整笔回滚。
+
+旧无V8创建依据记录继续只读，V9不伪造历史取消信息。取消字段仅参与者详情可见，管理读契约不带代确认权。A-04扫描通过同一applyLocked路径和SKIP LOCKED首锁调用expireForScan，V10保存失败退避，重启从数据库恢复到期记录；交接/所有权转移见B-04。完整矩阵、迁移与证据见[B-03.2](b03-invitation-rules.md)。
+
+
+## A-04 扫描与恢复
+
+ExchangeExpiryScanner按数据库UTC读取有界候选批次，复用ExchangeLifecycleService和ExchangeLifecycleRules决定到期与条件释放；没有第二套超时状态机。exchange首锁SKIP LOCKED只跳过忙行，后续用户/需求/物品顺序不变。失败整笔回滚后以条件SQL保存expiry_retry_at/count/failure_code，30秒起指数退避、上限1小时；正常候选继续处理。业务终态不被迟到重试覆盖，成功转换清除退避标记。
+
+持久待办来源是原expires_at、活动状态与重试时间，调度器只负责唤醒；任意实例重启自动重新发现，重复处理不释放新交换占用。交接事实非空、终态或缺少V8依据的旧记录排除自动扫描。V10只增加运维字段/索引，不改已有状态与截止。配置、B/C/D语义和真实恢复证据见[A-04](a04-exchange-expiry.md)。
+
+### B-04 双向声明与原子完成
+
+沿用 ExchangeLifecycleService/ExchangeLifecycleRules，不创建第二套事务/占用或状态机。锁序为 exchange→用户升序→精确需求升序→物品/占用升序；参与者、路由和需求引用从数据库读取，最终数据库UTC授权首次交接。所有确认只写登录参与者的相应时间与说明。任何handed_off_at/received_at即已开始交接，与A-04扫描筛选一致；原24h此后不再授权取消/释放，也不阻止补齐独立声明。
+
+V11追加两种声明说明、争议审计和事件类型，旧数据不补造确认。最后2N中的一条声明在一次事务写入：参与者事实→交换COMPLETED/version+1→该声明审计（new_status=COMPLETED）→精确需求INACTIVE/version+1→逐件owner迁移/EXCHANGED/version+1、不可覆盖EXCHANGED履历、条件释放自身占用。任何写阶段失败全部回滚。需求核对创建command、cl_exchange_demand版本/对应提供物、当前owner/ACTIVE/category、本人提供关联、唯一进行中引用；不关闭其他需求，也不双写wanted旧字段。转移后的EXCHANGED不公开参与交换推荐。事件可信度BOTH_CONFIRMED，绝不自动ADMIN_VERIFIED。
+
+```mermaid
+stateDiagram-v2
+    AWAITING_CONFIRMATION --> READY: 全员邀请确认
+    AWAITING_CONFIRMATION --> CANCELLED: 未截止取消
+    AWAITING_CONFIRMATION --> EXPIRED: 截止且无交接
+    READY --> READY: 部分交出或收到声明
+    READY --> COMPLETED: 所有2N声明 原子流转
+    READY --> CANCELLED: 未交接且未截止取消
+    READY --> EXPIRED: 未交接且已截止
+    READY --> DISPUTED: 已交接 参与者登记异常
+```
+
+争议停止在DISPUTED，保留原所有权/占用，无管理员代办、回滚实物或自动重新上架能力。允许动作、重放边界与B-05事件入口见[B-04契约](b04-exchange-handoff.md)。
+
+### B-05.1 追加式自述与隐私投影
+
+复用cl_item_history及B-04原始EXCHANGED入口；新增自述只允许REPAIR/TRANSFER、SELF_REPORTED，作者来自会话，记录时间来自共用数据库UTC。已知发生时间在声明授权窗口内；未知用occurred_at NULL表达，不借记录时间冒充。B-04完成记录证明曾经持有及该件物品流向；没有初始持有起点时窗口下界未知，不以物品创建日期伪造。
+
+V12追加窗口、单链修正及证据引用。修正通过新行指向原行，复合外键绑定相同item/sourceUser/evidenceLevel，CHECK限制SELF_REPORTED，唯一边阻止并发分叉；历史DAO只有INSERT/SELECT，HTTP无覆盖能力。写入复用READ_COMMITTED事务与关联exchange（若有）→涉及用户升序→物品锁，取得锁后重读owner/真实交换及链尾，时间线和证据关联一起提交；不改物品、需求或交换状态。
+
+LocalUploadService抽取并复用原图片解码/再编码逻辑；UploadReferenceService共用本人归属与用途检查。V12旧上传保持PUBLIC；新PRIVATE_EVIDENCE在公开uploads的同级目录，不注册静态访问。证据引用只接本人私有有效PNG，读取按作者/事件关联物品交出接收双方/ADMIN授权，未引用上传仅本人预览。所有新JSON与证据读取private/no-store，证据不在公开时间线中暴露（无地址/数量）。新当前owner和三方环第三人都不自动继承私人材料。
+
+读事务REPEATABLE_READ，SQL按item和当前权限过滤分页记录与total，公开字段与私有字段逐事件投影；非公开物品的无关人404。修正窗口仅是当次声明可涵盖范围，当前持有的上界为提交时间，不宣称该时刻结束持有。既有B-04事实不重写；参与者补充确认见B-05.2，ADMIN_VERIFIED生成见B-05.3，争议裁决留后续。模型、错误、不同来源样例见[B-05.1](b05-self-reported-history.md)。
+
+### B-05.2 不可变快照与参与者来源链
+
+V13追加请求、真实参与者集合、每人确认和撤回四张表，原履历/证据引用不改写，不回填任何授权或确认。作者显式授权后，固定从完整B-04完成环取全体2/3人，作者也不自动确认；集合外成员及ADMIN无代办权。SHA-256绑定规则版本history-confirmation-v1、原B-04事实ID、原自述内容、证据文件摘要及全员ID。快照与集合一起提交；每事件/成员唯一确认，外键同时绑定真实交换参与者和快照哈希。
+
+复用ExchangeTransactionExecutor、ExchangeDatabaseClock和exchange→全体用户升序→item锁；随后HistoryMapper.findCurrent使用独立FOR UPDATE语句，避免加锁前find结果被MyBatis一级缓存复用。修正与确认共享exchange/item锁：修正先提交则拒绝旧确认；最后确认先提交则旧事件保留N/N事实，新修正从0开始。撤回同序串行、追加原因/时间，不擦除已提交的独立声明或历史证据授权。
+
+原始recordedEvidenceLevel不变；响应evidenceLevel依据完整持久确认集合对该事件展示BOTH_CONFIRMED，状态同时标记PENDING/COMPLETE/SUPERSEDED/WITHDRAWN。B-04确认直接复用原参与者交出/接收时间，不再次写确认表。三方必须3/3，不能按BOTH名称误用2人门槛。所有新写入都不能产生ADMIN_VERIFIED。完整权限和D/C来源链样例见[B-05.2](b05-participant-confirmation.md)。
+
+### B-05.3 管理员核验追加审计
+
+V14增加单事件状态守卫及唯一追加审计，读请求虚拟PENDING/version0不写数据库。ADMIN决定以可选exchange→管理员user→item→事件顺序持锁重读，事件查询不联表锁作者；不涉及所有权或参与者写入。version0/PENDING条件更新与审计INSERT同事务，终局不覆盖，管理员ID＋幂等键约束重试。快照绑定当前声明/证据/参与者链，修正或来源变化后旧hash409；已决定后修正不继承来源。APPROVED审计构成新ADMIN_VERIFIED来源，原自述和参与者确认不变。详细权限、来源范围及C/D样例见[B-05.3](b05-admin-verification.md)。

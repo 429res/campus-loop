@@ -1,0 +1,333 @@
+{
+  "notice": "虚构API样例；正式HTTP两方/三方确认、取消与恢复由共用集成测试覆盖。sessionUserId仅说明登录视角，不是请求字段；不含凭据。",
+  "cases": [
+    {
+      "name": "两方首次确认后继续等待",
+      "sessionUserId": 101,
+      "request": {
+        "method": "POST",
+        "path": "/api/exchanges/9101/confirm",
+        "body": {
+          "version": 0
+        }
+      },
+      "response": {
+        "code": 200,
+        "msg": "成功",
+        "data": {
+          "id": 9101,
+          "initiatorId": 101,
+          "status": "AWAITING_CONFIRMATION",
+          "version": 1,
+          "createdAt": "2026-09-08T08:00:00Z",
+          "expiresAt": "2026-09-09T08:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "虚构同学甲",
+              "offeredItemId": 11,
+              "receivedItemId": 22,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:01:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "虚构同学乙",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": [
+            "CANCEL"
+          ],
+          "cancelledBy": null,
+          "cancellationReason": null,
+          "cancelledAt": null
+        }
+      }
+    },
+    {
+      "name": "最后参与者确认后READY",
+      "sessionUserId": 102,
+      "request": {
+        "method": "POST",
+        "path": "/api/exchanges/9101/confirm",
+        "body": {
+          "version": 1
+        }
+      },
+      "response": {
+        "code": 200,
+        "msg": "成功",
+        "data": {
+          "id": 9101,
+          "initiatorId": 101,
+          "status": "READY",
+          "version": 2,
+          "createdAt": "2026-09-08T08:00:00Z",
+          "expiresAt": "2026-09-09T08:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "虚构同学甲",
+              "offeredItemId": 11,
+              "receivedItemId": 22,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:01:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "虚构同学乙",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:02:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": [
+            "CANCEL"
+          ],
+          "cancelledBy": null,
+          "cancellationReason": null,
+          "cancelledAt": null
+        }
+      }
+    },
+    {
+      "name": "READY未交接由任一参与者取消",
+      "sessionUserId": 102,
+      "request": {
+        "method": "POST",
+        "path": "/api/exchanges/9101/cancel",
+        "body": {
+          "version": 2,
+          "reason": "课程时间冲突"
+        }
+      },
+      "response": {
+        "code": 200,
+        "msg": "成功",
+        "data": {
+          "id": 9101,
+          "initiatorId": 101,
+          "status": "CANCELLED",
+          "version": 3,
+          "createdAt": "2026-09-08T08:00:00Z",
+          "expiresAt": "2026-09-09T08:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "虚构同学甲",
+              "offeredItemId": 11,
+              "receivedItemId": 22,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:01:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "虚构同学乙",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:02:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": [],
+          "cancelledBy": 102,
+          "cancellationReason": "课程时间冲突",
+          "cancelledAt": "2026-09-08T08:03:00Z"
+        }
+      }
+    },
+    {
+      "name": "原取消者同原因重试",
+      "sessionUserId": 102,
+      "request": {
+        "method": "POST",
+        "path": "/api/exchanges/9101/cancel",
+        "body": {
+          "version": 2,
+          "reason": " 课程时间冲突 "
+        }
+      },
+      "response": {
+        "code": 200,
+        "msg": "成功",
+        "data": {
+          "id": 9101,
+          "initiatorId": 101,
+          "status": "CANCELLED",
+          "version": 3,
+          "createdAt": "2026-09-08T08:00:00Z",
+          "expiresAt": "2026-09-09T08:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "虚构同学甲",
+              "offeredItemId": 11,
+              "receivedItemId": 22,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:01:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "虚构同学乙",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "CONFIRMED",
+              "confirmedAt": "2026-09-08T08:02:00Z",
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": [],
+          "cancelledBy": 102,
+          "cancellationReason": "课程时间冲突",
+          "cancelledAt": "2026-09-08T08:03:00Z"
+        }
+      },
+      "persistenceEffect": "没有新事件、版本递增或重复释放；原截止后也可精确重放"
+    },
+    {
+      "name": "三方独立确认",
+      "sessionUsers": [
+        101,
+        102,
+        103
+      ],
+      "steps": [
+        {
+          "actorId": 101,
+          "requestVersion": 0,
+          "status": "AWAITING_CONFIRMATION",
+          "version": 1
+        },
+        {
+          "actorId": 103,
+          "requestVersion": 1,
+          "status": "AWAITING_CONFIRMATION",
+          "version": 2
+        },
+        {
+          "actorId": 102,
+          "requestVersion": 2,
+          "status": "READY",
+          "version": 3
+        }
+      ],
+      "persistenceEffect": "共三次确认事件，物品仍RESERVED且原截止不延长"
+    },
+    {
+      "name": "其他未确认参与者读取",
+      "sessionUserId": 102,
+      "afterCase": "两方首次确认后继续等待",
+      "allowedActions": [
+        "CONFIRM",
+        "CANCEL"
+      ]
+    },
+    {
+      "name": "截止时刻或交接开始后",
+      "allowedActions": [],
+      "newConfirmOrCancelCode": 409,
+      "recovery": "回读本人详情；用户请求和GET均不触发到期释放。A-04扫描接入尚待后续。"
+    }
+  ],
+  "errors": [
+    {
+      "code": 400,
+      "case": "版本非JSON整数、空原因、未知身份字段或查询参数",
+      "recovery": "保留输入，修正请求"
+    },
+    {
+      "code": 401,
+      "case": "会话不可用",
+      "recovery": "恢复会话后读取本人详情"
+    },
+    {
+      "code": 403,
+      "case": "操作人在锁内已被停用",
+      "recovery": "停止提交并恢复账号状态"
+    },
+    {
+      "code": 404,
+      "case": "非参与者，包括管理员；交换不存在",
+      "recovery": "停止操作，不透露他人交换是否存在"
+    },
+    {
+      "code": 409,
+      "case": "旧version、不同取消原因、非原取消者重试、终态、截止、交接或占用异常",
+      "recovery": "保留原因和原version，GET回读；由本人决定，不自动换version重试"
+    },
+    {
+      "code": 501,
+      "case": "handoff仍未实现",
+      "recovery": "入口保持待开发，不生成本地成功记录"
+    }
+  ],
+  "admin": "管理交换读取路径仍未注册，取消审计字段不授予管理员代确认权"
+}

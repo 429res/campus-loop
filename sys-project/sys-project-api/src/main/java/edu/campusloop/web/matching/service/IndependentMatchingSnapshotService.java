@@ -39,7 +39,7 @@ public class IndependentMatchingSnapshotService {
         List<IndependentMatchingInput.Offer> offers = items.availableForMatching().stream()
             .map(item -> new IndependentMatchingInput.Offer(item.id(), item.ownerId(), item.ownerName(),
                 item.title(), item.categoryId(), item.categoryName(), new LinkedHashSet<>(item.tags()),
-                item.status(), "ACTIVE", false))
+                item.status(), "ACTIVE", false, item.version()))
             .toList();
         if (offers.isEmpty()) return new IndependentMatchingInput(List.of(), List.of());
 
