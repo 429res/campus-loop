@@ -5,14 +5,41 @@ import { ref, watch } from 'vue'
 import { onShow, onUnload } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import http, { TOKEN_KEY, USER_KEY, imageUrl, isAbortError } from '../../common/http'
-const categories = ref([]), loggedIn = ref(false), busy = ref(false), uploading = ref(false), error = ref(''), categoriesError = ref('')
+const categories = ref([]), loggedIn = ref(false), verifyingSession = ref(false), busy = ref(false), uploading = ref(false), error = ref(''), categoriesError = ref('')
 const uploadError = ref(''), pendingFile = ref(''), draftNotice = ref(''), sessionError = ref(''), removedUpload = ref(false), currentUser = ref(null)
 const empty = () => ({title:'',description:'',categoryId:'',conditionLevel:3,tags:'',wantedCategoryId:'',wantedTags:'',imageUrl:''})
 const form = ref(empty())
 const conditionNames = ['有使用痕迹','正常使用','成色良好','几乎全新','全新未用']
 let uploadRequest, uploadAttempt = 0, hydratedUserId = null
+let verificationAttempt = 0, categoriesAttempt = 0, loadedCategoriesAttempt = 0, accountGeneration = 0, verifiedToken = ''
 const draftKey = id => `campus-loop-publish-draft-${id}`
 const hasDraftContent = value => value.title || value.description || value.categoryId || value.tags || value.wantedCategoryId || value.wantedTags || value.imageUrl
+function clearAccountState() {
+  accountGeneration++
+  loggedIn.value = false; currentUser.value = null; verifiedToken = ''; hydratedUserId = null
+  // Invalidate callbacks before aborting: abort may settle the old request immediately.
+  uploadAttempt++
+  uploadRequest?.abort?.(); uploadRequest = null
+  busy.value = false; uploading.value = false
+  form.value = empty(); pendingFile.value = ''; uploadError.value = ''; draftNotice.value = ''; removedUpload.value = false
+}
+const ownsAccountState = scope => scope && scope.generation === accountGeneration && scope.token === verifiedToken && scope.userId === currentUser.value?.id
+const isCurrentAccount = scope => ownsAccountState(scope) && scope.token === uni.getStorageSync(TOKEN_KEY)
+function captureAccount() {
+  if (!loggedIn.value || verifyingSession.value || !currentUser.value) return null
+  if (verifiedToken !== uni.getStorageSync(TOKEN_KEY)) { clearAccountState(); return null }
+  return {generation:accountGeneration, token:verifiedToken, userId:currentUser.value.id}
+}
+function requestFailed(e, scope, target) {
+  if (!ownsAccountState(scope)) return
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (scope.token !== token || e.status === 401) {
+    clearAccountState()
+    if (e.status === 401 && (!token || token === scope.token)) error.value = e.message
+    return
+  }
+  if (!isAbortError(e)) target.value = e.message
+}
 function restoreDraft(user) {
   if (hydratedUserId === user.id) return
   form.value = empty(); pendingFile.value = ''; uploadError.value = ''; draftNotice.value = ''
@@ -26,19 +53,22 @@ function restoreDraft(user) {
   hydratedUserId = user.id
 }
 watch(form, value => {
-  if (!currentUser.value || hydratedUserId !== currentUser.value.id) return
+  if (!currentUser.value || hydratedUserId !== currentUser.value.id || verifiedToken !== uni.getStorageSync(TOKEN_KEY)) return
   if (hasDraftContent(value)) uni.setStorageSync(draftKey(currentUser.value.id), {form:{...value},savedAt:Date.now()})
   else uni.removeStorageSync(draftKey(currentUser.value.id))
-}, {deep:true})
+}, {deep:true, flush:'sync'})
 async function loadCategories() {
+  const attempt = ++categoriesAttempt
   categoriesError.value = ''
   try {
-    categories.value = await http.get('/api/categories',{}, {silent:true})
+    const loaded = await http.get('/api/categories',{}, {silent:true})
+    if (attempt !== categoriesAttempt) return
+    categories.value = loaded; loadedCategoriesAttempt = attempt
     validateRestoredCategories()
-  } catch (e) { if (!isAbortError(e)) categoriesError.value = e.message }
+  } catch (e) { if (attempt === categoriesAttempt && !isAbortError(e)) categoriesError.value = e.message }
 }
 function validateRestoredCategories() {
-  if (!categories.value.length) return
+  if (loadedCategoriesAttempt !== categoriesAttempt || !categories.value.length) return
   let changed = false
   for (const key of ['categoryId','wantedCategoryId']) {
     if (form.value[key] && !categories.value.some(category => category.id === form.value[key])) { form.value[key] = ''; changed = true }
@@ -46,51 +76,77 @@ function validateRestoredCategories() {
   if (changed) draftNotice.value = '已恢复草稿；其中失效的分类已清除，请重新选择。'
 }
 async function verifySession() {
-  sessionError.value = ''
-  if (!uni.getStorageSync(TOKEN_KEY)) { loggedIn.value = false; currentUser.value = null; return }
+  const attempt = ++verificationAttempt
+  const token = uni.getStorageSync(TOKEN_KEY)
+  sessionError.value = ''; error.value = ''
+  if (!token || token !== verifiedToken) clearAccountState()
+  loggedIn.value = false; verifyingSession.value = !!token
+  if (!token) return
   try {
     const user = await http.get('/api/auth/me',{}, {silent:true})
-    currentUser.value = user; loggedIn.value = true; uni.setStorageSync(USER_KEY,user); restoreDraft(user)
+    if (attempt !== verificationAttempt) return
+    if (token !== uni.getStorageSync(TOKEN_KEY)) { clearAccountState(); return }
+    if (currentUser.value && currentUser.value.id !== user.id) clearAccountState()
+    verifiedToken = token; currentUser.value = user
+    uni.setStorageSync(USER_KEY,user); restoreDraft(user); loggedIn.value = true
   } catch (e) {
-    loggedIn.value = false; currentUser.value = null
+    if (attempt !== verificationAttempt) return
+    const currentToken = uni.getStorageSync(TOKEN_KEY)
+    clearAccountState()
+    // The request wrapper clears an expired token; a replacement session belongs to another verification.
+    if (token !== currentToken && (currentToken || e.status !== 401)) return
     if (e.status === 401) error.value = e.message
-    else sessionError.value = e.message
-  }
+    else if (!isAbortError(e)) sessionError.value = e.message
+  } finally { if (attempt === verificationAttempt) verifyingSession.value = false }
 }
-onShow(async () => { error.value = ''; await Promise.all([loadCategories(), verifySession()]); validateRestoredCategories() })
-onUnload(() => uploadRequest?.abort?.())
+onShow(async () => {
+  const session = verifySession()
+  const attempt = verificationAttempt
+  await Promise.all([loadCategories(), session])
+  if (attempt === verificationAttempt) validateRestoredCategories()
+})
+onUnload(() => { verificationAttempt++; categoriesAttempt++; clearAccountState(); verifyingSession.value = false })
 const login = () => uni.navigateTo({url:'/pages/login/login?redirect=publish'})
 const categoryName = id => categories.value.find(c => c.id === id)?.name || '请选择分类'
-const selectCategory = (event,key) => { form.value[key] = categories.value[Number(event.detail.value)]?.id || '' }
-async function startUpload(filePath) {
+const selectCategory = (event,key) => { if (captureAccount() && !busy.value) form.value[key] = categories.value[Number(event.detail.value)]?.id || '' }
+async function startUpload(filePath, scope = captureAccount()) {
+  if (!isCurrentAccount(scope) || busy.value || uploading.value) return
   const attempt = ++uploadAttempt
   uploading.value = true; uploadError.value = ''; removedUpload.value = false
   try {
     uploadRequest = http.upload(filePath,{silent:true})
     const result = await uploadRequest
-    if (attempt !== uploadAttempt) return
+    if (attempt !== uploadAttempt || !isCurrentAccount(scope)) return
     form.value.imageUrl = result.url; pendingFile.value = ''
   } catch(e) {
-    if (attempt === uploadAttempt && !isAbortError(e)) {
-      uploadError.value = e.message
-      if (e.status === 401) { loggedIn.value = false; currentUser.value = null; error.value = e.message }
-    }
-  } finally { if (attempt === uploadAttempt) { uploading.value = false; uploadRequest = null } }
+    if (attempt === uploadAttempt) requestFailed(e, scope, uploadError)
+  } finally {
+    if (attempt === uploadAttempt && ownsAccountState(scope)) { uploading.value = false; uploadRequest = null }
+  }
 }
-async function pickImage() {
-  if (uploading.value || busy.value) return
+function pickImage() {
+  const scope = captureAccount()
+  if (!scope || uploading.value || busy.value) return
   uni.chooseImage({count:1,sizeType:['compressed'],sourceType:['album','camera'],success(res) {
-    pendingFile.value = res.tempFilePaths[0]; form.value.imageUrl = ''; startUpload(pendingFile.value)
+    if (!isCurrentAccount(scope) || busy.value || uploading.value || !res.tempFilePaths?.[0]) return
+    pendingFile.value = res.tempFilePaths[0]; form.value.imageUrl = ''; startUpload(pendingFile.value, scope)
   }})
 }
-function cancelUpload() { if (!uploading.value) return; uploadRequest?.abort?.(); uploading.value = false; uploadError.value = '上传已取消，可保留预览后重试。' }
+function cancelUpload() {
+  if (!uploading.value) return
+  uploadAttempt++
+  uploadRequest?.abort?.(); uploadRequest = null
+  uploading.value = false; uploadError.value = '上传已取消，可保留预览后重试。'
+}
 function removeImage() {
+  if (!captureAccount() || busy.value) return
   cancelUpload()
   removedUpload.value = !!form.value.imageUrl
   pendingFile.value = ''; form.value.imageUrl = ''; uploadError.value = ''
 }
 async function publish() {
-  if (busy.value || uploading.value) return
+  const scope = captureAccount()
+  if (!scope || busy.value || uploading.value) return
   error.value = ''
   if (!form.value.title.trim() || !form.value.description.trim() || !form.value.categoryId || !form.value.wantedCategoryId) { error.value = '请填写标题、物品描述、物品分类和想换的分类'; return }
   const tags = value => [...new Set(value.split(/[,，]/).map(t => t.trim()).filter(Boolean))]
@@ -99,16 +155,17 @@ async function publish() {
   busy.value = true
   try {
     const data = await http.post('/api/items', {...form.value,title:form.value.title.trim(),description:form.value.description.trim(),tags:itemTags,wantedTags},{silent:true})
-    if (currentUser.value) uni.removeStorageSync(draftKey(currentUser.value.id))
-    form.value = empty()
+    if (!isCurrentAccount(scope)) return
+    uni.removeStorageSync(draftKey(scope.userId)); form.value = empty()
     uni.navigateTo({url:`/pages/detail/detail?id=${data.id}`})
-  } catch(e) { error.value = e.message; if(e.status === 401) { loggedIn.value = false; currentUser.value = null } } finally { busy.value = false }
+  } catch(e) { requestFailed(e, scope, error) } finally { if (ownsAccountState(scope)) busy.value = false }
 }
 </script>
 <template>
   <LoopLayout>
     <view class="cl-page-heading"><text class="cl-title">让闲置，开始下一段旅程</text><text class="cl-subtitle">说说你有什么，也告诉我们你想要什么。</text></view>
-    <view v-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ error || sessionError || '登录后发布你的闲置' }}</text><text class="cl-hint">表单不会自动提交；重新登录后可恢复当前账号的非敏感草稿。</text><LoopButton v-if="sessionError" class="cl-btn" @click="verifySession">重试验证</LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="login">重新登录</LoopButton></view>
+    <view v-if="verifyingSession" class="cl-panel cl-empty" role="status"><text>正在验证当前账号…</text></view>
+    <view v-else-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ error || sessionError || '登录后发布你的闲置' }}</text><text class="cl-hint">表单不会自动提交；重新登录后可恢复当前账号的非敏感草稿。</text><LoopButton v-if="sessionError" class="cl-btn" @click="verifySession">重试验证</LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="login">重新登录</LoopButton></view>
     <view v-else class="publish-layout">
       <form class="cl-panel cl-form" @submit="publish">
         <view v-if="draftNotice" class="cl-notice" role="status">{{ draftNotice }}</view>

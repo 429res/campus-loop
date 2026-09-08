@@ -2,6 +2,8 @@
   "name": "campus-loop-user",
   "version": "0.1.0",
   "scripts": {
+    "test": "node --test scripts/publish-session.test.cjs scripts/test-loop-button.mjs",
+    "test:mp-build": "node scripts/test-loop-button.mjs --mp-build",
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:h5": "uni build",

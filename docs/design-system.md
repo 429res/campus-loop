@@ -27,7 +27,7 @@
 | 类型 | 管理端 | H5 / 微信处理 |
 | --- | --- | --- |
 | 导航、侧栏、Tab、分段 | 公共材质、移动选中指示器 | 可控导航共享 token；微信原生 TabBar |
-| 按钮、图标按钮 | 含 loading/disabled/danger | 原生 button + 轻按压，微信保留原生能力 |
+| 按钮、图标按钮 | 含 loading/disabled/danger | LoopButton 显式转发 click/form-type/loading/ARIA；微信以 wx://form-field-button 关联外层表单；H5 支持单次 Enter/Space 激活 |
 | 搜索、输入、选择、日期 | 焦点/错误/清空/下拉统一 | 原生 input/picker，H5 弹层公共材质 |
 | 开关、分页、上传 | 状态过渡、防重入、移除同步 | 原生 switch/照片选择和列表翻页 |
 | 菜单、tooltip、通知 | Popper 外壳单层玻璃 | H5 提示与菜单；微信 toast/action sheet |

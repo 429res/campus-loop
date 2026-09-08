@@ -44,7 +44,13 @@ jobs:
       - run: npm install -g npm@12.0.2
       - run: npm ci
         working-directory: wx-project-self
+      - run: npm test
+        if: matrix.target == 'h5'
+        working-directory: wx-project-self
       - run: npm run build:${{ matrix.target }}
+        working-directory: wx-project-self
+      - run: npm run test:mp-build
+        if: matrix.target == 'mp-weixin'
         working-directory: wx-project-self
   backend-tests:
     name: backend-tests
