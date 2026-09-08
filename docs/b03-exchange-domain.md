@@ -1,5 +1,7 @@
 # B-03 第一切片：领域入口、详情与本人列表
 
+> 后续状态：A-03已在本分支接通唯一事务端口，见[A-03集成与验收](a03-exchange-transaction.md)。以下保留PR #28交付当时的边界和验证记录，其中“尚未接入/501”不表示本分支当前创建能力。
+
 基线 main `7d5e515`，B-02 [PR #11](https://github.com/429res/campus-loop/pull/11) 和 A-02 审核 [PR #24](https://github.com/429res/campus-loop/pull/24) 已合入。分支 `feature/b03-exchange-domain`；交付前同步main `052ecc8`，保留D-02 PR #22的独立理由和收藏接线。协作 [Issue #25](https://github.com/429res/campus-loop/issues/25)；当前没有A-03实现/关联PR，A在协作任务明确核对并确认，不是按分支命名猜测。
 
 ## 本切片实际交付与未接通边界
