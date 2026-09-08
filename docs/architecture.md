@@ -114,7 +114,7 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 6. 确认截止前可取消；取消与超时任务使用相同 exchange 行锁与条件状态更新，仅释放属于该 exchange 的占用。重试任务幂等。交接开始后不能简单取消，进入争议流程，避免已交付物品被自动重新上架。
 7. 超时使用数据库 UTC 时间、批次扫描和可恢复任务，UI 倒计时只展示。version 乐观锁用于编辑与条件状态变更，唯一占用约束作为最终防线。数据库死锁按有限次数重试，外部通知在事务提交后 outbox 发送。
 
-状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描由A-04接通。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
+状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消、交接与参与者争议登记已接通共用持久事务，自动超时扫描由A-04接通；管理员裁决仍未实现。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
 ## 履历可信度
 

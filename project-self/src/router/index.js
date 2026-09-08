@@ -12,6 +12,11 @@ const developmentRoutes = import.meta.env.DEV
         component: () => import("@/views/Categories.vue"),
         meta: { public: true, title: "分类维护组件夹具" },
       },
+      {
+        path: "/fixtures/disputes",
+        component: () => import("@/views/Disputes.vue"),
+        meta: { public: true, title: "交换争议组件夹具" },
+      },
     ]
   : [];
 const router = createRouter({
@@ -47,6 +52,11 @@ const router = createRouter({
       path: "/matches",
       component: () => import("@/views/Matches.vue"),
       meta: { title: "交换推荐" },
+    },
+    {
+      path: "/disputes",
+      component: () => import("@/views/Disputes.vue"),
+      meta: { title: "交换争议" },
     },
     {
       path: "/controls",
