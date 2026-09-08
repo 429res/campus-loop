@@ -190,3 +190,7 @@ V14增加单事件状态守卫及唯一追加审计，读请求虚拟PENDING/ver
 ### C-04 管理争议读取
 
 ExchangeDisputeQueryService 在 REPEATABLE_READ 只读事务校验有效ADMIN并限定DISPUTED；复用ExchangeQueryService流向校验，投影全部2/3参与者，移除交接私人说明与动作。事件分页只读已有cl_exchange_event，无新增表/锁/写入口；证据与裁决仍待A受理基础和团队策略，详见[C-04读取边界](c04-exchange-domain-read.md)。
+
+### B-06 单项分类建边优化
+
+独立需求匹配按接收物的需求分类构建本次调用内索引，提供物只访问匹配分类的接收物；仍保留边矩阵、原环枚举及排序。数据库/缓存/规则/所有上限不变。200件目标的可重复数据、收益及退化见[B-06基准](b06-matching-benchmark.md)，不代表全部性能工作完成。
