@@ -17,6 +17,8 @@
 | 物品审核表单 | Items / ReviewDecisionDialog；开发环境 `/fixtures/item-review` 覆盖理由错误、loading/disabled、403、409回读和失败保留。生产不注册夹具路由，写接口未合入前正式按钮禁用 |
 | 分类维护表单 | Categories / CategoryFormDialog；开发环境 `/fixtures/categories` 提供真实读取、空白/长度校验、提交防重入、错误保留与409回读夹具。生产不注册夹具路由，写接口未合入前正式按钮禁用 |
 | 账号查询与启停 | Users / UserStatusDialog；真实服务端筛选分页、审计抽屉、1–500字理由、loading防重入、403保留和409回读；确认弹层说明会话撤销及恢复登录影响 |
+| 交换争议追溯 | Disputes / ExchangeTrace；生产入口明确 ADMIN API 待开发，开发环境 `/fixtures/disputes` 覆盖双方/三方流向、长理由、事件、加载/错误/空态和响应式抽屉；不提供未授权裁决按钮 |
+| 举报受理与处理 | Reports / ReportActionDialog；生产入口明确后端待开发，开发环境 `/fixtures/reports` 覆盖筛选/分页、目标与证据状态、理由校验、loading 防重入、403 与 409 回读保留。夹具不写本地数组、不冒充业务成功 |
 
 所有控件共享悬停、聚焦、按下、选中、加载、禁用、错误、打开/关闭的相应状态。表格本身保持阅读效率。原生按钮和 Element Plus 保留键盘语义与焦点环，切换主题保持明确语义色；深色填充主按钮使用深色文字以保持对比。
 
