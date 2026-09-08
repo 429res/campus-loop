@@ -1,6 +1,6 @@
 # B-01：独立需求与本人可提供物品关联
 
-状态：`feature/b01-independent-demands` 已实现并完成本地验收，待其他成员审核、协调项确认及 CI；尚未合入 main，PR 通过 Issue 关联。协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。本切片仅后端，D-02 页面、B-02 独立需求匹配和正式交换均未接入。
+状态：B-01 已通过 [PR #4](https://github.com/429res/campus-loop/pull/4) 合入 main，模型和迁移为后续切片的实际基础。历史协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。本切片仅后端；B-02功能分支的显式独立匹配入口见 [B-02说明](b02-independent-matching.md)，D-02页面和正式交换仍未接入。
 
 ## 兼容与迁移
 
@@ -58,7 +58,7 @@ Content-Type: application/json
 
 响应 offeredItems 的每项为 `{itemId,title,categoryId,conditionLevel,status,offerable}`，查询当前物品状态，不存第二份物品快照。历史关联可能因下架、占用或所有者变化而 offerable=false；若所有权已转走，除 itemId/offerable 外其他字段为null。允许用户移除失效项；切回 ACTIVE 前必须消除失效关联。
 
-停用与恢复通过 `PATCH /api/demands/42/status` 提交 `{"version":1,"status":"INACTIVE"}` 或 ACTIVE。停用后本人仍能查看和编辑，ACTIVE列表立即排除。停用本轮不会改变旧演示推荐，界面应标明“需求已停用；独立需求匹配尚未接入”。
+停用与恢复通过 `PATCH /api/demands/42/status` 提交 `{"version":1,"status":"INACTIVE"}` 或 ACTIVE。停用后本人仍能查看和编辑，ACTIVE列表立即排除。停用不会改变旧演示推荐；B-02新独立入口会排除该需求。D-02接入时须明确区分两个来源，不能通过回退旧入口补出已停用的独立需求推荐。
 
 删除通过 `DELETE /api/demands/42?version=2`，成功 data 为 `{"id":42,"status":"DELETED","version":3}`。删除不可从API恢复，详情和后续写入404；数据库保留需求原内容、关联和ID作为历史墓碑。前端移除该项，不把停用当成删除。
 

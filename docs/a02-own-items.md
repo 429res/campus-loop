@@ -1,6 +1,6 @@
 # A-02 第一批：本人物品列表、编辑与下架
 
-本批后端和 D 接入契约随功能分支交付，协作见 [Issue #15](https://github.com/429res/campus-loop/issues/15)。从 main 的 `c6f4649` 开始实现；该基线已合入 B-01 独立需求，B-02 推荐 PR #11 仍独立评审，C 审核 PR #14 只提供前端只读页面和开发夹具。未将其他分支实现混入本 PR。
+本批后端和 D 接入契约随功能分支交付，协作见 [Issue #15](https://github.com/429res/campus-loop/issues/15)。已同步 main 的 `df49c11`，包含已合入的 B-01 独立需求与 B-02 推荐 PR #11；C 审核 PR #14 只提供前端只读页面和开发夹具，本批未启用审核。
 
 ## 状态与范围
 
@@ -13,7 +13,7 @@
 
 进行中的交换引用指 `cl_exchange_participant.offered_item_id` 对应 `AWAITING_CONFIRMATION/READY/DISPUTED` 交换；即使物品误为 AVAILABLE 且缺少占用行，也拒绝编辑/下架。任何占用行都阻止操作，包括已经过期的行；本接口不承担释放职责。终态交换引用保留历史，不阻止一件当前 AVAILABLE 且无占用物品下架；当前仍为 EXCHANGED 时则不能操作。
 
-发布仍为 AVAILABLE，不引入审核准入或迁移。下架只改 status 为 HIDDEN、version 加1，不删除正文、图片引用、上传文件、需求关联、交换参与者或履历。HIDDEN 退出现有推荐候选和需求 offerable-items；独立需求记录不被自动停用或改写。B-02 后续合入时继续沿用 AVAILABLE 过滤。
+发布仍为 AVAILABLE，不引入审核准入或迁移。下架只改 status 为 HIDDEN、version 加1，不删除正文、图片引用、上传文件、需求关联、交换参与者或履历。HIDDEN 退出现有推荐候选和需求 offerable-items；独立需求记录不被自动停用或改写。B-02 独立推荐同样由 AVAILABLE 过滤排除，已补充两种推荐入口的下架验证。
 
 ## D 的表单接入
 

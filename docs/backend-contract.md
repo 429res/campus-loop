@@ -17,7 +17,7 @@
 
 公开物品查询仅显示 AVAILABLE、RESERVED、EXCHANGED；本人物品查询另外包含 DRAFT、PENDING_REVIEW、HIDDEN。分页页码从 1 开始，size 1–100。文本使用纯文本渲染，标题 100、描述 2000 字符；分类必须存在，成色 1–5；两组标签各最多 8 个，每个 20 字符。时间字段按 UTC 的 ISO 格式输出，前端按本地时区显示。
 
-每件物品当前绑定一个想要分类与一组偏好标签，作为“我有什么 / 想要什么”最小样例。B-01 新增独立需求 CRUD 与本人物品候选关联，接口和兼容边界见 [api-contract.md](api-contract.md) 与 [b01-independent-demands.md](b01-independent-demands.md)。独立需求接入匹配、收藏和更多个人资料字段尚未实现；本人显示名称编辑与修改密码已由 A-01 提供，用户端接入见 [D-01 切片记录](d01-profile-password-status.md)。
+每件物品当前绑定一个想要分类与一组偏好标签，作为“我有什么 / 想要什么”最小样例。B-01 新增独立需求 CRUD 与本人物品候选关联，接口和兼容边界见 [api-contract.md](api-contract.md) 与 [b01-independent-demands.md](b01-independent-demands.md)。B-02分支已实现独立需求只读匹配，详见下文，尚未合入main；收藏和更多个人资料字段尚未实现；本人显示名称编辑与修改密码已由 A-01 提供，用户端接入见 [D-01 切片记录](d01-profile-password-status.md)。
 
 ## 有向匹配
 
@@ -34,6 +34,12 @@
 环从最小物品 ID 起记录，旋转视为同一推荐；方向相反的三方环代表不同物品流向，分别保留。重复输入 ID 去重，冲突的同 ID 记录全部排除。输出每个参与者、每条物品流向、满足的分类、重合标签和总体说明。
 
 HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交换，不写 `cl_item_hold`。推荐 ID 是当次规则生成的环标识，不能作为预约凭证。当前最多支持 200 件 AVAILABLE 候选和 1000 条推荐；任一超出返回 422，在构建第 1001 条解释对象前中止，避免隐藏截断或密集结果耗尽内存。`GET /api/admin/stats` 在该规模限制下保留基础计数，以 `recommendations=null` 和 `recommendationsStatus=LIMIT_EXCEEDED` 表示推荐数量不可用。下一阶段可按学校/分类建图、预计算邻接边和分页结果。
+
+## B-02 独立匹配实现入口
+
+`IndependentMatchingSnapshotService` 用只读REPEATABLE_READ适配已有物品与V4独立需求，保留200件候选上限并验证有效关联。纯模块 `IndependentDemandMatcher` 按流向选择一条需求计分，返回其他匹配需求ID以解释；只枚举当前会话用户所在的环。新 `/api/matches/independent` 需要登录，显式返回 independent-v2；旧 `/api/matches` 仍是旧wanted来源，不由新需求存在与否自动切换。新旧候选均排除已有占用行的物品。限额、版本400、身份401、超限422及完整字段见 [API契约](api-contract.md)。
+
+本切片无迁移或交换写入，不引入requiredTags/最低成色硬条件；D-02页面和消费确认单独跟踪。
 
 ## 已建立的数据结构，写入待开发
 

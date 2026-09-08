@@ -1,5 +1,8 @@
 package edu.campusloop;
 import edu.campusloop.auth.PasswordService;
+import edu.campusloop.common.ApiException;
+import edu.campusloop.matching.IndependentMatchingInput;
+import edu.campusloop.web.matching.service.IndependentMatchingSnapshotService;
 import edu.campusloop.web.user.entity.User;
 import edu.campusloop.web.user.mapper.UserMapper;
 import com.fasterxml.jackson.databind.*;
@@ -25,6 +28,8 @@ import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.http.HttpMethod;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -66,6 +71,8 @@ class CampusIntegrationTest {
     }
     @Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired UserMapper users;
     @Autowired PasswordService passwords;@Autowired JdbcTemplate jdbc;@Autowired DataSource ds;
+    @Autowired IndependentMatchingSnapshotService independentSnapshots;
+    @Autowired PlatformTransactionManager transactions;
     String memberToken,adminToken; long memberId,adminId; String memberName,memberPassword,adminName;
     @BeforeAll void setup() throws Exception {
         new ResourceDatabasePopulator(new ClassPathResource("db/demo-data.sql")).execute(ds);
@@ -848,6 +855,8 @@ class CampusIntegrationTest {
         String owner=demandUser(),other=demandUser();long id=demandItem(owner),partner=demandItem(other);
         jdbc.update("UPDATE cl_item SET category_id=2,wanted_category_id=1 WHERE id=?",partner);
         long demand=demandCall("POST","/api/demands",owner,demandBody(2,"下架保留需求",List.of(),List.of(id)),200).path("id").asLong();
+        demandCall("POST","/api/demands",other,demandBody(1,"接收图书",List.of(),List.of(partner)),200);
+        assertTrue(matchesContainItem(readOnlyIndependentMatches(owner,200).path("recommendations"),id));
         long ownerId=((Number)itemRow(id).get("owner_id")).longValue();
         jdbc.update("INSERT INTO cl_item_history(item_id,event_type,description,evidence_level,source_user_id,occurred_at) VALUES (?,'STATEMENT','虚构隔离履历','SELF_REPORTED',?,?)",
             id,ownerId,LocalDateTime.now(ZoneOffset.UTC));
@@ -860,6 +869,8 @@ class CampusIntegrationTest {
         demandCall("GET","/api/items/"+id,null,null,404);
         assertEquals(0,demandCall("GET","/api/items?keyword="+java.net.URLEncoder.encode(hidden.path("title").asText(),java.nio.charset.StandardCharsets.UTF_8),null,null,200).path("total").asInt());
         assertFalse(matchesContainItem(id));
+        assertFalse(matchesContainItem(readOnlyIndependentMatches(owner,200).path("recommendations"),id));
+        assertFalse(matchesContainItem(readOnlyIndependentMatches(other,200).path("recommendations"),id));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE item_id=?",Integer.class,id));
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=? AND demand_id=?",Integer.class,id,demand));
         assertFalse(demandCall("GET","/api/demands/"+demand,owner,null,200).at("/offeredItems/0/offerable").asBoolean());
@@ -898,7 +909,6 @@ class CampusIntegrationTest {
         }
     }
 
-    @Autowired org.springframework.transaction.PlatformTransactionManager itemTransactions;
     @Test void waitingItemWritesRecheckCommittedHoldStateAndOwnership() throws Exception {
         String owner=demandUser();
         for(String change:List.of("hold","state","owner","participant")) for(String method:List.of("PUT","POST")) {
@@ -906,7 +916,7 @@ class CampusIntegrationTest {
             String path="/api/items/"+id+(method.equals("POST")?"/withdraw":"");
             Object body=method.equals("POST")?Map.of("version",0):itemEdit(0,"等待锁的写入");
             try {
-                Future<MvcResult> pending=new org.springframework.transaction.support.TransactionTemplate(itemTransactions).execute(tx->{
+                Future<MvcResult> pending=new TransactionTemplate(transactions).execute(tx->{
                     jdbc.queryForObject("SELECT id FROM cl_item WHERE id=? FOR UPDATE",Long.class,id);
                     CountDownLatch attempting=new CountDownLatch(1);
                     Future<MvcResult> future=pool.submit(()->{attempting.countDown();return mvc.perform(request(HttpMethod.valueOf(method),path)
@@ -964,6 +974,299 @@ class CampusIntegrationTest {
         jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchange);
     }
 
+    @Test void independentSnapshotUsesLiveEligibleAssociationsWithoutWritingDomainRows() throws Exception {
+        List<Long> fixtureOwners=new ArrayList<>();
+        try {
+            String owner=demandUser(),recipient=demandUser(),disabled=demandUser();
+            long ownerId=matchingOwnerId(owner),recipientId=matchingOwnerId(recipient),disabledId=matchingOwnerId(disabled);
+            fixtureOwners.addAll(List.of(ownerId,recipientId,disabledId));
+            long available=demandItem(owner),unavailable=demandItem(owner),transferred=demandItem(owner),held=demandItem(owner),disabledItem=demandItem(disabled);
+            JsonNode active=demandCall("POST","/api/demands",owner,demandBody(6,"独立需求快照",List.of(" USB ","便携"),List.of(available,unavailable,transferred,held)),200);
+            long activeId=active.path("id").asLong();
+            demandCall("PATCH","/api/demands/"+activeId,owner,Map.of("version",0,"preferredTags",List.of("solar","便携")),200);
+            long inactiveId=demandCall("POST","/api/demands",owner,demandBody(3,"停用不入快照",List.of(),List.of(available)),200).path("id").asLong();
+            demandCall("PATCH","/api/demands/"+inactiveId+"/status",owner,Map.of("version",0,"status","INACTIVE"),200);
+            long deletedId=demandCall("POST","/api/demands",owner,demandBody(4,"墓碑不入快照",List.of(),List.of(available)),200).path("id").asLong();
+            demandCall("DELETE","/api/demands/"+deletedId+"?version=0",owner,null,200);
+            long unlinkedId=demandCall("POST","/api/demands",owner,demandBody(2,"无关联可保存但不入匹配",List.of(),List.of()),200).path("id").asLong();
+            long disabledDemand=demandCall("POST","/api/demands",disabled,demandBody(1,"停用用户不入快照",List.of(),List.of(disabledItem)),200).path("id").asLong();
+            jdbc.update("UPDATE cl_item SET owner_id=? WHERE id=?",recipientId,transferred);
+            jdbc.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",disabledId);
+            createMatchingHold(ownerId,held);
+            for(String itemStatus:List.of("DRAFT","PENDING_REVIEW","RESERVED","EXCHANGED","HIDDEN")) {
+                jdbc.update("UPDATE cl_item SET status=? WHERE id=?",itemStatus,unavailable);
+                IndependentMatchingInput snapshot=readOnlyMatchingSnapshot();
+                Set<Long> offerIds=new HashSet<>();snapshot.offers().forEach(offer->offerIds.add(offer.id()));
+                assertTrue(offerIds.contains(available));assertTrue(offerIds.contains(transferred));
+                assertFalse(offerIds.contains(unavailable));assertFalse(offerIds.contains(held));assertFalse(offerIds.contains(disabledItem));
+                IndependentMatchingInput.Offer transferredOffer=snapshot.offers().stream().filter(offer->offer.id()==transferred).findFirst().orElseThrow();
+                assertEquals(recipientId,transferredOffer.ownerId());
+                for(IndependentMatchingInput.Offer offer:snapshot.offers()) {
+                    assertEquals("AVAILABLE",offer.status());assertEquals("ACTIVE",offer.userStatus());assertFalse(offer.held());
+                }
+                List<IndependentMatchingInput.Demand> owned=snapshot.demands().stream().filter(demand->fixtureOwners.contains(demand.ownerId())).toList();
+                assertEquals(1,owned.size());IndependentMatchingInput.Demand selected=owned.get(0);
+                assertEquals(activeId,selected.id());assertEquals(ownerId,selected.ownerId());assertEquals(6,selected.categoryId());
+                assertEquals(Set.of("solar","便携"),selected.preferredTags());assertEquals(Set.of(available),selected.offeredItemIds());
+                assertEquals("ACTIVE",selected.status());assertEquals(1,selected.version());
+                assertTrue(snapshot.demands().stream().noneMatch(demand->Set.of(inactiveId,deletedId,unlinkedId,disabledDemand).contains(demand.id())));
+            }
+            readOnlyLegacyMatches(200);
+            assertEquals(2,jdbc.queryForObject("SELECT wanted_category_id FROM cl_item WHERE id=?",Integer.class,available));
+            assertEquals(json.valueToTree(List.of("便携")),json.readTree(jdbc.queryForObject("SELECT wanted_tags_json FROM cl_item WHERE id=?",String.class,available)));
+        } finally {deleteMatchingFixtureOwners(fixtureOwners);}
+    }
+    @Test void legacyRecommendationsExcludeHeldItemsWithoutWritingDomainRows() throws Exception {
+        long heldItem=2001;
+        JsonNode original=readOnlyLegacyMatches(200);
+        assertTrue(matchesContainItem(original,heldItem));
+        long exchangeId=createMatchingHold(1001,heldItem);
+        try {
+            JsonNode filtered=readOnlyLegacyMatches(200);
+            assertFalse(matchesContainItem(filtered,heldItem));
+            assertEquals("AVAILABLE",jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?",String.class,heldItem));
+            assertFalse(readOnlyMatchingSnapshot().offers().stream().anyMatch(offer->offer.id()==heldItem));
+        } finally {
+            jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchangeId);
+            jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchangeId);
+        }
+        assertEquals(original,readOnlyLegacyMatches(200));
+    }
+    @Test void matchingCandidateLimitAppliesAtTwoHundredBeforeIndependentDemandFiltering() throws Exception {
+        Map<String,List<Map<String,Object>>> baselineRows=matchingDomainRows();
+        String token=demandUser();long ownerId=matchingOwnerId(token);
+        try {
+            int baseline=eligibleMatchingItemCount();assertTrue(baseline<200);
+            for(int index=baseline;index<200;index++) demandCall("POST","/api/items",token,Map.of(
+                "title","候选边界 "+UUID.randomUUID(),"description","隔离候选上限夹具","categoryId",6,"conditionLevel",4,
+                "tags",List.of(),"wantedCategoryId",6,"wantedTags",List.of()),200);
+            assertEquals(200,eligibleMatchingItemCount());
+            IndependentMatchingInput atLimit=readOnlyMatchingSnapshot();assertEquals(200,atLimit.offers().size());
+            assertTrue(atLimit.demands().stream().noneMatch(demand->demand.ownerId()==ownerId));
+            readOnlyLegacyMatches(200);
+            assertEquals(0,readOnlyIndependentMatches(token,200).path("recommendations").size());
+            demandCall("POST","/api/items",token,Map.of("title","第201个候选 "+UUID.randomUUID(),"description","无独立需求也占候选预算",
+                "categoryId",6,"conditionLevel",4,"tags",List.of(),"wantedCategoryId",6,"wantedTags",List.of()),200);
+            assertEquals(201,eligibleMatchingItemCount());
+            assertReadOnlySnapshotRejected(422);
+            readOnlyLegacyMatches(422);
+            readOnlyIndependentMatches(token,422);
+        } finally {deleteMatchingFixtureOwners(List.of(ownerId));}
+        assertMatchingDomainRowsUnchanged(baselineRows);
+    }
+    @Test void independentSnapshotLimitsEligibleAssociationsAtTwentyThousandWithoutPartialResults() throws Exception {
+        Map<String,List<Map<String,Object>>> baselineRows=matchingDomainRows();
+        String token=demandUser();long ownerId=matchingOwnerId(token);
+        try {
+            int existingItems=eligibleMatchingItemCount();
+            int fixtureItemCount=Math.min(100,200-existingItems);assertTrue(fixtureItemCount>0);
+            int existingAssociations=jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand d JOIN cl_demand_item di ON di.demand_id=d.id "
+                +"JOIN cl_item i ON i.id=di.item_id AND i.owner_id=d.owner_id JOIN cl_user u ON u.id=i.owner_id "
+                +"WHERE d.status='ACTIVE' AND i.status='AVAILABLE' AND u.status='ACTIVE' "
+                +"AND NOT EXISTS (SELECT 1 FROM cl_item_hold h WHERE h.item_id=i.id)",Integer.class);
+            int neededAssociations=IndependentMatchingSnapshotService.MAX_ACTIVE_ASSOCIATIONS-existingAssociations;
+            assertTrue(neededAssociations>0);
+            int activeDemandCount=(neededAssociations+fixtureItemCount-1)/fixtureItemCount;
+            List<Object[]> itemRows=new ArrayList<>(),demandRows=new ArrayList<>();
+            for(int index=0;index<fixtureItemCount;index++) itemRows.add(new Object[]{ownerId,"关联边界物品 "+index});
+            for(int index=0;index<=activeDemandCount;index++) demandRows.add(new Object[]{ownerId,"关联边界需求 "+index,index==activeDemandCount?"INACTIVE":"ACTIVE"});
+            // One transaction avoids committing 20000 individual fixture inserts on disposable MySQL.
+            new TransactionTemplate(transactions).executeWithoutResult(status->{
+                jdbc.batchUpdate("INSERT INTO cl_item(owner_id,title,description,category_id,condition_level,tags_json,wanted_category_id,wanted_tags_json,status) "
+                    +"VALUES (?,?,'隔离批量夹具',6,4,'[]',6,'[]','AVAILABLE')",itemRows);
+                jdbc.batchUpdate("INSERT INTO cl_demand(owner_id,description,category_id,preferred_tags_json,status) VALUES (?,?,6,'[]',?)",demandRows);
+            });
+            List<Long> itemIds=jdbc.queryForList("SELECT id FROM cl_item WHERE owner_id=? ORDER BY id",Long.class,ownerId);
+            List<Long> demandIds=jdbc.queryForList("SELECT id FROM cl_demand WHERE owner_id=? ORDER BY id",Long.class,ownerId);
+            assertEquals(fixtureItemCount,itemIds.size());assertEquals(activeDemandCount+1,demandIds.size());
+            List<Object[]> associationRows=new ArrayList<>();
+            for(int index=0;index<neededAssociations;index++) associationRows.add(new Object[]{demandIds.get(index/fixtureItemCount),itemIds.get(index%fixtureItemCount)});
+            long overflowDemand=demandIds.get(activeDemandCount);
+            associationRows.add(new Object[]{overflowDemand,itemIds.get(0)});
+            new TransactionTemplate(transactions).executeWithoutResult(status->jdbc.batchUpdate("INSERT INTO cl_demand_item(demand_id,item_id) VALUES (?,?)",associationRows));
+            IndependentMatchingInput atLimit=readOnlyMatchingSnapshot();
+            assertEquals(IndependentMatchingSnapshotService.MAX_ACTIVE_ASSOCIATIONS,atLimit.demands().stream().mapToInt(demand->demand.offeredItemIds().size()).sum());
+            assertFalse(atLimit.demands().stream().anyMatch(demand->demand.id()==overflowDemand));
+            assertEquals(neededAssociations+1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item di JOIN cl_demand d ON d.id=di.demand_id WHERE d.owner_id=?",Integer.class,ownerId));
+            jdbc.update("UPDATE cl_demand SET status='ACTIVE' WHERE id=?",overflowDemand);
+            assertReadOnlySnapshotRejected(422);
+            readOnlyIndependentMatches(token,422);
+        } finally {deleteMatchingFixtureOwners(List.of(ownerId));}
+        assertMatchingDomainRowsUnchanged(baselineRows);
+    }
+
+    @Test void independentMatchingHttpAdaptsTwoAndThreePartyFlowsSelectsOneDemandAndScopesTheViewer() throws Exception {
+        List<Long> fixtureOwners=new ArrayList<>();
+        try {
+            String first=demandUser(),second=demandUser(),third=demandUser(),observer=demandUser();
+            long firstId=matchingOwnerId(first),secondId=matchingOwnerId(second),thirdId=matchingOwnerId(third),observerId=matchingOwnerId(observer);
+            fixtureOwners.addAll(List.of(firstId,secondId,thirdId,observerId));
+            Map<Long,String> names=Map.of(firstId,"独立匹配甲",secondId,"独立匹配乙",thirdId,"独立匹配丙");
+            demandCall("PATCH","/api/auth/me",first,Map.of("displayName",names.get(firstId)),200);
+            demandCall("PATCH","/api/auth/me",second,Map.of("displayName",names.get(secondId)),200);
+            demandCall("PATCH","/api/auth/me",third,Map.of("displayName",names.get(thirdId)),200);
+            long firstItem=matchingGreenItem(first,List.of("usb","solar","green","small","light"),4);
+            long secondItem=matchingGreenItem(second,List.of("leaf"),4),thirdItem=matchingGreenItem(third,List.of("portable"),1);
+            long firstDemand=demandCall("POST","/api/demands",first,demandBody(6,"接收绿植甲",List.of("leaf"),List.of(firstItem)),200).path("id").asLong();
+            long low=demandCall("POST","/api/demands",second,demandBody(6,"一个命中",List.of("green"),List.of(secondItem)),200).path("id").asLong();
+            long best=demandCall("POST","/api/demands",second,demandBody(6,"最高分且较早",List.of("usb","solar"),List.of(secondItem)),200).path("id").asLong();
+            long same=demandCall("POST","/api/demands",second,demandBody(6,"同分但较晚",List.of("solar","usb"),List.of(secondItem)),200).path("id").asLong();
+            long disjoint=demandCall("POST","/api/demands",second,demandBody(6,"不同标签不得并集计分",List.of("small","light"),List.of(secondItem)),200).path("id").asLong();
+            long thirdDemand=demandCall("POST","/api/demands",third,demandBody(6,"无偏好且低成色仍可参与",List.of(),List.of(thirdItem)),200).path("id").asLong();
+            demandCall("POST","/api/demands",observer,demandBody(6,"无物品旁观者",List.of(),List.of()),200);
+            JsonNode response=readOnlyIndependentMatches(first,200),recommendations=response.path("recommendations");
+            assertEquals("independent-v2",response.path("ruleVersion").asText());
+            boolean hasTwo=false,hasThree=false;
+            for(JsonNode recommendation:recommendations) {
+                hasTwo|=recommendation.path("length").asInt()==2;hasThree|=recommendation.path("length").asInt()==3;
+                assertTrue(recommendation.path("id").asText().startsWith("independent-v2:"));
+                assertEquals("independent-v2",recommendation.path("ruleVersion").asText());
+                Set<Long> participantIds=matchingParticipantIds(recommendation);
+                assertTrue(participantIds.contains(firstId));assertEquals(recommendation.path("length").asInt(),participantIds.size());
+                for(JsonNode flow:recommendation.path("flows")) {
+                    assertEquals(names.get(flow.path("fromUserId").asLong()),flow.path("fromName").asText());
+                    assertEquals(names.get(flow.path("toUserId").asLong()),flow.path("toName").asText());
+                    assertEquals(6,flow.path("matchedCategoryId").asInt());assertEquals("绿色植物",flow.path("matchedCategoryName").asText());
+                }
+            }
+            assertTrue(hasTwo);assertTrue(hasThree);
+            JsonNode pair=matchingRing(recommendations,Set.of(firstId,secondId));assertEquals(75,pair.path("score").asInt());
+            for(JsonNode flow:pair.path("flows")) {
+                if(flow.path("toUserId").asLong()==secondId) {
+                    assertEquals(firstItem,flow.path("itemId").asLong());assertEquals(best,flow.path("demandId").asLong());
+                    List<Long> matchedIds=new ArrayList<>();flow.path("matchedDemandIds").forEach(value->matchedIds.add(value.asLong()));
+                    assertEquals(List.of(low,best,same,disjoint),matchedIds);
+                    assertEquals(json.valueToTree(List.of("solar","usb")),flow.path("matchedTags"));
+                } else {
+                    assertEquals(firstId,flow.path("toUserId").asLong());assertEquals(secondItem,flow.path("itemId").asLong());
+                    assertEquals(firstDemand,flow.path("demandId").asLong());assertEquals(json.valueToTree(List.of("leaf")),flow.path("matchedTags"));
+                }
+            }
+            JsonNode secondView=readOnlyIndependentMatches(second,200).path("recommendations");
+            assertEquals(pair.path("id"),matchingRing(secondView,Set.of(firstId,secondId)).path("id"));
+            assertNotNull(matchingRing(secondView,Set.of(secondId,thirdId)));
+            for(JsonNode recommendation:recommendations) assertNotEquals(Set.of(secondId,thirdId),matchingParticipantIds(recommendation));
+            assertEquals(0,readOnlyIndependentMatches(observer,200).path("recommendations").size());
+            assertTrue(readOnlyMatchingSnapshot().demands().stream().anyMatch(demand->demand.id()==thirdDemand));
+        } finally {deleteMatchingFixtureOwners(fixtureOwners);}
+    }
+    @Test void independentMatchingHttpNeverFallsBackToLegacyWhenDemandIsInactiveDeletedOrUnlinked() throws Exception {
+        List<Long> fixtureOwners=new ArrayList<>();
+        try {
+            String first=demandUser(),second=demandUser();long firstId=matchingOwnerId(first),secondId=matchingOwnerId(second);
+            fixtureOwners.addAll(List.of(firstId,secondId));
+            long firstItem=matchingGreenItem(first,List.of(),4),secondItem=matchingGreenItem(second,List.of(),4);
+            demandCall("POST","/api/demands",first,demandBody(6,"需要独立绿植甲",List.of(),List.of(firstItem)),200);
+            long secondDemand=demandCall("POST","/api/demands",second,demandBody(6,"需要独立绿植乙",List.of(),List.of(secondItem)),200).path("id").asLong();
+            assertNotNull(matchingRing(readOnlyIndependentMatches(first,200).path("recommendations"),Set.of(firstId,secondId)));
+            JsonNode legacy=readOnlyLegacyMatches(200);assertTrue(matchesContainItem(legacy,firstItem));assertTrue(matchesContainItem(legacy,secondItem));
+            demandCall("PATCH","/api/demands/"+secondDemand+"/status",second,Map.of("version",0,"status","INACTIVE"),200);
+            assertEquals(0,readOnlyIndependentMatches(first,200).path("recommendations").size());assertEquals(legacy,readOnlyLegacyMatches(200));
+            demandCall("PATCH","/api/demands/"+secondDemand+"/status",second,Map.of("version",1,"status","ACTIVE"),200);
+            assertNotNull(matchingRing(readOnlyIndependentMatches(first,200).path("recommendations"),Set.of(firstId,secondId)));
+            demandCall("DELETE","/api/demands/"+secondDemand+"?version=2",second,null,200);
+            assertEquals(0,readOnlyIndependentMatches(first,200).path("recommendations").size());assertEquals(legacy,readOnlyLegacyMatches(200));
+            long unlinked=demandCall("POST","/api/demands",second,demandBody(6,"保存但尚未提供物品",List.of(),List.of()),200).path("id").asLong();
+            assertEquals(0,readOnlyIndependentMatches(first,200).path("recommendations").size());
+            demandCall("PATCH","/api/demands/"+unlinked,second,Map.of("version",0,"offeredItemIds",List.of(secondItem)),200);
+            assertNotNull(matchingRing(readOnlyIndependentMatches(first,200).path("recommendations"),Set.of(firstId,secondId)));
+            demandCall("PATCH","/api/demands/"+unlinked,second,Map.of("version",1,"offeredItemIds",List.of()),200);
+            assertEquals(0,readOnlyIndependentMatches(first,200).path("recommendations").size());assertEquals(legacy,readOnlyLegacyMatches(200));
+        } finally {deleteMatchingFixtureOwners(fixtureOwners);}
+    }
+    @Test void independentMatchingHttpRequiresAuthenticationAndRejectsVersionOrOwnerSpoofing() throws Exception {
+        readOnlyIndependentMatches(null,401);
+        String token=demandUser();long ownerId=matchingOwnerId(token);
+        try {
+            JsonNode defaultResult=readOnlyIndependentMatches(token,200);
+            assertEquals("independent-v2",defaultResult.path("ruleVersion").asText());assertEquals(0,defaultResult.path("recommendations").size());
+            assertEquals(defaultResult,readOnlyMatchingRequest("/api/matches/independent?ruleVersion=independent-v2",token,200));
+            for(String query:List.of("ruleVersion=","ruleVersion=unknown","ruleVersion=legacy-v1","ownerId=1001","userId=1001","unknown=value",
+                "ruleVersion=independent-v2&ownerId=1001","ruleVersion=independent-v2&ruleVersion=independent-v2"))
+                readOnlyMatchingRequest("/api/matches/independent?"+query,token,400);
+            JsonNode legacy=readOnlyLegacyMatches(200);
+            assertTrue(legacy.isArray());assertEquals(legacy,readOnlyMatchingRequest("/api/matches?ruleVersion=legacy-v1",null,200));
+            for(String version:List.of("independent-v2","unknown","")) readOnlyMatchingRequest("/api/matches?ruleVersion="+version,null,400);
+        } finally {deleteMatchingFixtureOwners(List.of(ownerId));}
+    }
+    private long matchingGreenItem(String token,List<String> tags,int conditionLevel) throws Exception {
+        return demandCall("POST","/api/items",token,Map.of("title","独立匹配绿植 "+UUID.randomUUID(),"description","隔离接口匹配夹具",
+            "categoryId",6,"conditionLevel",conditionLevel,"tags",tags,"wantedCategoryId",6,"wantedTags",List.of()),200).path("id").asLong();
+    }
+    private Set<Long> matchingParticipantIds(JsonNode recommendation) {
+        Set<Long> participants=new HashSet<>();for(JsonNode participant:recommendation.path("participants")) participants.add(participant.path("userId").asLong());return participants;
+    }
+    private JsonNode matchingRing(JsonNode recommendations,Set<Long> participantIds) {
+        for(JsonNode recommendation:recommendations) if(matchingParticipantIds(recommendation).equals(participantIds)) return recommendation;
+        fail("Expected a ring for the isolated fixture participants");return null;
+    }
+    private JsonNode readOnlyIndependentMatches(String token,int expectedStatus) throws Exception {
+        return readOnlyMatchingRequest("/api/matches/independent",token,expectedStatus);
+    }
+    private JsonNode readOnlyMatchingRequest(String path,String token,int expectedStatus) throws Exception {
+        Map<String,List<Map<String,Object>>> before=matchingDomainRows();
+        JsonNode result=demandCall("GET",path,token,null,expectedStatus);assertMatchingDomainRowsUnchanged(before);return result;
+    }
+    private long matchingOwnerId(String token) throws Exception {
+        return demandCall("GET","/api/auth/me",token,null,200).path("id").asLong();
+    }
+    private int eligibleMatchingItemCount() {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM cl_item i JOIN cl_user u ON u.id=i.owner_id "
+            +"WHERE i.status='AVAILABLE' AND u.status='ACTIVE' AND NOT EXISTS (SELECT 1 FROM cl_item_hold h WHERE h.item_id=i.id)",Integer.class);
+    }
+    private long createMatchingHold(long ownerId,long itemId) {
+        String key=UUID.randomUUID().toString();LocalDateTime expiry=LocalDateTime.now(ZoneOffset.UTC).plusHours(1);
+        return new TransactionTemplate(transactions).execute(status->{
+            jdbc.update("INSERT INTO cl_exchange(initiator_id,status,version,idempotency_key,expires_at) VALUES (?,'AWAITING_CONFIRMATION',0,?,?)",ownerId,key,expiry);
+            long exchangeId=jdbc.queryForObject("SELECT id FROM cl_exchange WHERE initiator_id=? AND idempotency_key=?",Long.class,ownerId,key);
+            jdbc.update("INSERT INTO cl_item_hold(item_id,exchange_id,expires_at) VALUES (?,?,?)",itemId,exchangeId,expiry);
+            return exchangeId;
+        });
+    }
+    private void deleteMatchingFixtureOwners(List<Long> ownerIds) {
+        new TransactionTemplate(transactions).executeWithoutResult(status->{
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id IN (SELECT id FROM cl_exchange WHERE initiator_id=?)",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_exchange WHERE initiator_id=?",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item WHERE owner_id=?",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_user WHERE id=?",ownerId);
+        });
+    }
+    private Map<String,List<Map<String,Object>>> matchingDomainRows() {
+        Map<String,List<Map<String,Object>>> rows=new LinkedHashMap<>();
+        rows.put("cl_item",jdbc.queryForList("SELECT * FROM cl_item ORDER BY id"));
+        rows.put("cl_demand",jdbc.queryForList("SELECT * FROM cl_demand ORDER BY id"));
+        rows.put("cl_demand_item",jdbc.queryForList("SELECT * FROM cl_demand_item ORDER BY demand_id,item_id"));
+        rows.put("cl_exchange",jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id"));
+        rows.put("cl_item_hold",jdbc.queryForList("SELECT * FROM cl_item_hold ORDER BY item_id"));
+        return rows;
+    }
+    private void assertMatchingDomainRowsUnchanged(Map<String,List<Map<String,Object>>> expected) {
+        Map<String,List<Map<String,Object>>> actual=matchingDomainRows();
+        for(String table:expected.keySet()) {
+            List<Map<String,Object>> before=expected.get(table),after=actual.get(table);assertEquals(before.size(),after.size(),table+" row count");
+            for(int index=0;index<before.size();index++) assertEquals(before.get(index),after.get(index),table+" row "+index);
+        }
+    }
+    private IndependentMatchingInput readOnlyMatchingSnapshot() {
+        Map<String,List<Map<String,Object>>> before=matchingDomainRows();
+        IndependentMatchingInput snapshot=independentSnapshots.snapshot();assertMatchingDomainRowsUnchanged(before);return snapshot;
+    }
+    private void assertReadOnlySnapshotRejected(int expectedStatus) {
+        Map<String,List<Map<String,Object>>> before=matchingDomainRows();
+        ApiException failure=assertThrows(ApiException.class,()->independentSnapshots.snapshot());
+        assertEquals(expectedStatus,failure.getStatus());assertMatchingDomainRowsUnchanged(before);
+    }
+    private JsonNode readOnlyLegacyMatches(int expectedStatus) throws Exception {
+        Map<String,List<Map<String,Object>>> before=matchingDomainRows();
+        JsonNode matches=demandCall("GET","/api/matches",null,null,expectedStatus);assertMatchingDomainRowsUnchanged(before);return matches;
+    }
+    private boolean matchesContainItem(JsonNode matches,long itemId) {
+        for(JsonNode match:matches) for(JsonNode participant:match.path("participants")) if(participant.path("itemId").asLong()==itemId) return true;
+        return false;
+    }
     private String demandUser() throws Exception {
         String username="test_"+UUID.randomUUID().toString().substring(0,12),password=UUID.randomUUID().toString();
         account(username,password,"USER");return login(username,password);
