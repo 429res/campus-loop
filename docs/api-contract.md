@@ -266,6 +266,12 @@ READY首次交接必须原截止前；任一handedOffAt/receivedAt非空后允�
 
 ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），participants追加handedOffNote/receivedNote（未声明null，可选说明省略后为空串）。READY未开始且未截止allowedActions=[HANDED_OFF,RECEIVED,CANCEL]；开始后按本人未提交类别返回HANDED_OFF/RECEIVED及DISPUTE；终态空。等待期仍遵循B-03，动作集合与锁内规则共用。两方/三方、错误、精确重放与C/D恢复样例见[B-04](b04-exchange-handoff.md)。
 
+#### C-04 管理员争议处理草案（未实现，不可调用）
+
+C 的只读追溯夹具以现有 ExchangeView、持久 flows/participants 和 cl_exchange_event 事实展示 DISPUTED；不能调用参与者专属 `GET /exchanges/{id}` 冒充管理员读取。后续至少需要 ADMIN 的争议队列、详情与事件分页接口，并逐字段确认交接说明和证据可见范围。B-04 当前没有争议附件，B-05 履历私有证据也不能自动授权给争议模块。
+
+管理员裁决的决定枚举、允许状态、利益冲突规则、`version/idempotencyKey` 请求、精确重放、裁决审计，以及每种决定对 exchange/item/demand/hold/history 的原子后果尚未确定。C 不提供裁决按钮或请求草案，也不从 UI 推导 owner 变更、释放占用、恢复交接或实物回滚。未来接口必须调用 B 的同一交换事务入口；409 后返回/读取最新交换与事件事实，保留理由但不自动换版本重试。D 的本人结果投影应与该事务同源，且不暴露管理员 ID、内部快照、他人私密证据或存储路径。
+
 ### B-05.1 自述履历、私有证据与查询（已实现）
 
 GET `/items/{id}/history?page=1&size=12`及GET `/items/{id}/history/{eventId}`支持匿名公开基础字段和可选有效认证，page≥1/size1–100、recordedAt/id降序；错误/重复/未知参数400，有无效Authorization则401。公开物品沿用AVAILABLE/RESERVED/EXCHANGED；非公开物品仅当前owner/ADMIN读取全部基础履历，其他作者或该件关联交换交出/接收双方按事件过滤（含total），无权限404。当前owner不自动获得旧私有证据。
