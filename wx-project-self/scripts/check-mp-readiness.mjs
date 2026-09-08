@@ -23,6 +23,8 @@ const expectedPages = [
   'pages/favorites/favorites',
   'pages/demands/demands',
   'pages/exchanges/exchanges',
+  'pages/history/history',
+  'pages/governance/governance',
   'pages/my-items/my-items',
   'pages/detail/detail',
   'pages/controls/controls',

@@ -1383,6 +1383,52 @@ class ExchangeDomainIntegrationTest {
         }
     }
 
+    @Autowired ExchangeDisputeQueryService disputeQueries;
+    @Test void adminDisputeTracePreservesTwoAndThreePartyDirectionsAndNeverWrites() throws Exception {
+        for(int length:List.of(2,3)) {
+            long id=ready(length,"admin-trace-"+length);
+            lifecycle.handoff(a.id(),id,length,GIVEN,"不公开的交接说明");
+            lifecycle.dispute(b.id(),id,length+1,"虚构物品异常");
+            var before=businessRows();String path="/api/admin/exchange-disputes/"+id;
+            var detail=call("GET",path,admin.token(),null,200);
+            assertEquals(length,detail.path("participants").size());assertEquals(length,detail.path("flows").size());
+            assertEquals("DISPUTED",detail.path("status").asText());assertTrue(detail.path("allowedActions").isEmpty());
+            assertFalse(detail.toString().contains("不公开的交接说明"));
+            for(var person:detail.path("participants")) {
+                assertTrue(person.path("handedOffNote").isNull());assertTrue(person.path("receivedNote").isNull());
+                assertTrue(detail.path("flows").findValues("fromUserId").contains(person.path("userId")));
+            }
+            var first=call("GET",path+"/events?size=1",admin.token(),null,200);
+            assertEquals(length+2,first.path("total").asInt());assertEquals(1,first.path("records").size());
+            assertEquals(1,first.at("/records/0/newVersion").asInt());
+            var all=call("GET",path+"/events",admin.token(),null,200);
+            assertEquals("DISPUTED",all.path("records").get(length+1).path("eventType").asText());
+            assertEquals("虚构物品异常",all.path("records").get(length+1).path("reason").asText());
+            assertFalse(all.toString().contains("不公开的交接说明"));
+            assertTrue(all.at("/records/0/occurredAt").asText().endsWith("Z"));
+            assertTrue(call("GET",path+"/events?page=99",admin.token(),null,200).path("records").isEmpty());
+            assertEquals(before,businessRows());
+        }
+        var queue=call("GET","/api/admin/exchange-disputes?size=1",admin.token(),null,200);
+        assertEquals(2,queue.path("total").asInt());assertEquals(1,queue.path("records").size());
+        assertNotEquals(queue.at("/records/0/id"),call("GET","/api/admin/exchange-disputes?size=1&page=2",admin.token(),null,200).at("/records/0/id"));
+    }
+    @Test void adminDisputeReadsRejectUsersForgedFiltersAndNonDisputedTargets() throws Exception {
+        long id=ready(2,"admin-read-auth");String root="/api/admin/exchange-disputes";var before=businessRows();
+        for(String path:List.of(root,root+"/"+id,root+"/"+id+"/events")) {
+            call("GET",path,null,null,401);call("GET",path,a.token(),null,403);call("GET",path,outsider.token(),null,403);
+        }
+        assertTrue(call("GET",root,admin.token(),null,200).path("records").isEmpty());
+        call("GET",root+"/"+id,admin.token(),null,404);call("GET",root+"/"+id+"/events",admin.token(),null,404);
+        call("GET",root+"/0",admin.token(),null,400);call("GET",root+"/9223372036854775807",admin.token(),null,404);
+        for(String params:List.of("size=101","page=0","size=-1","page=1&page=2","ownerId=1","status=READY","version=0","page=999999999999"))
+            call("GET",root+"?"+params,admin.token(),null,400);
+        rejected(403,()->{disputeQueries.page(a.id(),1,12);});assertEquals(before,businessRows());
+        jdbc.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",admin.id());
+        rejected(401,()->{disputeQueries.detail(admin.id(),id);});
+        jdbc.update("UPDATE cl_user SET status='ACTIVE' WHERE id=?",admin.id());
+    }
+
     private Map<String,List<Map<String,Object>>> businessRows() {
         Map<String,List<Map<String,Object>>> values=new LinkedHashMap<>();
         for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event","cl_item_history","cl_upload")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));

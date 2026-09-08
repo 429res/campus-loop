@@ -41,6 +41,7 @@ public class ExchangeQueryService {
         return new QueryWrapper<ExchangeRecord>().exists("SELECT 1 FROM cl_exchange_participant p " +
             "WHERE p.exchange_id=cl_exchange.id AND p.user_id={0}",userId);
     }
+    List<ExchangeView> adminViews(List<ExchangeRecord> rows) { return views(rows,0); }
     private List<ExchangeView> views(List<ExchangeRecord> rows,long userId) {
         if (rows.isEmpty()) return List.of();
         Map<Long,List<ExchangeParticipantRecord>> grouped=exchanges.participants(rows.stream().map(ExchangeRecord::getId).toList())
@@ -67,9 +68,9 @@ public class ExchangeQueryService {
             utc(row.getCreatedAt()),utc(row.getExpiresAt()),ordered.stream().map(person -> new ExchangeView.Participant(
                 person.getUserId(),person.getDisplayName(),person.getOfferedItemId(),incoming.get(person.getUserId()),
                 person.getConfirmedAt()==null?"PENDING":"CONFIRMED",utc(person.getConfirmedAt()),
-                utc(person.getHandedOffAt()),utc(person.getReceivedAt()),person.getHandedOffNote(),person.getReceivedNote())).toList(),
+                utc(person.getHandedOffAt()),utc(person.getReceivedAt()),userId==0?null:person.getHandedOffNote(),userId==0?null:person.getReceivedNote())).toList(),
             ordered.stream().map(person -> new ExchangeView.Flow(person.getOfferedItemId(),person.getUserId(),person.getRecipientUserId())).toList(),
-            ExchangeLifecycleFacts.supported(row)?rules.permittedActions(ExchangeLifecycleFacts.snapshot(row,people),ExchangeLifecycleFacts.handover(people),userId,now)
+            userId!=0 && ExchangeLifecycleFacts.supported(row)?rules.permittedActions(ExchangeLifecycleFacts.snapshot(row,people),ExchangeLifecycleFacts.handover(people),userId,now)
                 .stream().map(Enum::name).toList():List.of(),
             row.getCancelledBy(),row.getCancellationReason(),utc(row.getCancelledAt()),row.getDisputedBy(),row.getDisputeReason(),utc(row.getDisputedAt()));
     }
