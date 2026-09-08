@@ -45,9 +45,9 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 ## 交换数据结构与当前能力
 
-`cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
+`cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、关联物品流向对方（不等同确认自述）、管理员核验者、发生与记录时间。
 
-V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff及dispute登记已接入B-04共用事务，详见[b04-exchange-handoff.md](b04-exchange-handoff.md)。履历编辑、争议裁决、举报、履历审核不得以伪成功 API 替代。
+V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff及dispute登记已接入B-04共用事务，详见[b04-exchange-handoff.md](b04-exchange-handoff.md)。B-05.1自述/证据/查询见[b05-self-reported-history.md](b05-self-reported-history.md)；历史覆盖不提供，参与者追加确认、争议裁决、举报与管理员核验不得以伪成功API替代。
 
 ## 交换创建与并发设计
 

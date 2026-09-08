@@ -13,8 +13,8 @@ import edu.campusloop.web.category.mapper.CategoryMapper;
 import edu.campusloop.web.category.service.CategorySelectionService;
 import edu.campusloop.web.user.entity.User;
 import edu.campusloop.web.user.mapper.UserMapper;
-import edu.campusloop.web.upload.entity.Upload;
-import edu.campusloop.web.upload.mapper.UploadMapper;
+
+import edu.campusloop.web.upload.service.UploadReferenceService;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -30,11 +30,11 @@ import java.util.stream.Collectors;
 @Service
 public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements ItemService {
     private static final Set<String> OWN_STATES=Set.of("DRAFT","PENDING_REVIEW","REJECTED","AVAILABLE","RESERVED","EXCHANGED","HIDDEN");
-    private final CategoryMapper categories;private final UserMapper users;private final UploadMapper uploads;private final ObjectMapper json;
+    private final CategoryMapper categories;private final UserMapper users;private final UploadReferenceService uploads;private final ObjectMapper json;
     private final CategorySelectionService categorySelection;
     private final ItemMutationGuard mutationGuard;
     private final ItemReviewAuditService audits;
-    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadMapper uploads,ObjectMapper json,CategorySelectionService categorySelection,ItemMutationGuard mutationGuard,ItemReviewAuditService audits) {
+    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadReferenceService uploads,ObjectMapper json,CategorySelectionService categorySelection,ItemMutationGuard mutationGuard,ItemReviewAuditService audits) {
         this.categories=categories;this.users=users;this.uploads=uploads;this.json=json;this.categorySelection=categorySelection;
         this.mutationGuard=mutationGuard;this.audits=audits;
     }
@@ -143,8 +143,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         categorySelection.requireActive(Arrays.asList(request.categoryId(),request.wantedCategoryId()));
         String image=request.imageUrl();
         if(image!=null && !image.isBlank()) {
-            if(!image.matches("/uploads/[a-f0-9-]{36}\\.png") || uploads.selectCount(new QueryWrapper<Upload>().eq("url",image).eq("owner_id",ownerId))!=1)
-                throw new ApiException(400,"请使用本人上传的图片");
+            uploads.publicImage(ownerId,image);
         }
         return image==null || image.isBlank()?null:image;
     }

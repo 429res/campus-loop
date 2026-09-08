@@ -37,7 +37,7 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 需求候选关联 | 当前（B-01已合入） | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
 | 交换及参与者 | A-03创建，B-03参与者读取/确认/取消 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | A-03 | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
-| 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
+| 履历事件与证据 | B-05.1自述/证据/查询已实现，追加确认/核验后续 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
 | 举报/争议/履历审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
 | 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
@@ -164,3 +164,13 @@ stateDiagram-v2
 ```
 
 争议停止在DISPUTED，保留原所有权/占用，无管理员代办、回滚实物或自动重新上架能力。允许动作、重放边界与B-05事件入口见[B-04契约](b04-exchange-handoff.md)。
+
+### B-05.1 追加式自述与隐私投影
+
+复用cl_item_history及B-04原始EXCHANGED入口；新增自述只允许REPAIR/TRANSFER、SELF_REPORTED，作者来自会话，记录时间来自共用数据库UTC。已知发生时间在声明授权窗口内；未知用occurred_at NULL表达，不借记录时间冒充。B-04完成记录证明曾经持有及该件物品流向；没有初始持有起点时窗口下界未知，不以物品创建日期伪造。
+
+V12追加窗口、单链修正及证据引用。修正通过新行指向原行，复合外键绑定相同item/sourceUser/evidenceLevel，CHECK限制SELF_REPORTED，唯一边阻止并发分叉；历史DAO只有INSERT/SELECT，HTTP无覆盖能力。写入复用READ_COMMITTED事务与用户→物品锁，取得锁后重读owner/真实交换及链尾，时间线和证据关联一起提交；不改物品、需求或交换状态。
+
+LocalUploadService抽取并复用原图片解码/再编码逻辑；UploadReferenceService共用本人归属与用途检查。V12旧上传保持PUBLIC；新PRIVATE_EVIDENCE在公开uploads的同级目录，不注册静态访问。证据引用只接本人私有有效PNG，读取按作者/事件关联物品交出接收双方/ADMIN授权，未引用上传仅本人预览。所有新JSON与证据读取private/no-store，证据不在公开时间线中暴露（无地址/数量）。新当前owner和三方环第三人都不自动继承私人材料。
+
+读事务REPEATABLE_READ，SQL按item和当前权限过滤分页记录与total，公开字段与私有字段逐事件投影；非公开物品的无关人404。修正窗口仅是当次声明可涵盖范围，当前持有的上界为提交时间，不宣称该时刻结束持有。既有B-04事实不重写，参与者补充确认/ADMIN_VERIFIED生成及争议裁决留后续。模型、错误、不同来源样例见[B-05.1](b05-self-reported-history.md)。

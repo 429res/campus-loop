@@ -8,5 +8,6 @@ public class Upload {
     private String id;
     private Long ownerId;
     private String url;
+    private String visibility;
     private java.time.LocalDateTime createdAt;
 }
