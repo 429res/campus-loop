@@ -98,14 +98,14 @@ class IndependentDemandMatcherTest {
     @Test void unavailableDisabledOrHeldItemsCannotParticipate() {
         var original = pair();
         for (String status : List.of("RESERVED", "EXCHANGED", "HIDDEN", "DRAFT", "PENDING_REVIEW", "UNKNOWN")) {
-            var unavailable = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), status, "ACTIVE", false);
+            var unavailable = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), status, "ACTIVE", false, 0);
             assertTrue(matcher.find(new IndependentMatchingInput(List.of(original.offers().get(0), unavailable), original.demands()), 1).isEmpty(), status);
         }
         for (String status : List.of("DISABLED", "UNKNOWN")) {
-            var disabled = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), "AVAILABLE", status, false);
+            var disabled = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), "AVAILABLE", status, false, 0);
             assertTrue(matcher.find(new IndependentMatchingInput(List.of(original.offers().get(0), disabled), original.demands()), 1).isEmpty(), status);
         }
-        var held = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), "AVAILABLE", "ACTIVE", true);
+        var held = new Offer(20, 2, "同学2", "物品20", 2, "分类2", Set.of(), "AVAILABLE", "ACTIVE", true, 0);
         assertTrue(matcher.find(new IndependentMatchingInput(List.of(original.offers().get(0), held), original.demands()), 1).isEmpty());
     }
 
@@ -122,7 +122,7 @@ class IndependentDemandMatcherTest {
         List<Offer> repeatedOffers = new ArrayList<>(original.offers()); repeatedOffers.add(original.offers().get(0));
         List<Demand> repeatedDemands = new ArrayList<>(original.demands()); repeatedDemands.add(original.demands().get(0));
         assertEquals(matcher.find(original, 1), matcher.find(new IndependentMatchingInput(repeatedOffers, repeatedDemands), 1));
-        repeatedOffers.add(new Offer(10, 1, "同学1", "物品10", 1, "分类1", Set.of(), "HIDDEN", "ACTIVE", false));
+        repeatedOffers.add(new Offer(10, 1, "同学1", "物品10", 1, "分类1", Set.of(), "HIDDEN", "ACTIVE", false, 0));
         assertTrue(matcher.find(new IndependentMatchingInput(repeatedOffers, repeatedDemands), 1).isEmpty());
         repeatedDemands.add(new Demand(101, 1, 2, Set.of(), Set.of(10L), "INACTIVE", 0));
         assertTrue(matcher.find(new IndependentMatchingInput(original.offers(), repeatedDemands), 1).isEmpty());
@@ -201,8 +201,20 @@ class IndependentDemandMatcherTest {
     @Test void demandEditVersionIsNotTheRecommendationRuleVersion() {
         var original = pair();
         var newer = new Demand(101, 1, 2, Set.of(), Set.of(10L), "ACTIVE", 37);
-        assertEquals(matcher.find(original, 1), matcher.find(new IndependentMatchingInput(original.offers(),
-            List.of(newer, original.demands().get(1))), 1));
+        var before = matcher.find(original, 1).get(0);
+        var after = matcher.find(new IndependentMatchingInput(original.offers(), List.of(newer, original.demands().get(1))), 1).get(0);
+        assertEquals(before.id(), after.id());
+        assertEquals(before.score(), after.score());
+        assertEquals(before.participants(), after.participants());
+        assertEquals(before.explanation(), after.explanation());
+        assertEquals(before.flows().size(), after.flows().size());
+        for (int i=0; i<before.flows().size(); i++) {
+            var flow = after.flows().get(i);
+            assertEquals(before.flows().get(i), new IndependentDemandMatcher.Flow(flow.fromUserId(), flow.fromName(),
+                flow.toUserId(), flow.toName(), flow.itemId(), flow.itemTitle(), flow.demandId(), flow.matchedDemandIds(),
+                flow.matchedCategoryId(), flow.matchedCategoryName(), flow.matchedTags(), flow.reason(), 0));
+        }
+        assertEquals(List.of(0,37), after.flows().stream().map(IndependentDemandMatcher.Flow::demandVersion).toList());
         assertEquals("independent-v2", matcher.find(original, 1).get(0).ruleVersion());
     }
 
@@ -212,7 +224,7 @@ class IndependentDemandMatcherTest {
         assertTrue(matcher.find(new IndependentMatchingInput(offers, List.of()), 1).isEmpty());
         offers.add(offers.get(0));
         assertTrue(matcher.find(new IndependentMatchingInput(offers, List.of()), 1).isEmpty());
-        offers.add(new Offer(201, 201, "同学201", "物品201", 1, "分类1", Set.of(), "AVAILABLE", "ACTIVE", true));
+        offers.add(new Offer(201, 201, "同学201", "物品201", 1, "分类1", Set.of(), "AVAILABLE", "ACTIVE", true, 0));
         assertTrue(matcher.find(new IndependentMatchingInput(offers, List.of()), 1).isEmpty());
         offers.add(offer(202, 202, 1));
         var failure = assertThrows(IndependentDemandMatcher.MatchingLimitException.class,
@@ -273,7 +285,7 @@ class IndependentDemandMatcherTest {
     }
     private Offer offer(long id, long owner, long category) { return offer(id, owner, category, Set.of()); }
     private Offer offer(long id, long owner, long category, Set<String> tags) {
-        return new Offer(id, owner, "同学" + owner, "物品" + id, category, "分类" + category, tags, "AVAILABLE", "ACTIVE", false);
+        return new Offer(id, owner, "同学" + owner, "物品" + id, category, "分类" + category, tags, "AVAILABLE", "ACTIVE", false, 0);
     }
     private Demand demand(long id, long owner, long category, Set<String> tags, Set<Long> offeredItemIds) {
         return new Demand(id, owner, category, tags, offeredItemIds, "ACTIVE", 0);

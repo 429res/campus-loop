@@ -78,3 +78,5 @@
 MySQL测试通过MockMvc进入真实Spring MVC、认证、服务、事务和MyBatis，数据确实来自MySQL；不是浏览器或外部HTTP网络链路验收。查询前后逐行比较cl_item/cl_demand/cl_demand_item/cl_exchange/cl_item_hold，不只比较计数。20k边界夹具仅在临时测试库事务内生成并按自身owner清理，基线行保持不变；测试容器已自动停止并删除，未连接日常数据库或输出凭据。Flyway既有MySQL8.4支持版本提示仍出现，本次实际迁移与查询验证通过。
 
 A/D的消费策略确认和其他成员审核仍未收到，见Issue #7及关联草稿PR。保持分类硬匹配、标签软排序是任务已明确要求；未将无回复当作团队批准。
+
+B-03前置版本增量：当前响应participants增加itemVersion、flows增加所选需求demandVersion，均来自同一数据库快照；不更改independent-v2评分/硬条件/排序。原虚构JSON样例同步显式使用版本0；创建仍须锁内重验，当前A-03未接入，详见 [B-03说明](b03-exchange-domain.md)。
