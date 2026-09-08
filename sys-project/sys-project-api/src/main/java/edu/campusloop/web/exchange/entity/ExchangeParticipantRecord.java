@@ -14,4 +14,6 @@ public class ExchangeParticipantRecord {
     private LocalDateTime confirmedAt;
     private LocalDateTime handedOffAt;
     private LocalDateTime receivedAt;
+    private String handedOffNote;
+    private String receivedNote;
 }

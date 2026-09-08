@@ -55,6 +55,7 @@ class ExchangeDomainIntegrationTest {
     @AfterEach void removeOnlyOwnFixtures() {
         for(long user:users) exchanges.addAll(jdbc.queryForList("SELECT id FROM cl_exchange WHERE initiator_id=?",Long.class,user));
         for(long exchange:new LinkedHashSet<>(exchanges)) {
+            jdbc.update("DELETE FROM cl_item_history WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange_event WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange_demand WHERE exchange_id=?",exchange);
@@ -64,6 +65,8 @@ class ExchangeDomainIntegrationTest {
         for(long user:users) {
             jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)",user);
             jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",user);
+        }
+        for(long user:users) {
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?",user);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_user WHERE id=?",user);
@@ -136,7 +139,7 @@ class ExchangeDomainIntegrationTest {
             var forged=new LinkedHashMap<>(body);forged.put(field,"forged");call("POST","/api/exchanges",a.token(),forged,400);
         }
         var old=new LinkedHashMap<>(body);old.put("ruleVersion","legacy-v1");call("POST","/api/exchanges",a.token(),old,409);
-        for(String action:List.of("handoff")) call("POST","/api/exchanges/1/"+action,admin.token(),Map.of("version",0),501);
+        call("POST","/api/exchanges/1/handoff",admin.token(),Map.of("version",0),400);
         assertEquals(before,businessRows());
     }
     @Test void databaseOwnerDemandAndVersionSnapshotsValidateBothRingLengthsWithoutWriting() {
@@ -428,7 +431,7 @@ class ExchangeDomainIntegrationTest {
                 var result=call("POST","/api/exchanges/"+id+"/confirm",actor.token(),Map.of("version",i),200);
                 assertEquals(i+1,result.path("version").asInt());
                 assertEquals(i==length-1?"READY":"AWAITING_CONFIRMATION",result.path("status").asText());
-                assertEquals(json.readTree("[\"CANCEL\"]"),result.path("allowedActions"));
+                assertEquals(json.readTree(i==length-1?"[\"HANDED_OFF\",\"RECEIVED\",\"CANCEL\"]":"[\"CANCEL\"]"),result.path("allowedActions"));
                 var rows=businessRows();
                 assertEquals(result,call("POST","/api/exchanges/"+id+"/confirm",actor.token(),Map.of("version",i),200));
                 assertEquals(rows,businessRows());
@@ -497,7 +500,7 @@ class ExchangeDomainIntegrationTest {
         jdbc.update("UPDATE cl_exchange_participant SET handed_off_at=CURRENT_TIMESTAMP WHERE exchange_id=? AND user_id=?",id,a.id());
         jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now().minusSeconds(1),id);
         var rows=businessRows();rejected(409,()->lifecycle.cancel(a.id(),id,2,"原因"));rejected(409,()->lifecycle.confirm(b.id(),id,2));assertFalse(lifecycle.expire(id));
-        assertTrue(call("GET","/api/exchanges/"+id,a.token(),null,200).path("allowedActions").isEmpty());assertEquals(rows,businessRows());
+        assertEquals(json.readTree("[\"RECEIVED\",\"DISPUTE\"]"),call("GET","/api/exchanges/"+id,a.token(),null,200).path("allowedActions"));assertEquals(rows,businessRows());
         long legacy=seedStoredExchange(List.of(a,b),List.of(item(a,1),item(b,2)),"AWAITING_CONFIRMATION");
         rejected(409,()->lifecycle.confirm(a.id(),legacy,0));rejected(409,()->lifecycle.cancel(a.id(),legacy,0,"原因"));
         assertTrue(call("GET","/api/exchanges/"+legacy,a.token(),null,200).path("allowedActions").isEmpty());
@@ -558,10 +561,11 @@ class ExchangeDomainIntegrationTest {
         assertEquals(List.of(retry,retry),result);assertEquals(1,eventCount(retry));
     }
 
-    @Test void mysqlLockWaitPastDeadlineRejectsBothActionsUsingTimeAfterAllLocks() throws Exception {
+    @Test void mysqlLockWaitPastDeadlineRejectsConfirmCancelAndFirstHandoffUsingTimeAfterAllLocks() throws Exception {
         mysqlOnly();
-        for(boolean cancel:List.of(false,true)) {
-            var command=ring(2,"deadline-lock-"+cancel);long id=creation.create(a.id(),command);
+        for(String action:List.of("confirm","cancel","handoff")) {
+            var command=ring(2,"deadline-lock-"+action);long id=creation.create(a.id(),command);
+            if(action.equals("handoff")) {lifecycle.confirm(a.id(),id,0);lifecycle.confirm(b.id(),id,1);}
             long item=command.flows().get(0).itemId();
             var deadline=exchangeClock.now().plusSeconds(2);jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",deadline,id);
             var rows=businessRows();var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
@@ -574,7 +578,7 @@ class ExchangeDomainIntegrationTest {
                     jdbc.queryForList("SELECT id FROM cl_item WHERE id=? FOR UPDATE",item);
                     future.set(pool.submit(()-> {
                         SqlProbe.before.set(statement -> {if(statement.endsWith("ItemMapper.selectForUpdate") && observed.compareAndSet(false,true)){assertTrue(exchangeClock.now().isBefore(deadline));reached.countDown();}});
-                        try{return result(()->cancel?lifecycle.cancel(a.id(),id,0,"原因"):lifecycle.confirm(a.id(),id,0));}finally{SqlProbe.before.remove();}
+                        try{return result(()->switch(action) {case "cancel" -> lifecycle.cancel(a.id(),id,0,"原因");case "handoff" -> lifecycle.handoff(a.id(),id,2,GIVEN,"");default -> lifecycle.confirm(a.id(),id,0);});}finally{SqlProbe.before.remove();}
                     }));
                     await(reached);assertThrows(java.util.concurrent.TimeoutException.class,()->future.get().get(250,java.util.concurrent.TimeUnit.MILLISECONDS));
                     jdbc.queryForObject("SELECT SLEEP(2.1)",Integer.class);
@@ -845,9 +849,150 @@ class ExchangeDomainIntegrationTest {
         for(int i=0;i<people.size();i++) jdbc.update("INSERT INTO cl_exchange_participant(exchange_id,user_id,offered_item_id,recipient_user_id) VALUES(?,?,?,?)",id,people.get(i).id(),items.get(i),people.get((i+1)%people.size()).id());
         return id;
     }
+    private static final edu.campusloop.exchange.ExchangeLifecycleRules.HandoffKind GIVEN=edu.campusloop.exchange.ExchangeLifecycleRules.HandoffKind.HANDED_OFF;
+    private static final edu.campusloop.exchange.ExchangeLifecycleRules.HandoffKind RECEIVED=edu.campusloop.exchange.ExchangeLifecycleRules.HandoffKind.RECEIVED;
+    private long ready(int length,String key) {
+        long id=creation.create(a.id(),ring(length,key));
+        for(int i=0;i<length;i++) lifecycle.confirm(List.of(a,b,c).get(i).id(),id,i);
+        return id;
+    }
+    private int almostComplete(long id,int length) {
+        int version=length;
+        for(int i=0;i<length;i++) {
+            var actor=List.of(a,b,c).get(i);
+            lifecycle.handoff(actor.id(),id,version++,GIVEN,"已交出");
+            if(i<length-1) lifecycle.handoff(actor.id(),id,version++,RECEIVED,"已收到");
+        }
+        return version;
+    }
+    @Test void handoffTwoAndThreePartyFlowsTransferExactlyOnceAndCloseOnlySelectedDemands() throws Exception {
+        for(int length:List.of(2,3)) {
+            long unrelated=demand(a,2,item(a,3));
+            long id=ready(length,"handoff-complete-"+length);
+            var itemsBefore=jdbc.queryForList("SELECT i.* FROM cl_item i JOIN cl_exchange_participant p ON p.offered_item_id=i.id WHERE p.exchange_id=? ORDER BY i.id",id);
+            var refs=jdbc.queryForList("SELECT demand_id FROM cl_exchange_demand WHERE exchange_id=? ORDER BY demand_id",Long.class,id);
+            int version=almostComplete(id,length);
+            assertEquals(itemsBefore,jdbc.queryForList("SELECT i.* FROM cl_item i JOIN cl_exchange_participant p ON p.offered_item_id=i.id WHERE p.exchange_id=? ORDER BY i.id",id));
+            assertEquals("READY",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));
+            assertEquals(length,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=?",Integer.class,id));
+            var actor=List.of(a,b,c).get(length-1);
+            var result=call("POST","/api/exchanges/"+id+"/handoff",actor.token(),Map.of("version",version,"kind","RECEIVED","acknowledged",true,"note","已收到"),200);
+            assertEquals("COMPLETED",result.path("status").asText());assertTrue(result.path("allowedActions").isEmpty());
+            for(var flow:result.path("flows")) {
+                long item=flow.path("itemId").asLong();
+                assertEquals(flow.path("toUserId").asLong(),jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,item));
+                assertEquals("EXCHANGED",jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?",String.class,item));
+                assertEquals(2,jdbc.queryForObject("SELECT version FROM cl_item WHERE id=?",Integer.class,item));
+                var event=jdbc.queryForMap("SELECT * FROM cl_item_history WHERE exchange_id=? AND item_id=?",id,item);
+                assertEquals("BOTH_CONFIRMED",event.get("evidence_level"));assertNull(event.get("verified_by_user_id"));assertNull(event.get("verified_at"));
+                assertEquals(flow.path("fromUserId").asLong(),((Number)event.get("source_user_id")).longValue());
+                assertEquals(flow.path("toUserId").asLong(),((Number)event.get("counterparty_user_id")).longValue());
+            }
+            for(long demand:refs) {
+                assertEquals("INACTIVE",jdbc.queryForObject("SELECT status FROM cl_demand WHERE id=?",String.class,demand));
+                assertEquals(1,jdbc.queryForObject("SELECT version FROM cl_demand WHERE id=?",Integer.class,demand));
+            }
+            assertEquals("ACTIVE",jdbc.queryForObject("SELECT status FROM cl_demand WHERE id=?",String.class,unrelated));
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            assertEquals(length*3,eventCount(id));var rows=businessRows();
+            lifecycle.handoff(actor.id(),id,version,RECEIVED," 已收到 ");
+            lifecycle.handoff(a.id(),id,length,GIVEN,"已交出");
+            call("GET","/api/exchanges/"+id,a.token(),null,200);
+            assertEquals(rows,businessRows());
+        }
+    }
+    @Test void handoffRejectsUnauthorizedForgedMalformedStaleAndChangedReplayWithoutWrites() throws Exception {
+        long id=ready(2,"handoff-auth");var rows=businessRows();
+        var body=Map.of("version",2,"kind","RECEIVED","acknowledged",true);
+        call("POST","/api/exchanges/"+id+"/handoff",null,body,401);
+        for(var other:List.of(outsider,admin)) call("POST","/api/exchanges/"+id+"/handoff",other.token(),body,404);
+        for(var bad:List.of(Map.of("version",2,"kind","RECEIVED","acknowledged",false),Map.of("version",2,"kind","OTHER","acknowledged",true),Map.of("version",2,"kind","RECEIVED","acknowledged",true,"ownerId",b.id()),Map.of("version",2.5,"kind","RECEIVED","acknowledged",true),Map.of("version",2,"kind","RECEIVED","acknowledged",true,"note","x".repeat(1001))))
+            call("POST","/api/exchanges/"+id+"/handoff",a.token(),bad,400);
+        rejected(409,()->lifecycle.handoff(a.id(),id,1,GIVEN,""));assertEquals(rows,businessRows());
+        lifecycle.handoff(a.id(),id,2,GIVEN,"");rows=businessRows();
+        rejected(409,()->lifecycle.handoff(a.id(),id,3,GIVEN,"改写"));
+        rejected(409,()->lifecycle.handoff(a.id(),id,4,GIVEN,""));
+        rejected(409,()->lifecycle.handoff(b.id(),id,2,RECEIVED,""));assertEquals(rows,businessRows());
+        long waiting=creation.create(a.id(),ring(2,"handoff-waiting"));
+        rejected(409,()->lifecycle.handoff(a.id(),waiting,0,GIVEN,""));
+    }
+    @Test void startedHandoffContinuesAfterDeadlineButDisputeStopsItWithoutRelease() throws Exception {
+        long id=ready(2,"handoff-dispute");
+        rejected(409,()->lifecycle.dispute(a.id(),id,2,"异常"));
+        lifecycle.handoff(a.id(),id,2,GIVEN,"交出");due(id);
+        assertFalse(lifecycle.expire(id));assertFalse(lifecycle.expireForScan(id));
+        rejected(409,()->lifecycle.cancel(a.id(),id,3,"取消"));
+        lifecycle.handoff(b.id(),id,3,RECEIVED,"收到");
+        var resources=jdbc.queryForList("SELECT * FROM cl_item_hold WHERE exchange_id=?",id);
+        var dispute=call("POST","/api/exchanges/"+id+"/dispute",a.token(),Map.of("version",4,"reason","  物品异常  "),200);
+        assertEquals("DISPUTED",dispute.path("status").asText());assertEquals(a.id(),dispute.path("disputedBy").asLong());
+        assertEquals("物品异常",dispute.path("disputeReason").asText());assertTrue(dispute.path("disputedAt").asText().endsWith("Z"));assertTrue(dispute.path("allowedActions").isEmpty());
+        var rows=businessRows();lifecycle.dispute(a.id(),id,4,"物品异常");lifecycle.handoff(a.id(),id,2,GIVEN,"交出");
+        rejected(404,()->lifecycle.dispute(outsider.id(),id,5,"物品异常"));
+        rejected(409,()->lifecycle.dispute(b.id(),id,5,"物品异常"));
+        rejected(409,()->lifecycle.handoff(b.id(),id,5,GIVEN,""));assertFalse(lifecycle.expire(id));
+        assertEquals(rows,businessRows());assertEquals(resources,jdbc.queryForList("SELECT * FROM cl_item_hold WHERE exchange_id=?",id));
+    }
+    @Test void firstHandoffAtDeadlineRejectedAndAllStartedAcknowledgementsMayCompleteAfterIt() {
+        long rejectedId=ready(2,"handoff-deadline");due(rejectedId);var rows=businessRows();
+        rejected(409,()->lifecycle.handoff(a.id(),rejectedId,2,GIVEN,""));assertEquals(rows,businessRows());
+        long id=ready(2,"handoff-continue");int version=almostComplete(id,2);due(id);
+        lifecycle.handoff(b.id(),id,version,RECEIVED,"已收到");assertEquals("COMPLETED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));
+    }
+    @Test void changedDemandOrForeignHoldPreventsCompletionAndPreservesAllRows() {
+        for(String change:List.of("version","status","reference","hold")) {
+            long id=ready(2,"handoff-guard-"+change);int version=almostComplete(id,2);
+            long demand=jdbc.queryForObject("SELECT MIN(demand_id) FROM cl_exchange_demand WHERE exchange_id=?",Long.class,id);
+            if(change.equals("version")) jdbc.update("UPDATE cl_demand SET version=version+1 WHERE id=?",demand);
+            if(change.equals("status")) jdbc.update("UPDATE cl_demand SET status='INACTIVE' WHERE id=?",demand);
+            if(change.equals("reference")) jdbc.update("UPDATE cl_exchange_demand SET demand_version=demand_version+1 WHERE exchange_id=? AND demand_id=?",id,demand);
+            if(change.equals("hold")) {
+                long other=creation.create(a.id(),ring(2,"handoff-other-hold"));
+                jdbc.update("UPDATE cl_item_hold SET exchange_id=? WHERE item_id=(SELECT MIN(offered_item_id) FROM cl_exchange_participant WHERE exchange_id=?)",other,id);
+            }
+            var rows=businessRows();rejected(409,()->lifecycle.handoff(b.id(),id,version,RECEIVED,"已收到"));assertEquals(rows,businessRows());
+        }
+    }
+    @Test void completionConstraintFailureAtEveryWritePhaseRollsBackAllSixBusinessEffects() {
+        for(String stage:List.of("receive","transition","event","fulfill","transfer","history","release")) {
+            long id=ready(3,"handoff-failure-"+stage);int version=almostComplete(id,3);var rows=businessRows();
+            var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(statement -> {
+                if(statement.endsWith("ExchangeLifecycleMapper."+stage) && once.compareAndSet(false,true))
+                    jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",id);
+            });
+            try {rejected(409,()->lifecycle.handoff(c.id(),id,version,RECEIVED,"已收到"));} finally {SqlProbe.after.remove();}
+            assertTrue(once.get());assertEquals(rows,businessRows());
+            lifecycle.handoff(c.id(),id,version,RECEIVED,"已收到");assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=?",Integer.class,id));
+        }
+    }
+    @Test void mysqlConcurrentLastAcknowledgementsAndExactReplayTransferOnce() throws Exception {
+        mysqlOnly();long id=ready(2,"handoff-last-race");
+        lifecycle.handoff(a.id(),id,2,GIVEN,"");lifecycle.handoff(b.id(),id,3,GIVEN,"");
+        var result=race(()->lifecycle.handoff(a.id(),id,4,RECEIVED,""),()->lifecycle.handoff(b.id(),id,4,RECEIVED,""),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(id,-409L),result);assertEquals("READY",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));
+        result=race(()->lifecycle.handoff(b.id(),id,5,RECEIVED,""),()->lifecycle.handoff(b.id(),id,5,RECEIVED,""),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(id,id),result);assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=?",Integer.class,id));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+    }
+    @Test void mysqlCancelExpiryAndDisputeRaceThroughSharedExchangeLock() throws Exception {
+        mysqlOnly();
+        long first=ready(2,"handoff-cancel-race");
+        assertEquals(List.of(first,-409L),race(()->lifecycle.handoff(a.id(),first,2,GIVEN,""),()->lifecycle.cancel(b.id(),first,2,"取消"),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock"));
+        assertEquals(List.of(first,0L),race(()->lifecycle.handoff(b.id(),first,3,RECEIVED,""),()->lifecycle.expire(first)?1L:0L,"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock"));
+        long second=ready(2,"cancel-handoff-race");
+        assertEquals(List.of(second,-409L),race(()->lifecycle.cancel(b.id(),second,2,"取消"),()->lifecycle.handoff(a.id(),second,2,GIVEN,""),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock"));
+        long third=ready(2,"expiry-handoff-race");due(third);
+        assertEquals(List.of(third,-409L),race(()->{lifecycle.expire(third);return third;},()->lifecycle.handoff(a.id(),third,2,GIVEN,""),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock"));
+        long fourth=ready(2,"dispute-handoff-race");int version=almostComplete(fourth,2);
+        assertEquals(List.of(fourth,-409L),race(()->lifecycle.dispute(a.id(),fourth,version,"异常"),()->lifecycle.handoff(b.id(),fourth,version,RECEIVED,"已收到"),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock"));
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,fourth));
+    }
+
     private Map<String,List<Map<String,Object>>> businessRows() {
         Map<String,List<Map<String,Object>>> values=new LinkedHashMap<>();
-        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
+        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event","cl_item_history")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
         values.put("cl_exchange_demand",jdbc.queryForList("SELECT * FROM cl_exchange_demand ORDER BY exchange_id,demand_id"));
         values.put("cl_demand_item",jdbc.queryForList("SELECT * FROM cl_demand_item ORDER BY demand_id,item_id"));
         values.put("cl_item_hold",jdbc.queryForList("SELECT * FROM cl_item_hold ORDER BY item_id"));return values;

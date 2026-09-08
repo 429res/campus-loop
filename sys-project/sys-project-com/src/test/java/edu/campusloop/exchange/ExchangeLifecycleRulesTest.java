@@ -141,4 +141,44 @@ class ExchangeLifecycleRulesTest {
         assertEquals(Set.of(101L,102L),current.participants());assertTrue(current.confirmed().isEmpty());assertEquals(0,current.version());
         assertThrows(UnsupportedOperationException.class,()->current.participants().clear());
     }
+    @Test void firstHandoffUsesStrictDeadlineButStartedHandoffHasNoAutomaticExpiry() {
+        var empty=new Handover(Map.of(),Map.of());
+        rejected(409,()->rules.handoff(ready(),empty,101,2,HandoffKind.HANDED_OFF,"",deadline));
+        var first=rules.handoff(ready(),empty,101,2,HandoffKind.HANDED_OFF,"  交出  ",before);
+        assertTrue(first.next().handoverStarted());assertEquals("交出",first.event().reason());
+        unchanged(first.next(),rules.expire(first.next(),deadline.plusSeconds(100)));
+        var progress=new Handover(Map.of(101L,"交出"),Map.of());
+        var second=rules.handoff(first.next(),progress,102,3,HandoffKind.RECEIVED,"收到",deadline.plusSeconds(100));
+        assertEquals(State.READY,second.next().state());assertNull(second.releaseExchangeId());
+        rejected(409,()->rules.cancel(first.next(),102,3,"取消",before));
+    }
+    @Test void lastOfFourOrSixStatementsCompletesAndReplayDoesNotWrite() {
+        for(int size:List.of(2,3)) {
+            var people=size==2?Set.of(101L,102L):Set.of(101L,102L,103L);
+            var current=new Snapshot(91,State.READY,size,deadline,people,people,false,null);
+            Map<Long,String> given=new HashMap<>(),received=new HashMap<>();
+            int count=0;
+            for(long actor:new TreeSet<>(people)) for(var kind:HandoffKind.values()) {
+                var decision=rules.handoff(current,new Handover(given,received),actor,current.version(),kind,"",before);
+                count++;assertEquals(count==size*2?State.COMPLETED:State.READY,decision.next().state());
+                assertEquals(count==size*2?91L:null,decision.releaseExchangeId());
+                (kind==HandoffKind.HANDED_OFF?given:received).put(actor,"");current=decision.next();
+            }
+            unchanged(current,rules.handoff(current,new Handover(given,received),101,size,HandoffKind.HANDED_OFF,"",deadline));
+        }
+    }
+    @Test void disputeAndHandoffPermissionsShareStateAndNoAdminBypass() {
+        var empty=new Handover(Map.of(),Map.of());
+        assertEquals(List.of(Action.HANDED_OFF,Action.RECEIVED,Action.CANCEL),rules.permittedActions(ready(),empty,101,before));
+        var started=rules.handoff(ready(),empty,101,2,HandoffKind.HANDED_OFF,"",before).next();
+        var progress=new Handover(Map.of(101L,""),Map.of());
+        assertEquals(List.of(Action.RECEIVED,Action.DISPUTE),rules.permittedActions(started,progress,101,deadline));
+        var stopped=rules.dispute(started,null,101,3,"异常",deadline).next();
+        assertTrue(rules.permittedActions(stopped,progress,101,deadline).isEmpty());
+        rejected(409,()->rules.handoff(stopped,progress,102,4,HandoffKind.RECEIVED,"",deadline));
+        rejected(404,()->rules.handoff(started,progress,999,3,HandoffKind.RECEIVED,"",before));
+        rejected(409,()->rules.handoff(started,progress,102,2,HandoffKind.RECEIVED,"",before));
+        unchanged(stopped,rules.dispute(stopped,new Dispute(101,"异常",deadline),101,3,"异常",deadline));
+        unchanged(stopped,rules.expire(stopped,deadline));
+    }
 }

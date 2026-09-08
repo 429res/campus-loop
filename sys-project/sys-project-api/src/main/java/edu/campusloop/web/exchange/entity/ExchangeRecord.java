@@ -16,6 +16,9 @@ public class ExchangeRecord {
     private String ruleVersion;
     private String requestDigest;
     private String creationSnapshot;
+    private Long disputedBy;
+    private String disputeReason;
+    private LocalDateTime disputedAt;
     private Long cancelledBy;
     private String cancellationReason;
     private LocalDateTime cancelledAt;
