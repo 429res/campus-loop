@@ -1,6 +1,6 @@
 # API 契约 v1
 
-API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态冲突（后续）、422候选规模超限、501明确待开发、500内部错误。不要把非200包裹成成功。
+API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态或版本冲突、422候选规模超限、501明确待开发、500内部错误。不要把非200包裹成成功。
 
 认证头 `Authorization: Bearer <本机登录返回令牌>`，不得写入文档样例或日志。时间以UTC ISO8601返回，前端按本地时区显示。id为数据库整数；当前规模可用JSON number，超过JS安全整数前统一迁移为字符串契约。
 
@@ -37,11 +37,40 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选，超过422，前端显示错误而非“没有结果”。
 
+## B-01 独立需求与本人物品关联
+
+本节为 B-01 分支的实现契约；合入并运行 V3 后才可供 D-02 调用。均要求登录，只访问本人数据，管理员也不能替其他人写需求。未知/受保护的 JSON 字段（包括 ownerId、id、createdAt、requiredTags、minimumConditionLevel）返回400。
+
+| 方法和路径 | 输入/结果 |
+| --- | --- |
+| POST /demands | `{categoryId,description,preferredTags,offeredItemIds}` → Demand；初始 ACTIVE、version=0 |
+| GET /demands | query `page=1&size=12&status=` → 本人非删除需求分页；status 可省略或 ACTIVE/INACTIVE |
+| GET /demands/{id} | 本人非删除 Demand；外人403，不存在/已删除404 |
+| PATCH /demands/{id} | `{version,categoryId?,description?,preferredTags?,offeredItemIds?}` → 更新后的 Demand；至少一个可编辑字段；省略保持原值，显式null拒绝 |
+| PATCH /demands/{id}/status | `{version,status}`，status 仅 ACTIVE/INACTIVE → Demand；相同状态也必须版本一致且 version+1 |
+| DELETE /demands/{id}?version=0 | 逻辑删除 → `{id,status:"DELETED",version}`；不支持恢复；再次操作404 |
+| GET /demands/offerable-items | query `page=1&size=12` → 本人 AVAILABLE 且无 cl_item_hold 的物品分页，字段见下 |
+
+分页沿用 `{records,total,page,size}`，page≥1、size为1–100。需求按 createdAt/id 降序；关联按 itemId 升序返回。
+
+Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,status,version,createdAt,updatedAt,offeredItems`。description 为纯文本可空串、最长2000；categoryId 为已存在正整数分类；preferredTags 必填数组，最多8项，每项非空白且最多20字符，服务端 trim、转小写、去重。`offeredItemIds` 必填数组，允许空，最多100个不同正整数。
+
+`offeredItems` 及 offerable-items 的 records 字段：`itemId,title,categoryId,conditionLevel,status,offerable`，全部来自现有 cl_item 实时读取；offerable 同时校验仍属需求本人、AVAILABLE、无占用。该返回不构成未来可交换承诺。归属已转走的历史关联只返回 itemId、offerable=false，其他字段为null，避免继续披露他人物品的非公开状态。
+
+编辑、状态切换、删除均要求当前非负整数 version；过期409，不覆盖任何字段或关联，成功 version+1，updatedAt 为UTC ISO8601。编辑仅更新提交字段，offeredItemIds 若提供则全量替换且和需求在同一事务内提交。切换 ACTIVE 时重新验证全部关联；INACTIVE 可以保留已失效的历史关联。字段编辑不重新保存未提交的关联，D 可用 offeredItemIds=[] 清空。
+
+关联是多对多的候选集合：一条需求0–100件本人 AVAILABLE 且无占用的物品，同一物品允许出现在本人多条需求中；关联不复制物品、不更改 owner、不占用。重复ID或不存在物品400，外人物品403，不可提供状态/占用409。非法分类400；未登录401。被删除需求的读写404；其他越权403。并发更新按需求行锁与 version 条件串行，关联写入按物品ID升序锁定再校验。
+
+停用保留详情与关联并可恢复 ACTIVE，`GET /demands?status=ACTIVE` 不包含 INACTIVE。删除置 DELETED 并保留原需求内容、关联和ID作为墓碑，普通读写不可再访问，不提供物理删除接口；关联外键禁止物理删除被引用的需求/物品，后续持久化消费者必须采用同样的非级联外键，历史引用不会被接口删除破坏。正式交换引用下的额外编辑/停用限制由 B-03 与 A 协商，本轮没有此写入能力。
+
+旧字段策略：cl_item.wantedCategoryId/wantedTags 仍是旧发布与 GET /matches 的唯一来源；独立需求是上述 CRUD 的唯一来源。不回填、不双写、不自动同步或关闭旧字段，B-01 的停用/删除只影响独立需求，不改变旧推荐结果。B-02 再经 A/D 确认需求选择、旧链路退出及规则版本；requiredTags/最低成色本轮既不接收也不隐式启用。
+
+迁移暂定 V3（当前 V1/V2 不修改），A 的序号协调和 A/D 的候选基数复核尚待团队回复；不把未收到的确认写成已完成。接入样例和状态见 [b01-independent-demands.md](b01-independent-demands.md)。
+
 ## 后续接口设计（未实现）
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
-| GET/POST/PATCH /demands | 当前用户需求清单，owner权限，version条件更新 |
 | PUT/DELETE /items/{id}/favorite | 当前用户幂等收藏，unique(user,item) |
 | POST /exchanges | 物品有序列表、规则版本、idempotencyKey；事务重校验、锁定、唯一占用；冲突409 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
