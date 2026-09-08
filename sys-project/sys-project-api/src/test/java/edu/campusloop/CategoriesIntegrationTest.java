@@ -60,6 +60,7 @@ class CategoriesIntegrationTest {
         for (long id : userIds) {
             jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)", id);
             jdbc.update("DELETE FROM cl_demand WHERE owner_id=?", id);
+            jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",id);
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?", id);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?", id);
             jdbc.update("DELETE FROM cl_user WHERE id=?", id);
@@ -328,7 +329,11 @@ class CategoriesIntegrationTest {
     private Map<String, Object> demandBody(long category, List<Long> items) {
         return Map.of("categoryId", category, "description", "虚构需求", "preferredTags", List.of(), "offeredItemIds", items);
     }
-    private long item(long category, long wanted) throws Exception { return call("POST", "/api/items", user.token(), itemBody(category, wanted), 200).path("id").asLong(); }
+    private long item(long category, long wanted) throws Exception {
+        long id=call("POST", "/api/items", user.token(), itemBody(category, wanted), 200).path("id").asLong();
+        // Legacy fixture for category reference tests; publication review is tested separately.
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE id=?",id);return id;
+    }
     private long demand(long category, List<Long> items) throws Exception { return call("POST", "/api/demands", user.token(), demandBody(category, items), 200).path("id").asLong(); }
     private String path() { return "/api/admin/categories"; }
     private String path(long id) { return path() + "/" + id; }

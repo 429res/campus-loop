@@ -157,13 +157,13 @@ async function publish() {
     const data = await http.post('/api/items', {...form.value,title:form.value.title.trim(),description:form.value.description.trim(),tags:itemTags,wantedTags},{silent:true})
     if (!isCurrentAccount(scope)) return
     uni.removeStorageSync(draftKey(scope.userId)); form.value = empty()
-    uni.navigateTo({url:`/pages/detail/detail?id=${data.id}`})
+    uni.navigateTo({url:`/pages/detail/detail?id=${data.id}&mine=1`})
   } catch(e) { requestFailed(e, scope, error) } finally { if (ownsAccountState(scope)) busy.value = false }
 }
 </script>
 <template>
   <LoopLayout>
-    <view class="cl-page-heading"><text class="cl-title">让闲置，开始下一段旅程</text><text class="cl-subtitle">说说你有什么，也告诉我们你想要什么。</text></view>
+    <view class="cl-page-heading"><text class="cl-title">让闲置，开始下一段旅程</text><text class="cl-subtitle">提交后进入待审，通过审核后才会公开并参与推荐。</text></view>
     <view v-if="verifyingSession" class="cl-panel cl-empty" role="status"><text>正在验证当前账号…</text></view>
     <view v-else-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ error || sessionError || '登录后发布你的闲置' }}</text><text class="cl-hint">表单不会自动提交；重新登录后可恢复当前账号的非敏感草稿。</text><LoopButton v-if="sessionError" class="cl-btn" @click="verifySession">重试验证</LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="login">重新登录</LoopButton></view>
     <view v-else class="publish-layout">
@@ -177,7 +177,7 @@ async function publish() {
         <view class="cl-divider"/><view class="cl-field"><text class="cl-section-title">我想换到</text><text class="cl-hint">分类是必须满足的条件；标签让推荐排序更贴近你的需求。</text></view>
         <view class="cl-field"><text class="cl-field-title">想要的分类 *</text><LoopPicker :range="categories" range-key="name" :value="categories.findIndex(c=>c.id===form.wantedCategoryId)" aria-label="想要的分类" :disabled="busy || !categories.length" @change="selectCategory($event,'wantedCategoryId')"><view class="cl-picker" aria-label="想要的分类"><text>{{ categoryName(form.wantedCategoryId) }}</text><text>⌄</text></view></LoopPicker></view>
         <view class="cl-field"><text class="cl-field-title">偏好标签</text><input v-model="form.wantedTags" class="cl-input" aria-label="偏好标签" placeholder="用逗号分隔，最多 8 个，每个 20 字" maxlength="200" :disabled="busy" /></view>
-        <text v-if="error" class="cl-error" role="alert">{{ error }}</text><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="busy || uploading || !!categoriesError" :loading="busy">{{ busy ? '正在发布…' : uploading ? '请等待图片上传' : '发布物品' }}</LoopButton>
+        <text v-if="error" class="cl-error" role="alert">{{ error }}</text><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="busy || uploading || !!categoriesError" :loading="busy">{{ busy ? '正在提交…' : uploading ? '请等待图片上传' : '提交审核' }}</LoopButton>
       </form>
       <view class="cl-stack"><view class="cl-panel photo-panel"><text class="cl-field-title">给物品拍张照片</text><view v-if="pendingFile || form.imageUrl" class="photo-preview"><image :src="pendingFile || imageUrl(form.imageUrl)" mode="aspectFill"/><LoopButton class="cl-icon-btn photo-remove" aria-label="移除照片引用" :disabled="busy" @click="removeImage">×</LoopButton></view><LoopButton v-else class="upload-zone" :disabled="busy" @click="pickImage"><text class="upload-plus">＋</text><text>选择一张照片</text><text class="cl-hint">JPG / PNG / GIF，最大 5 MB</text></LoopButton><view v-if="uploading || uploadError" class="upload-actions"><text :class="uploadError ? 'cl-error' : 'cl-hint'">{{ uploading ? '图片上传中…' : uploadError }}</text><LoopButton v-if="uploading" class="cl-btn" @click="cancelUpload">取消上传</LoopButton><LoopButton v-else-if="uploadError && pendingFile" class="cl-btn" @click="startUpload(pendingFile)">重试上传</LoopButton></view><text v-if="removedUpload" class="cl-hint" role="status">已从表单移除图片引用；服务端文件未在此处删除。</text><text class="cl-hint">上传成功后才会绑定到物品；草稿恢复后的图片会在提交时由服务端重新核实归属。</text></view><view class="cl-notice">发布内容将写入你自己的 Campus Loop 数据库。请勿包含联系方式、证件或他人的隐私信息。</view><view class="cl-panel"><text class="cl-field-title">交换的一点小默契</text><text class="publish-tip">如实说明成色与瑕疵<br/>在校园公共区域交接<br/>正式确认前，物品仍可被发现</text></view></view>
     </view>
