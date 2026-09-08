@@ -7,6 +7,7 @@
     { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
     { "path": "pages/favorites/favorites", "style": { "navigationBarTitleText": "我的收藏" } },
     { "path": "pages/demands/demands", "style": { "navigationBarTitleText": "我的需求" } },
+    { "path": "pages/exchanges/exchanges", "style": { "navigationBarTitleText": "我的交换" } },
     { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情", "enablePullDownRefresh": true } },
     { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
   ],
