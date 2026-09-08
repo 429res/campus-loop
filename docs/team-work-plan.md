@@ -106,3 +106,5 @@ B-05第一切片契约、不同来源样例和证据见[b05-self-reported-histor
 B-05第二切片字段、来源转换及权限矩阵见[b05-participant-confirmation](b05-participant-confirmation.md)与[Issue #40](https://github.com/429res/campus-loop/issues/40)。只更新该切片，不将管理员核验或整项B-05标记完成。
 
 B-05第三切片契约和C/D样例见[b05-admin-verification](b05-admin-verification.md)，协调[Issue #42](https://github.com/429res/campus-loop/issues/42)。前两片已合入，三片后端能力与页面集成分别验收，不因管理员接口完成就标记整个模块端到端完成。
+
+A-05 备份恢复切片已提供隔离双库、公开/私有上传与应用回读的一键演练，并记录部署变量、代理和恢复顺序，见 [A-05备份恢复说明](a05-backup-restore-deployment.md)。Windows 本地演练通过；部署目标、macOS、云环境和 D 的微信工具/真机验证仍未提供。本条只更新该切片，不把 A-05 的限流、外部服务或整项上线准备标记完成。
