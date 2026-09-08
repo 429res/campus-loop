@@ -184,6 +184,14 @@ ItemView 增量字段：`reviewBasis`=LEGACY_DIRECT/UNREVIEWED/ADMIN_REVIEW；`r
 
 V7 不重解释旧数据：现有 AVAILABLE 保持公开及推荐，现有 RESERVED/EXCHANGED 保持交换状态；三者标记 LEGACY_DIRECT，不伪造管理员或批准事件。其余旧状态保留并标记 UNREVIEWED，全部旧 version不变；首次合法编辑保存旧内容快照后进入待审。新建演示夹具明确写 LEGACY_DIRECT，重复启动不覆盖数据。需同批部署后端、C审批及D提交/本人状态读取；接入、示例和验证见 [a02-item-review.md](a02-item-review.md)。
 
+## B-03.2：确认/取消契约准备（未接入生产）
+
+发起人已确认并在 [Issue #30](https://github.com/429res/campus-loop/issues/30) 同步：未交接且原24h截止前，任一参与者可取消AWAITING_CONFIRMATION或READY；确认独立记录，仅全员确认后READY。dbNow>=expiresAt拒绝新确认/取消，不重置截止，由A-04共同流程处理。重复操作不新增事件，新的变更须当前version；确认/取消/截止按同一exchange锁串行。详情参见 [状态/权限矩阵](b03-invitation-rules.md)。
+
+当前A-03缺失，按发起人选择仅完成纯规则与独立验证；本节DTO和成功语义仍是接入契约，控制器保持501，不能开放按钮。未来confirm严格body为`{version}`、cancel为`{version,reason}`，reason trim后1–1000字，actor与时间均由服务端获取。非参与者（含ADMIN）404；状态/截止/版本冲突409。确认重放限未截止/未交接的等待或READY；CANCELLED仅原取消者及相同原因可读回，旧version允许、未来version拒绝，截止后不再释放。其他终态不允许写。
+
+`ExchangeLifecycleRules`只输出纯决策，未来allowedActions与写鉴权共用它，并由已实现能力限制；当前无写能力，不把纯规则的CONFIRM/CANCEL当作实际允许动作。取消/到期必须共用A的单一事务与条件释放，交接证据存在时不直接恢复物品。未来取消者/原因/时间须持久化，当前没有相应迁移；A协调序号。本轮没有外部消息、扫描或恢复实现，样例中的纯推演不表示HTTP成功。
+
 ## 后续接口设计（未实现）
 
 | 路径草案 | 语义/并发契约 |

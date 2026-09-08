@@ -1,0 +1,110 @@
+{
+  "notice": "仅为已确认纯规则与拟议恢复契约；A-03尚未可用，当前没有HTTP200确认/取消能力。",
+  "currentResponse": {
+    "code": 501,
+    "msg": "正式交换流程待开发；推荐不会占用物品",
+    "data": null
+  },
+  "futureRequests": {
+    "confirm": {
+      "version": 1
+    },
+    "cancel": {
+      "version": 2,
+      "reason": "课程时间冲突"
+    }
+  },
+  "pureExamples": [
+    {
+      "name": "三人逐人确认",
+      "participants": [
+        101,
+        102,
+        103
+      ],
+      "steps": [
+        {
+          "actorId": 101,
+          "expectedVersion": 0,
+          "nextStatus": "AWAITING_CONFIRMATION",
+          "nextVersion": 1
+        },
+        {
+          "actorId": 103,
+          "expectedVersion": 1,
+          "nextStatus": "AWAITING_CONFIRMATION",
+          "nextVersion": 2
+        },
+        {
+          "actorId": 102,
+          "expectedVersion": 2,
+          "nextStatus": "READY",
+          "nextVersion": 3
+        }
+      ],
+      "eventCount": 3,
+      "release": false
+    },
+    {
+      "name": "READY未交接取消",
+      "state": "READY",
+      "actorId": 102,
+      "expectedVersion": 3,
+      "beforeDeadline": true,
+      "handoverStarted": false,
+      "nextStatus": "CANCELLED",
+      "nextVersion": 4,
+      "eventCount": 1,
+      "releaseExchangeId": 91
+    },
+    {
+      "name": "相同取消重试",
+      "state": "CANCELLED",
+      "sameActorAndTrimmedReason": true,
+      "expectedVersion": 3,
+      "currentVersion": 4,
+      "afterDeadline": true,
+      "eventCount": 0,
+      "versionChange": 0,
+      "release": false
+    },
+    {
+      "name": "截止等号",
+      "databaseNow": "2026-09-09T01:00:00Z",
+      "expiresAt": "2026-09-09T01:00:00Z",
+      "permittedActions": [],
+      "newUserActionError": 409,
+      "internalExpiryDecision": "EXPIRED"
+    },
+    {
+      "name": "确认先提交使旧版本取消冲突",
+      "state": "READY",
+      "currentVersion": 2,
+      "cancelExpectedVersion": 1,
+      "error": 409,
+      "recovery": "保留原因，读取详情，由本人决定是否使用新版本再次取消。"
+    }
+  ],
+  "futureErrors": [
+    {
+      "code": 400,
+      "recovery": "保留输入并修正版本或原因，不自动重试。"
+    },
+    {
+      "code": 401,
+      "recovery": "恢复会话后按本人exchangeId回读。"
+    },
+    {
+      "code": 404,
+      "recovery": "停止写入，不提示他人交换是否存在。"
+    },
+    {
+      "code": 409,
+      "recovery": "保留原version及原因，刷新详情，由本人重新判断。"
+    },
+    {
+      "code": 501,
+      "recovery": "保持待开发，不展示成功或本地交换记录。"
+    }
+  ]
+}

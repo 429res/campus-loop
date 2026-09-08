@@ -1297,5 +1297,38 @@ class CampusIntegrationTest {
         JsonNode response=json.readTree(result.getResponse().getContentAsString());assertEquals(expectedStatus,response.path("code").asInt());
         return response.path("data");
     }
+    @Test void lifecyclePolicyAcceptsDatabaseUtcAndEnforcesExactDeadlineWithoutWriting() {
+        // Only the clock input is real DB data. Decisions below do NOT execute a lifecycle transaction.
+        boolean mysql=Boolean.getBoolean("campus.mysql-test");
+        String sql=mysql?"SELECT UTC_TIMESTAMP(6)":"SELECT CURRENT_TIMESTAMP";
+        Instant deadline=jdbc.queryForObject(sql,(rs,row)->mysql
+            ?rs.getObject(1,LocalDateTime.class).toInstant(ZoneOffset.UTC)
+            :rs.getObject(1,OffsetDateTime.class).toInstant());
+        var rules=new edu.campusloop.exchange.ExchangeLifecycleRules();
+        var current=new edu.campusloop.exchange.ExchangeLifecycleRules.Snapshot(91,
+            edu.campusloop.exchange.ExchangeLifecycleRules.State.AWAITING_CONFIRMATION,0,deadline,
+            Set.of(101L,102L),Set.of(),false,null);
+        var rows=matchingDomainRows();
+        var participants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
+        assertFalse(rules.expire(current,deadline.minusNanos(1)).changed());
+        assertEquals(edu.campusloop.exchange.ExchangeLifecycleRules.State.EXPIRED,rules.expire(current,deadline).next().state());
+        assertEquals(409,assertThrows(ApiException.class,()->rules.confirm(current,101,0,deadline)).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->rules.cancel(current,101,0,"虚构原因",deadline)).getStatus());
+        assertTrue(rules.cancel(current,101,0,"虚构原因",deadline.minusNanos(1)).changed());
+        assertMatchingDomainRowsUnchanged(rows);
+        assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
+    }
+    @Test void pendingInvitationEndpointsRemainUnavailableWithoutAnyExchangeWrites() throws Exception {
+        var rows=matchingDomainRows();
+        var participants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
+        for(String action:List.of("confirm","cancel","handoff")) {
+            demandCall("POST","/api/exchanges/91/"+action,null,Map.of("version",0),401);
+            JsonNode result=demandCall("POST","/api/exchanges/91/"+action,memberToken,
+                action.equals("cancel")?Map.of("version",0,"reason","虚构原因"):Map.of("version",0),501);
+            assertTrue(result.isNull());
+        }
+        assertMatchingDomainRowsUnchanged(rows);
+        assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
+    }
     @AfterAll void cleanUploads() throws Exception {try(var files=Files.list(UPLOADS)){for(Path file:files.toList())Files.delete(file);}Files.delete(UPLOADS);}
 }
