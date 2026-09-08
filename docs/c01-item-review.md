@@ -4,7 +4,7 @@
 
 ## 当前事实
 
-- `GET /api/admin/items` 仅支持 `page/size/keyword/categoryId`，返回的 `ItemView` 没有 `version`、审核人、审核时间或审核理由；没有管理员审核详情接口。
+- `GET /api/admin/items` 仅支持 `page/size/keyword/categoryId`；A-02 本人物品切片已为共用 `ItemView` 增加 `version`，但审核人、审核时间、审核理由及管理员审核详情接口仍未提供。
 - `POST /api/admin/reviews/{id}/decision` 仍是契约占位，没有 controller/service 实现。
 - 发布服务仍直接写 `AVAILABLE`。V1 表约束预留 `DRAFT/PENDING_REVIEW/AVAILABLE/RESERVED/EXCHANGED/HIDDEN`，但预留枚举不等于已确定审核状态机。
 - 当前匹配及 B-02 分支都只选择 `AVAILABLE`；D-01 当前发布和展示仍按直发 `AVAILABLE` 运行。
@@ -13,7 +13,7 @@
 
 ## A-02 最小依赖
 
-1. 管理列表增加可选 `status` 筛选，并返回每条记录的非负整数 `version`；提供能读取非公开物品及最新审核元数据的 ADMIN 详情。
+1. 管理列表增加可选 `status` 筛选，沿用 A-02 已提供的非负整数 `ItemView.version`；提供能读取非公开物品及最新审核元数据的 ADMIN 详情。
 2. 审核决定只允许 ADMIN；请求至少包含服务端约定的决定、非空理由和当前 `version`。成功返回持久化后的物品与审核信息，随后前端回读列表和详情。
 3. 服务端锁定物品并校验 `PENDING_REVIEW + version`。旧版本、已被处理或其他不允许状态返回409且不写入；普通用户返回403。
 4. 审核记录至少提供处理人显示名、UTC处理时间、理由及决定；保留审计记录，不覆盖历史。

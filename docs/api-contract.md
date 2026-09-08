@@ -19,6 +19,10 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /items | 公开 | query `page=1&size=12&keyword=&categoryId=` → 分页 |
 | GET /items/{id} | 公开 | 可见物品详情 |
 | POST /items | 登录 | 发布输入 → 持久化后的物品详情 |
+| GET /items/mine | 登录 | 本人全部现有状态分页；query `page=1&size=12&keyword=&categoryId=&status=` |
+| GET /items/mine/{id} | 登录 | 本人详情，含下架等非公开状态；用于表单及冲突回读 |
+| PUT /items/{id} | 登录且本人 | `version` + 完整发布表单 → 数据库回读的物品；仅未占用 AVAILABLE |
+| POST /items/{id}/withdraw | 登录且本人 | 仅 `{version}` → 数据库回读的 HIDDEN 物品；仅未占用 AVAILABLE |
 | POST /uploads | 登录 | multipart字段`file`，返回`{url}` |
 | PUT /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:true}`；目标须公开可见，重复幂等 |
 | DELETE /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:false}`；重复取消、目标不可见/不存在也稳定成功 |
@@ -48,7 +52,17 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 发布输入：`title`、`description`、`categoryId`、`conditionLevel`（1–5）、`tags`（数组）、`wantedCategoryId`、`wantedTags`（偏好数组）、可选`imageUrl`。实际长度限制见后端DTO；两端应同步校验，服务端是最终约束。
 
-物品输出：`id,ownerId,ownerName,title,description,categoryId,categoryName,conditionLevel,tags,wantedCategoryId,wantedCategoryName,wantedTags,imageUrl,status,createdAt`。发布者从会话确定，不接受客户端owner/role/status；本次初始化直接写AVAILABLE，后续内容审核引入PENDING_REVIEW需契约变更。
+物品输出：`id,ownerId,ownerName,title,description,categoryId,categoryName,conditionLevel,tags,wantedCategoryId,wantedCategoryName,wantedTags,imageUrl,status,version,createdAt`。version 是非负整数；原发布、公开列表/详情及管理列表仅新增该字段，其余结构和可见性兼容。发布者从会话确定，不接受客户端owner/role/status；当前仍直接写AVAILABLE，后续内容审核引入PENDING_REVIEW需契约变更。
+
+### A-02 第一批：本人管理与 D 表单契约
+
+本人列表、本人详情、编辑和下架的身份均来自有效会话；管理员也不能借此管理他人物品。本人列表在数据库以 owner_id 限定记录与 total，额外 ownerId 查询参数不改变会话身份；默认包含 `DRAFT/PENDING_REVIEW/AVAILABLE/RESERVED/EXCHANGED/HIDDEN`，status 可省略、空串或上述单个值，其他值400。按 createdAt/id 降序，keyword 最长100，categoryId 若提供须为正整数，page≥1、size1–100。本人详情无公开状态过滤，非本人403，不存在404；未登录、撤销或失效会话401。
+
+编辑为完整 `PUT`：只接受 `version,title,description,categoryId,conditionLevel,tags,wantedCategoryId,wantedTags,imageUrl`。除 imageUrl 外全部必填，不是部分 PATCH。字段复用发布 DTO：title 非空白且最多100字符，description 非空白且最多2000，分类须为存在的正整数，conditionLevel 为整数1–5，两组标签为数组、各最多8个非空白且最长20字符的字符串。标题/描述 trim，标签 trim/小写/去重。旧 wanted 字段仍按旧发布语义编辑，不同步独立需求。imageUrl 最长255，省略、null或空白移除引用；非空必须为本人上传 URL，任意外链、服务器路径及他人上传400。表单保留原图必须原样带回 imageUrl，移除引用不删除上传文件。
+
+version 必须是 JSON 非负整数，不接受字符串或小数。未声明字段（包括 id/ownerId/owner/role/status/createdAt/fields）和类型错误400，整次不写入。下架只接受 `{version}`，不接受客户端目标 status。所有写入均要求当前 `AVAILABLE`、不存在任何 cl_item_hold 行（包括过期行）、没有 `AWAITING_CONFIRMATION/READY/DISPUTED` 交换的参与者引用；其他状态或占用409。下架置 `HIDDEN`，保留ID、归属、正文、图片引用、需求关联、履历和交换记录；不提供硬删除或重新上架。HIDDEN 当前只允许本人读取，不允许编辑或重复下架。
+
+编辑/下架在事务内锁定物品，复核归属、状态、占用与 version，按 id/owner/status/version 条件更新并将 version 加1，再从数据库回读。旧版本、并发编辑/下架和版本上限均409，不覆盖已提交数据；相同字段的有效编辑也加1。D 应保存版本与完整本人表单；409保留当前用户输入，GET /items/mine/{id} 回读并提示重新判断，不自动使用新版本覆盖。400显示msg并保留输入，401按会话归属恢复，403/404停止提交并回到本人列表。具体状态矩阵、示例与验证见 [A-02 接入说明](a02-own-items.md)，协作已同步 [Issue #15](https://github.com/429res/campus-loop/issues/15)，D 消费确认与页面联调仍待完成。
 
 上传仅接受有效PNG/JPEG/GIF、最大5MB、最多1600万像素；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。初版每物品一张图，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
 
@@ -135,7 +149,7 @@ B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不
 
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
-物品审核尚未形成可调用契约。A-02 至少需要返回物品 `version`、处理人显示名、UTC处理时间、审核理由与决定；普通用户访问管理接口返回403，旧版本或已处理记录返回409且不得覆盖。成功和409后管理端都重新读取列表/详情，409保留未提交理由并要求管理员重新判断，不自动重试。现有 `AVAILABLE` 是审核上线前的历史直发数据，不代表已审核；是否保留或迁移必须由 A/B/C/D 明确并通过后端迁移完成。
+物品审核尚未形成可调用契约。共用 `ItemView.version` 已由 A-02 本人物品切片提供，审核接口仍需补充处理人显示名、UTC处理时间、审核理由与决定；普通用户访问管理接口返回403，旧版本或已处理记录返回409且不得覆盖。成功和409后管理端都重新读取列表/详情，409保留未提交理由并要求管理员重新判断，不自动重试。现有 `AVAILABLE` 是审核上线前的历史直发数据，不代表已审核；是否保留或迁移必须由 A/B/C/D 明确并通过后端迁移完成。
 
 分类维护的响应形状仍需 A/C 在实现前确认。写入成功应返回持久化后的分类记录，前端随后从 API 回读；409 后同样回读相关记录，不以本地表单覆盖服务端。若采用停用而非删除，A 需先定义状态字段、公开 `GET /categories` 是否过滤停用项及既有物品的显示规则，D 再同步两端分类选择器。当前消费者只可依赖 `{id,name}`。
 

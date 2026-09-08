@@ -175,6 +175,24 @@ class FavoritesIntegrationTest {
         assertEquals(exchanges, jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange", Long.class));
     }
 
+    @Test void actualOwnerWithdrawalHidesBookmarkedContentAndStillAllowsCancellation() throws Exception {
+        long id = item(owner);
+        call("PUT", favorite(id), viewer.token(), null, 200);
+        Map<String, Object> saved = favoriteRow(viewer.id(), id);
+        JsonNode hidden = call("POST", "/api/items/" + id + "/withdraw", owner.token(), Map.of("version", 0), 200);
+        assertEquals("HIDDEN", hidden.path("status").asText());
+        assertEquals(saved, favoriteRow(viewer.id(), id));
+        call("GET", "/api/items/" + id, null, null, 404);
+        call("PUT", favorite(id), viewer.token(), null, 404);
+        JsonNode list = page(viewer.token(), 1, 12);
+        assertEquals(1, list.path("total").asInt());
+        assertFalse(list.at("/records/0/itemVisible").asBoolean());
+        assertTrue(list.at("/records/0/item").isNull());
+        call("DELETE", favorite(id), viewer.token(), null, 200);
+        assertEquals(0, page(viewer.token(), 1, 12).path("total").asInt());
+        assertEquals("HIDDEN", jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?", String.class, id));
+    }
+
     @Test void cancellationIsStableForAbsentHiddenAndRemovedRelationsAndReaddingCreatesANewPosition() throws Exception {
         long id = item(owner);
         JsonNode absent = call("DELETE", favorite(id), viewer.token(), null, 200);

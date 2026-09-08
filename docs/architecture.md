@@ -43,6 +43,14 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 
 实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。当前初始化直接发布为 AVAILABLE，管理员可查看记录；审核状态机接入后新增物品转为 PENDING_REVIEW，迁移与两端需同步发布。
 
+### A-02 本人物品写入边界
+
+本人分页和详情直接由服务端会话限定当前 owner，可查看现有六种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。编辑与下架仅限 AVAILABLE、无占用且无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 是保留记录的下架状态，本轮不恢复、不编辑；DRAFT/PENDING_REVIEW/RESERVED/EXCHANGED 也不可通过本人接口修改。审核与正式交换尚无写入实现，这些预留状态的防护通过隔离数据夹具验证。
+
+写事务使用 READ_COMMITTED，先锁 cl_item 行，再检查占用行及进行中的参与者引用，以免读取等待锁之前的旧快照；按 id/owner/status/version 条件更新并数据库回读，version 每次成功加1。过期占用不能由此清除。未来交换写入必须先按物品ID升序锁定相关物品，再写占用/参与者及物品状态；其他所有权、审核或交换物品变更必须同步推进物品 version。本人接口不锁 exchange 行，避免反向嵌套交换锁；不更新/删除需求关联、参与者、占用或履历。已有 V1/V2 的 version、HIDDEN、占用和参与者表足够，本批无迁移。详见 [A-02](a02-own-items.md)。
+
+### 后续物品审核接入边界
+
 物品审核接入前，现有 `AVAILABLE` 记录视为“审核上线前直发”，前端不得回写或暗示已经人工审核。A/D 必须共同确定新发布切换到 `PENDING_REVIEW` 的时间点，A/B/C/D 必须确认旧数据迁移策略；只有服务端状态为 `AVAILABLE` 的物品可进入 B 的推荐候选。审核决定须锁定物品并核对 `version`，从待审状态条件迁移，追加处理人、理由、决定和 UTC 时间审计；并发旧版本返回409且不覆盖。
 
 ## A-02 收藏持久化
