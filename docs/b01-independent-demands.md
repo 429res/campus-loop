@@ -1,6 +1,6 @@
 # B-01：独立需求与本人可提供物品关联
 
-状态：`feature/b01-independent-demands` 已实现并完成本地验收，待其他成员审核、协调项确认及 CI；尚未合入 main，PR 通过 Issue 关联。协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。本切片仅后端，D-02 页面、B-02 独立需求匹配和正式交换均未接入。
+状态：B-01 已通过 PR #4 合入 `main`。本切片仅提供后端与契约；D-02 用户页面另行接入，B-02 独立需求匹配和正式交换仍不在本切片内。协作记录见 [Issue #3](https://github.com/429res/campus-loop/issues/3)。
 
 ## 兼容与迁移
 

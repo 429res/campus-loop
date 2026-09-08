@@ -15,7 +15,7 @@
 
 ## B-01：独立需求清单与本人可提供物品关联
 
-状态：功能分支已实现，协作见 [Issue #3](https://github.com/429res/campus-loop/issues/3) 及关联PR；尚未合入 main。范围为本人需求 CRUD、分页、停用/逻辑删除、version 冲突、现有物品候选关联和 D-02 接入契约。需求允许没有物品，候选关联不占用、不改变所有权。同步最新 main 后需求迁移顺延为 V4，保留 A-01 的 V3；A/D 候选基数复核仍待回复。原提交与合并修复的分层验证见 [B-01 接入说明](b01-independent-demands.md)。
+状态：已通过 PR #4 合入 `main`。范围为本人需求 CRUD、分页、停用/逻辑删除、version 冲突、现有物品候选关联和 D-02 接入契约。需求允许没有物品，候选关联不占用、不改变所有权。需求迁移为 V4，保留 A-01 的 V3；分层验证见 [B-01 接入说明](b01-independent-demands.md)。D-02 用户端接入状态见 [d02-demand-list-status.md](d02-demand-list-status.md)。
 
 B-02 独立需求匹配、requiredTags/最低成色硬条件、正式交换和 D-02 页面仍未接入；旧演示发布/推荐继续只使用物品附带需求。
 
