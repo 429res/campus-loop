@@ -6,6 +6,8 @@ import java.util.List;
 public interface ItemService {
     PageResult<ItemView> page(int page,int size,String keyword,Long categoryId,boolean admin);
     ItemView detail(long id);
+    PageResult<ItemView> adminPage(int page,int size,String keyword,Long categoryId,String status);
+    ItemView adminDetail(long id);
     List<ItemView> visibleDetails(List<Long> ids);
     ItemView publish(long ownerId,PublishItemRequest request);
     PageResult<ItemView> ownPage(long ownerId,int page,int size,String keyword,Long categoryId,String status);

@@ -81,7 +81,7 @@ test('account switch hides and blocks the old form until verification, then publ
   await publishing
   assert.equal(h.storage.has(draftKey(2)), false)
   assert.equal(h.storage.get(draftKey(1)).form.description, 'Saved immediately before leaving')
-  assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22' }])
+  assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22&mine=1' }])
 })
 
 test('out-of-order /me responses cannot restore an old account or overwrite the user cache', async t => {
@@ -211,7 +211,7 @@ for (const outcome of ['success', 'unauthorized']) {
     await publishB
     assert.equal(h.app.busy.value, false)
     assert.equal(h.storage.has(draftKey(2)), false)
-    assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22' }])
+    assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22&mine=1' }])
   })
 }
 

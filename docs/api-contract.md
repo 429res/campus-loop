@@ -23,16 +23,19 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | DELETE /admin/categories/{id}?version=0 | ADMIN | 仅未引用分类可删除；成功 data=null |
 | GET /items | 公开 | query `page=1&size=12&keyword=&categoryId=` → 分页 |
 | GET /items/{id} | 公开 | 可见物品详情 |
-| POST /items | 登录 | 发布输入 → 持久化后的物品详情 |
+| POST /items | 登录 | 严格发布输入 → PENDING_REVIEW 本人详情 |
 | GET /items/mine | 登录 | 本人全部现有状态分页；query `page=1&size=12&keyword=&categoryId=&status=` |
 | GET /items/mine/{id} | 登录 | 本人详情，含下架等非公开状态；用于表单及冲突回读 |
-| PUT /items/{id} | 登录且本人 | `version` + 完整发布表单 → 数据库回读的物品；仅未占用 AVAILABLE |
+| PUT /items/{id} | 登录且本人 | `version` + 完整发布表单 → 数据库回读的物品；未占用 AVAILABLE/PENDING_REVIEW/REJECTED 编辑后待审 |
 | POST /items/{id}/withdraw | 登录且本人 | 仅 `{version}` → 数据库回读的 HIDDEN 物品；仅未占用 AVAILABLE |
 | POST /uploads | 登录 | multipart字段`file`，返回`{url}` |
 | PUT /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:true}`；目标须公开可见，重复幂等 |
 | DELETE /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:false}`；重复取消、目标不可见/不存在也稳定成功 |
 | GET /favorites | 登录 | query `page=1&size=12` → 当前会话本人收藏分页，含不可见占位记录 |
-| GET /admin/items | ADMIN | 与公开列表相同分页字段；可查看管理记录 |
+| GET /admin/items | ADMIN | 原分页字段增加 status；全部七种状态可查 |
+| GET /admin/items/{id} | ADMIN | 含非公开物品及最近审核信息 |
+| POST /admin/items/{id}/review | ADMIN | `{version,decision,reason}` → 审核后回读，详见第四批 |
+| GET /admin/items/{id}/review-audits | ADMIN | 审计分页，含内容前后快照 |
 | GET /admin/users | ADMIN | query `page=1&size=12&keyword=&role=&status=` → 账号安全字段分页 |
 | PATCH /admin/users/{id}/status | ADMIN | 仅 `{status,version,reason}` → 数据库回读的账号安全字段；条件更新并审计 |
 | GET /admin/users/{id}/status-audits | ADMIN | query `page=1&size=20` → 该账号启停审计分页 |
@@ -57,15 +60,15 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 发布输入：`title`、`description`、`categoryId`、`conditionLevel`（1–5）、`tags`（数组）、`wantedCategoryId`、`wantedTags`（偏好数组）、可选`imageUrl`。实际长度限制见后端DTO；两端应同步校验，服务端是最终约束。
 
-物品输出：`id,ownerId,ownerName,title,description,categoryId,categoryName,conditionLevel,tags,wantedCategoryId,wantedCategoryName,wantedTags,imageUrl,status,version,createdAt`。version 是非负整数；原发布、公开列表/详情及管理列表仅新增该字段，其余结构和可见性兼容。发布者从会话确定，不接受客户端owner/role/status；当前仍直接写AVAILABLE，后续内容审核引入PENDING_REVIEW需契约变更。
+物品输出：`id,ownerId,ownerName,title,description,categoryId,categoryName,conditionLevel,tags,wantedCategoryId,wantedCategoryName,wantedTags,imageUrl,status,version,createdAt`。version 是非负整数；原发布、公开列表/详情及管理列表仅新增该字段，其余结构和可见性兼容。发布者从会话确定，不接受客户端owner/role/status；新发布写 PENDING_REVIEW，审核与旧数据策略见下方第四批契约。
 
 ### A-02 第一批：本人管理与 D 表单契约
 
-本人列表、本人详情、编辑和下架的身份均来自有效会话；管理员也不能借此管理他人物品。本人列表在数据库以 owner_id 限定记录与 total，额外 ownerId 查询参数不改变会话身份；默认包含 `DRAFT/PENDING_REVIEW/AVAILABLE/RESERVED/EXCHANGED/HIDDEN`，status 可省略、空串或上述单个值，其他值400。按 createdAt/id 降序，keyword 最长100，categoryId 若提供须为正整数，page≥1、size1–100。本人详情无公开状态过滤，非本人403，不存在404；未登录、撤销或失效会话401。
+本人列表、本人详情、编辑和下架的身份均来自有效会话；管理员也不能借此管理他人物品。本人列表在数据库以 owner_id 限定记录与 total，额外 ownerId 查询参数不改变会话身份；默认包含 `DRAFT/PENDING_REVIEW/REJECTED/AVAILABLE/RESERVED/EXCHANGED/HIDDEN`，status 可省略、空串或上述单个值，其他值400。按 createdAt/id 降序，keyword 最长100，categoryId 若提供须为正整数，page≥1、size1–100。本人详情无公开状态过滤，非本人403，不存在404；未登录、撤销或失效会话401。
 
 编辑为完整 `PUT`：只接受 `version,title,description,categoryId,conditionLevel,tags,wantedCategoryId,wantedTags,imageUrl`。除 imageUrl 外全部必填，不是部分 PATCH。字段复用发布 DTO：title 非空白且最多100字符，description 非空白且最多2000，分类须为 ACTIVE 的正整数，conditionLevel 为整数1–5，两组标签为数组、各最多8个非空白且最长20字符的字符串。标题/描述 trim，标签 trim/小写/去重。旧 wanted 字段仍按旧发布语义编辑，不同步独立需求。imageUrl 最长255，省略、null或空白移除引用；非空必须为本人上传 URL，任意外链、服务器路径及他人上传400。表单保留原图必须原样带回 imageUrl，移除引用不删除上传文件。
 
-version 必须是 JSON 非负整数，不接受字符串或小数。未声明字段（包括 id/ownerId/owner/role/status/createdAt/fields）和类型错误400，整次不写入。下架只接受 `{version}`，不接受客户端目标 status。所有写入均要求当前 `AVAILABLE`、不存在任何 cl_item_hold 行（包括过期行）、没有 `AWAITING_CONFIRMATION/READY/DISPUTED` 交换的参与者引用；其他状态或占用409。下架置 `HIDDEN`，保留ID、归属、正文、图片引用、需求关联、履历和交换记录；不提供硬删除或重新上架。HIDDEN 当前只允许本人读取，不允许编辑或重复下架。
+version 必须是 JSON 非负整数，不接受字符串或小数。未声明字段（包括 id/ownerId/owner/role/status/createdAt/fields）和类型错误400，整次不写入。下架只接受 `{version}`，不接受客户端目标 status。编辑允许 `AVAILABLE/PENDING_REVIEW/REJECTED` 并提交待审，下架仍仅允许 `AVAILABLE`；两者均要求不存在任何 cl_item_hold 行（包括过期行）、没有 `AWAITING_CONFIRMATION/READY/DISPUTED` 交换的参与者引用；其他状态或占用409。下架置 `HIDDEN`，保留ID、归属、正文、图片引用、需求关联、履历和交换记录；不提供硬删除或重新上架。HIDDEN 当前只允许本人读取，不允许编辑或重复下架。
 
 编辑/下架在事务内锁定物品，复核归属、状态、占用与 version，按 id/owner/status/version 条件更新并将 version 加1，再从数据库回读。旧版本、并发编辑/下架和版本上限均409，不覆盖已提交数据；相同字段的有效编辑也加1。D 应保存版本与完整本人表单；409保留当前用户输入，GET /items/mine/{id} 回读并提示重新判断，不自动使用新版本覆盖。400显示msg并保留输入，401按会话归属恢复，403/404停止提交并回到本人列表。具体状态矩阵、示例与验证见 [A-02 接入说明](a02-own-items.md)，协作已同步 [Issue #15](https://github.com/429res/campus-loop/issues/15)，D 消费确认与页面联调仍待完成。
 
@@ -156,6 +159,29 @@ B-01 与 B-02 已合入 main；本节是 D-02 可调用的真实推荐契约，�
 
 只读多表快照使用REPEATABLE_READ，无FOR UPDATE、交换创建、状态更新或占用。分类仍为唯一硬需求条件，标签仅排序，requiredTags/最低成色未启用，也没有新增数据库字段。两方、三方、无结果及超限虚构样例见[B-02说明](b02-independent-matching.md)。
 
+## A-02 第四批：物品审核（V7）
+
+规则已由用户确认并同步 [Issue #23](https://github.com/429res/campus-loop/issues/23)。以下为本 PR 实现的接口，不沿用旧 `/admin/reviews/{id}/decision` 草案。
+
+| 接口 | 权限与契约 |
+| --- | --- |
+| GET /admin/items | ADMIN；原分页增加可选 status，支持全部七种物品状态；keyword 搜标题≤100，categoryId>0，page≥1，size1–100；total 为全部命中过滤条件的物品，createdAt/id 降序 |
+| GET /admin/items/{id} | ADMIN；包含非公开物品，正整数 id；不存在404 |
+| POST /admin/items/{id}/review | ADMIN；严格 `{version,decision,reason}`，decision=APPROVE/REJECT，reason trim 后1–1000字，两种决定均必填；version 为非负 int32 JSON 整数。仅待审且无占用、无进行中交换引用；成功200返回数据库回读 ItemView，版本+1 |
+| GET /admin/items/{id}/review-audits | ADMIN；page=1,size=12（1–100），newVersion/id 降序；PageResult，total 为该物品全部审计事件数；越界空 records 保留 total |
+
+新发布 `PENDING_REVIEW/UNREVIEWED/version=0`；本人完整编辑未占用 `AVAILABLE/PENDING_REVIEW/REJECTED` 后进入待审、version+1，内容相同也复审。待审批准→AVAILABLE/ADMIN_REVIEW，驳回→REJECTED/UNREVIEWED。只有待审可决定；DRAFT/RESERVED/EXCHANGED/HIDDEN 不可编辑或审批；下架仍仅未占用 AVAILABLE→HIDDEN，本批不恢复上架。所有决定、编辑、下架共享物品锁及版本检查，任何过期占用行或 AWAITING_CONFIRMATION/READY/DISPUTED 参与者引用都409，不释放或越过交换状态。
+
+公开读取、收藏可见性只允许 AVAILABLE/RESERVED/EXCHANGED；待审/驳回仅当前本人及 ADMIN 可读。本人列表含 REJECTED；收藏保留不可见占位，total口径不变。旧/独立推荐、需求可提供物品均只消费 AVAILABLE，无算法扩展；已关联物品编辑后 offerable=false，保留关系。
+
+ItemView 增量字段：`reviewBasis`=LEGACY_DIRECT/UNREVIEWED/ADMIN_REVIEW；`reviewDecision,reviewReason,reviewedByName,reviewedAt,reviewedVersion` 仅本人/ADMIN读取返回最近一次决定，其余入口均为null。reviewedVersion 是被决定的旧物品版本，可能早于当前复审版本；无决定时五项均null，不能据此把待审表示为已批准。UTC时间为 ISO8601 Z。公开字段 reviewBasis 只表示发布依据；不表明履历核验或交换完成。
+
+审计记录字段：`id,itemId,operatorUserId,operatorDisplayName,action,reason,previousStatus,newStatus,previousVersion,newVersion,previousSnapshot,newSnapshot,createdAt`。action=SUBMIT/APPROVE/REJECT/WITHDRAW；发布 previousSnapshot/status/version=null、newVersion=0；提交/下架 reason=null，审核理由必填。快照保留当时内容、owner、状态与版本，处理人显示名也存当时值；审计无修改/删除接口，不向公开或其他用户暴露。审计与物品变更同事务；unique(item,newVersion) 和 RESTRICT 外键保护。
+
+错误：未登录/会话失效401，非ADMIN403，id不存在404，未知字段/错误类型/无效枚举/空理由400；旧版本、版本上限、非待审、占用/交接冲突409。成功重新回读；409保留理由及原version，回读内容后显式核对，不自动套用新版本重试。
+
+V7 不重解释旧数据：现有 AVAILABLE 保持公开及推荐，现有 RESERVED/EXCHANGED 保持交换状态；三者标记 LEGACY_DIRECT，不伪造管理员或批准事件。其余旧状态保留并标记 UNREVIEWED，全部旧 version不变；首次合法编辑保存旧内容快照后进入待审。新建演示夹具明确写 LEGACY_DIRECT，重复启动不覆盖数据。需同批部署后端、C审批及D提交/本人状态读取；接入、示例和验证见 [a02-item-review.md](a02-item-review.md)。
+
 ## 后续接口设计（未实现）
 
 | 路径草案 | 语义/并发契约 |
@@ -166,11 +192,9 @@ B-01 与 B-02 已合入 main；本节是 D-02 可调用的真实推荐契约，�
 | POST /exchanges/{id}/cancel | 仅允许状态下取消，原子释放属于本交换的占用 |
 | GET/POST /items/{id}/history | 事件、来源、发生/记录时间、证据；提交自述不能设置管理员级别 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
-| GET /admin/items/{id}、GET /admin/items 的 status 扩展（待 A/C 确认） | ADMIN 查看非公开物品；列表/详情需返回 `version` 及已有审核信息，status 只接受共同确认的物品状态 |
-| POST /admin/reviews/{id}/decision（待 A/C 确认） | ADMIN；暂定 `{decision,reason,version}`，决定枚举及理由长度待确认；仅待审状态可处理，条件更新且追加不可覆盖审计事件 |
 
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
-物品审核尚未形成可调用契约。共用 `ItemView.version` 已由 A-02 本人物品切片提供，审核接口仍需补充处理人显示名、UTC处理时间、审核理由与决定；普通用户访问管理接口返回403，旧版本或已处理记录返回409且不得覆盖。成功和409后管理端都重新读取列表/详情，409保留未提交理由并要求管理员重新判断，不自动重试。现有 `AVAILABLE` 是审核上线前的历史直发数据，不代表已审核；是否保留或迁移必须由 A/B/C/D 明确并通过后端迁移完成。
+
 
 精确DTO限制、已预留路径和后端实现入口见 [backend-contract.md](backend-contract.md)。

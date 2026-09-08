@@ -13,6 +13,8 @@ test("审核理由提交前去除首尾空格", () => {
 test("审核理由拒绝空白内容", () => {
   assert.equal(validateReviewReason(" \n "), "请输入审核理由");
   assert.equal(validateReviewReason("内容真实"), "");
+  assert.equal(validateReviewReason("字".repeat(1000)), "");
+  assert.match(validateReviewReason("字".repeat(1001)), /1000/);
 });
 
 test("审核错误保留权限、冲突与恢复语义", () => {

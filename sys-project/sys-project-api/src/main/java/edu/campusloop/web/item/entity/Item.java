@@ -17,5 +17,6 @@ public class Item {
     private String imageUrl;
     private String status;
     private Integer version;
+    private String reviewBasis;
     private java.time.LocalDateTime createdAt;
 }

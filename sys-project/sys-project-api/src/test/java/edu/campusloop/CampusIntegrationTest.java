@@ -93,9 +93,11 @@ class CampusIntegrationTest {
         String title="独立数据库验证 "+UUID.randomUUID();
         String body=json.writeValueAsString(Map.of("title",title,"description","数据库持久化验证物品","categoryId",1,"conditionLevel",4,"tags",List.of("教材"),"wantedCategoryId",2,"wantedTags",List.of("便携")));
         JsonNode created=json.readTree(mvc.perform(post("/api/items").header("Authorization","Bearer "+memberToken).contentType("application/json").content(body))
-            .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("AVAILABLE")).andReturn().getResponse().getContentAsString());
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.status").value("PENDING_REVIEW")).andReturn().getResponse().getContentAsString());
         long id=created.at("/data/id").asLong();
         assertEquals(title,jdbc.queryForObject("SELECT title FROM cl_item WHERE id=?",String.class,id));
+        mvc.perform(get("/api/items/"+id)).andExpect(status().isNotFound());
+        demandCall("POST","/api/admin/items/"+id+"/review",adminToken,Map.of("version",0,"decision","APPROVE","reason","内容完整"),200);
         mvc.perform(get("/api/items/"+id)).andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value(title));
         mvc.perform(get("/api/items").param("keyword",title)).andExpect(jsonPath("$.data.total").value(1));
         mvc.perform(get("/api/admin/items").param("keyword",title).header("Authorization","Bearer "+adminToken)).andExpect(jsonPath("$.data.records[0].id").value(id));
@@ -159,7 +161,7 @@ class CampusIntegrationTest {
         mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+second)).andExpect(status().isUnauthorized());
         mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",password))))
             .andExpect(status().isUnauthorized());
-        mvc.perform(get("/api/items/"+itemId)).andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value(itemTitle));
+        mvc.perform(get("/api/items/"+itemId)).andExpect(status().isNotFound()); // New submission remains private even after account disable.
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item WHERE id=?",Integer.class,itemId));
 
         String enable=json.writeValueAsString(Map.of("status","ACTIVE","version",1,"reason","确认恢复使用"));
@@ -758,7 +760,8 @@ class CampusIntegrationTest {
         assertEquals(edited.path("wantedTags"),json.readTree((String)stored.get("wanted_tags_json")));
         assertEquals(before.get("owner_id"),stored.get("owner_id"));assertEquals(before.get("created_at"),stored.get("created_at"));
         assertEquals(edited,demandCall("GET","/api/items/mine/"+id,owner,null,200));
-        assertEquals(edited,demandCall("GET","/api/items/"+id,null,null,200));
+        assertEquals("PENDING_REVIEW",edited.path("status").asText());
+        demandCall("GET","/api/items/"+id,null,null,404);
         demandCall("PUT","/api/items/"+id,owner,body,409);
         demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0),409);
         assertEquals(stored,itemRow(id));
@@ -825,7 +828,7 @@ class CampusIntegrationTest {
 
     @Test void ownItemWritesRejectEveryUnavailableStateAndActiveExchangeReference() throws Exception {
         String owner=demandUser();long id=demandItem(owner);
-        for(String state:List.of("DRAFT","PENDING_REVIEW","RESERVED","EXCHANGED","HIDDEN")) {
+        for(String state:List.of("DRAFT","RESERVED","EXCHANGED","HIDDEN")) {
             jdbc.update("UPDATE cl_item SET status=? WHERE id=?",state,id);assertItemWritesBlocked(owner,id);
         }
         jdbc.update("UPDATE cl_item SET status='AVAILABLE' WHERE id=?",id);
@@ -1040,6 +1043,7 @@ class CampusIntegrationTest {
             for(int index=baseline;index<200;index++) demandCall("POST","/api/items",token,Map.of(
                 "title","候选边界 "+UUID.randomUUID(),"description","隔离候选上限夹具","categoryId",6,"conditionLevel",4,
                 "tags",List.of(),"wantedCategoryId",6,"wantedTags",List.of()),200);
+            jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE owner_id=?",ownerId);
             assertEquals(200,eligibleMatchingItemCount());
             IndependentMatchingInput atLimit=readOnlyMatchingSnapshot();assertEquals(200,atLimit.offers().size());
             assertTrue(atLimit.demands().stream().noneMatch(demand->demand.ownerId()==ownerId));
@@ -1047,6 +1051,7 @@ class CampusIntegrationTest {
             assertEquals(0,readOnlyIndependentMatches(token,200).path("recommendations").size());
             demandCall("POST","/api/items",token,Map.of("title","第201个候选 "+UUID.randomUUID(),"description","无独立需求也占候选预算",
                 "categoryId",6,"conditionLevel",4,"tags",List.of(),"wantedCategoryId",6,"wantedTags",List.of()),200);
+            jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE owner_id=?",ownerId);
             assertEquals(201,eligibleMatchingItemCount());
             assertReadOnlySnapshotRejected(422);
             readOnlyLegacyMatches(422);
@@ -1190,8 +1195,9 @@ class CampusIntegrationTest {
         } finally {deleteMatchingFixtureOwners(List.of(ownerId));}
     }
     private long matchingGreenItem(String token,List<String> tags,int conditionLevel) throws Exception {
-        return demandCall("POST","/api/items",token,Map.of("title","独立匹配绿植 "+UUID.randomUUID(),"description","隔离接口匹配夹具",
+        long id=demandCall("POST","/api/items",token,Map.of("title","独立匹配绿植 "+UUID.randomUUID(),"description","隔离接口匹配夹具",
             "categoryId",6,"conditionLevel",conditionLevel,"tags",tags,"wantedCategoryId",6,"wantedTags",List.of()),200).path("id").asLong();
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE id=?",id);return id;
     }
     private Set<Long> matchingParticipantIds(JsonNode recommendation) {
         Set<Long> participants=new HashSet<>();for(JsonNode participant:recommendation.path("participants")) participants.add(participant.path("userId").asLong());return participants;
@@ -1229,6 +1235,7 @@ class CampusIntegrationTest {
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_exchange WHERE initiator_id=?",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",ownerId);
+            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item WHERE owner_id=?",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_user WHERE id=?",ownerId);
@@ -1272,8 +1279,10 @@ class CampusIntegrationTest {
         account(username,password,"USER");return login(username,password);
     }
     private long demandItem(String token) throws Exception {
-        return demandCall("POST","/api/items",token,Map.of("title","需求关联测试 "+UUID.randomUUID(),"description","隔离测试的现有物品",
+        long id=demandCall("POST","/api/items",token,Map.of("title","需求关联测试 "+UUID.randomUUID(),"description","隔离测试的现有物品",
             "categoryId",1,"conditionLevel",4,"tags",List.of("教材"),"wantedCategoryId",2,"wantedTags",List.of("便携")),200).path("id").asLong();
+        // Preserve explicit legacy AVAILABLE fixtures for existing domain/version tests.
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE id=?",id);return id;
     }
     private Map<String,Object> demandBody(long categoryId,String description,List<String> tags,List<Long> offeredItemIds) {
         return Map.of("categoryId",categoryId,"description",description,"preferredTags",tags,"offeredItemIds",offeredItemIds);
