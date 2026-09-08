@@ -18,7 +18,7 @@ const writeUncertain = ref(false), conflictServer = ref(null), selectionTouched 
 const selectedItemIds = ref([]), linkedItems = ref([])
 const itemCache = ref({})
 const form = reactive({ id:null, version:null, categoryIndex:-1, description:'', tags:'' })
-let demandRequest = 0, offerableRequest = 0, authRedirecting = false
+let demandRequest = 0, offerableRequest = 0, categoryRequest = 0, authRedirecting = false
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const offerablePages = computed(() => Math.max(1, Math.ceil(offerableTotal.value / PAGE_SIZE)))
@@ -40,9 +40,16 @@ function handleAuth(error) {
 }
 
 async function loadCategories() {
+  const request = ++categoryRequest
   categoriesError.value = ''
-  try { categories.value = await http.get('/api/categories',{}, {silent:true}) }
-  catch (error) { categoriesError.value = error.message }
+  try {
+    const loaded = await http.get('/api/categories',{}, {silent:true})
+    if (request !== categoryRequest) return
+    // Sorting and availability can change; retain the selected ID, never the old array index.
+    const selectedId = selectedCategory.value?.id
+    categories.value = loaded
+    form.categoryIndex = selectedId == null ? -1 : loaded.findIndex(category => category.id === selectedId)
+  } catch (error) { if (request === categoryRequest) categoriesError.value = error.message }
 }
 
 async function loadDemands(nextPage = page.value) {
@@ -155,7 +162,10 @@ async function saveDemand() {
       await loadOfferable(1)
     } else if (error.status === 404) {
       formError.value = '需求已不存在或删除，列表已刷新。'; await loadDemands()
-    } else formError.value = error.message
+    } else {
+      formError.value = error.message
+      if (error.status === 400) await loadCategories()
+    }
   } finally { editorBusy.value = false }
 }
 
@@ -219,7 +229,7 @@ onShow(init)
     </template>
 
     <view v-if="editorOpen" class="editor-grid">
-      <form class="cl-panel cl-form" @submit="saveDemand"><view class="editor-head"><view><text class="cl-section-title">{{ form.id ? '编辑需求' : '新建需求' }}</text><text v-if="form.id" class="cl-hint">正在编辑服务器版本 {{ form.version }}</text></view><LoopButton class="cl-btn" :disabled="editorBusy" @click="closeEditor">关闭</LoopButton></view><view class="cl-field"><text class="cl-field-title">想要的分类</text><LoopPicker aria-label="想要的分类" :range="categories" range-key="name" :value="form.categoryIndex" :disabled="editorBusy || writeUncertain || !!conflictServer" @change="form.categoryIndex=Number($event.detail.value)"><view class="cl-picker">{{ selectedCategory?.name || '请选择分类' }}⌄</view></LoopPicker><view v-if="categoriesError" class="inline-state"><text class="cl-error">分类读取失败：{{ categoriesError }}</text><LoopButton class="cl-btn" @click="loadCategories">重试</LoopButton></view></view><view class="cl-field"><text class="cl-field-title">需求说明</text><textarea v-model="form.description" class="cl-textarea" aria-label="需求说明" maxlength="2000" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="可留空；说明使用场景、可接受范围等"/><text class="cl-hint">{{ form.description.length }} / 2000</text></view><view class="cl-field"><text class="cl-field-title">偏好标签</text><input v-model="form.tags" class="cl-input" aria-label="偏好标签" maxlength="200" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="逗号分隔，最多 8 个，每项 20 字" /></view><text v-if="formError" class="cl-error" role="alert">{{ formError }}</text><view v-if="conflictServer" class="conflict-box"><text class="cl-field-title">服务器当前版本 {{ conflictServer.version }}</text><text class="cl-hint">{{ conflictServer.categoryName }} · {{ conflictServer.description || '无说明' }} · {{ conflictServer.preferredTags.join('、') || '无标签' }}</text><LoopButton class="cl-btn" @click="useServerVersion">使用服务器内容重新编辑</LoopButton></view><view v-if="writeUncertain" class="cl-notice"><text>当前输入仍保留，但不能直接重放。重新读取列表后请核对是否已有对应变化。</text><LoopButton class="cl-btn" :disabled="editorBusy" @click="recoverUncertain">重新读取并结束本次提交</LoopButton></view><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="editorBusy || writeUncertain || !!conflictServer || !!categoriesError">{{ editorBusy ? '保存中…' : form.id ? '保存修改' : '创建需求' }}</LoopButton></form>
+      <form class="cl-panel cl-form" @submit="saveDemand"><view class="editor-head"><view><text class="cl-section-title">{{ form.id ? '编辑需求' : '新建需求' }}</text><text v-if="form.id" class="cl-hint">正在编辑服务器版本 {{ form.version }}</text></view><LoopButton class="cl-btn" :disabled="editorBusy" @click="closeEditor">关闭</LoopButton></view><view class="cl-field"><text class="cl-field-title">想要的分类</text><LoopPicker aria-label="想要的分类" :range="categories" range-key="name" :value="form.categoryIndex" :disabled="editorBusy || writeUncertain || !!conflictServer || !categories.length" @change="form.categoryIndex=Number($event.detail.value)"><view class="cl-picker">{{ selectedCategory?.name || '请选择分类' }}⌄</view></LoopPicker><view v-if="categoriesError" class="inline-state"><text class="cl-error">分类读取失败：{{ categoriesError }}</text><LoopButton class="cl-btn" @click="loadCategories">重试</LoopButton></view></view><view class="cl-field"><text class="cl-field-title">需求说明</text><textarea v-model="form.description" class="cl-textarea" aria-label="需求说明" maxlength="2000" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="可留空；说明使用场景、可接受范围等"/><text class="cl-hint">{{ form.description.length }} / 2000</text></view><view class="cl-field"><text class="cl-field-title">偏好标签</text><input v-model="form.tags" class="cl-input" aria-label="偏好标签" maxlength="200" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="逗号分隔，最多 8 个，每项 20 字" /></view><text v-if="formError" class="cl-error" role="alert">{{ formError }}</text><view v-if="conflictServer" class="conflict-box"><text class="cl-field-title">服务器当前版本 {{ conflictServer.version }}</text><text class="cl-hint">{{ conflictServer.categoryName }} · {{ conflictServer.description || '无说明' }} · {{ conflictServer.preferredTags.join('、') || '无标签' }}</text><LoopButton class="cl-btn" @click="useServerVersion">使用服务器内容重新编辑</LoopButton></view><view v-if="writeUncertain" class="cl-notice"><text>当前输入仍保留，但不能直接重放。重新读取列表后请核对是否已有对应变化。</text><LoopButton class="cl-btn" :disabled="editorBusy" @click="recoverUncertain">重新读取并结束本次提交</LoopButton></view><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="editorBusy || writeUncertain || !!conflictServer || !!categoriesError">{{ editorBusy ? '保存中…' : form.id ? '保存修改' : '创建需求' }}</LoopButton></form>
       <view class="cl-panel offer-panel"><view class="editor-head"><view><text class="cl-section-title">我有什么</text><text class="cl-hint">只显示服务端确认属于本人、AVAILABLE 且未占用的物品。</text></view><text class="cl-tag">已选 {{ selectedItemIds.length }} / 100</text></view><view v-if="selectedDetails.length" class="selected-list"><view v-for="item in selectedDetails" :key="item.itemId" class="selected-item"><text>{{ item.title || `物品 #${item.itemId}` }}</text><text v-if="item.offerable===false" class="cl-error">关联已失效</text><LoopButton class="cl-icon-btn" aria-label="移除关联物品" :disabled="editorBusy || writeUncertain || !!conflictServer" @click="removeSelected(item.itemId)">×</LoopButton></view></view><view v-if="offerableLoading" class="cl-empty compact"><text class="cl-label">正在读取本人可提供物品…</text></view><view v-else-if="offerableError" class="inline-state" role="alert"><text class="cl-error">{{ offerableError }}</text><LoopButton class="cl-btn" @click="loadOfferable()">重试</LoopButton></view><view v-else-if="!offerable.length" class="cl-empty compact"><text>当前没有可提供物品</text><text class="cl-hint">需求仍可保存和管理；发布 AVAILABLE 物品后再关联，当前暂不能组成交换环。</text><LoopButton class="cl-btn" @click="publish">发布物品</LoopButton></view><view v-else class="offerable-list"><LoopButton v-for="item in offerable" :key="item.itemId" class="offerable-item" :class="{selected:selectedItemIds.includes(item.itemId)}" :aria-pressed="selectedItemIds.includes(item.itemId)" :disabled="editorBusy || writeUncertain || !!conflictServer" @click="toggleItem(item)"><view><text class="cl-field-title">{{ item.title }}</text><text class="cl-hint">成色 {{ item.conditionLevel }} / 5 · AVAILABLE</text></view><text>{{ selectedItemIds.includes(item.itemId) ? '已关联 ✓' : '选择' }}</text></LoopButton></view><view v-if="offerablePages>1" class="pagination"><LoopButton class="cl-btn" :disabled="offerableLoading || offerablePage<=1" @click="loadOfferable(offerablePage-1)">上一页</LoopButton><text class="cl-label">{{ offerablePage }} / {{ offerablePages }}</text><LoopButton class="cl-btn" :disabled="offerableLoading || offerablePage>=offerablePages" @click="loadOfferable(offerablePage+1)">下一页</LoopButton></view></view>
     </view>
   </LoopLayout>

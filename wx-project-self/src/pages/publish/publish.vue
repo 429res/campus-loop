@@ -68,7 +68,7 @@ async function loadCategories() {
   } catch (e) { if (attempt === categoriesAttempt && !isAbortError(e)) categoriesError.value = e.message }
 }
 function validateRestoredCategories() {
-  if (loadedCategoriesAttempt !== categoriesAttempt || !categories.value.length) return
+  if (!loadedCategoriesAttempt || loadedCategoriesAttempt !== categoriesAttempt) return
   let changed = false
   for (const key of ['categoryId','wantedCategoryId']) {
     if (form.value[key] && !categories.value.some(category => category.id === form.value[key])) { form.value[key] = ''; changed = true }

@@ -8,6 +8,7 @@ import edu.campusloop.web.item.dto.*;
 import edu.campusloop.web.item.vo.ItemView;
 import edu.campusloop.web.category.entity.Category;
 import edu.campusloop.web.category.mapper.CategoryMapper;
+import edu.campusloop.web.category.service.CategorySelectionService;
 import edu.campusloop.web.user.entity.User;
 import edu.campusloop.web.user.mapper.UserMapper;
 import edu.campusloop.web.upload.entity.Upload;
@@ -28,8 +29,9 @@ import java.util.stream.Collectors;
 public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements ItemService {
     private static final Set<String> OWN_STATES=Set.of("DRAFT","PENDING_REVIEW","AVAILABLE","RESERVED","EXCHANGED","HIDDEN");
     private final CategoryMapper categories;private final UserMapper users;private final UploadMapper uploads;private final ObjectMapper json;
-    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadMapper uploads,ObjectMapper json) {
-        this.categories=categories;this.users=users;this.uploads=uploads;this.json=json;
+    private final CategorySelectionService categorySelection;
+    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadMapper uploads,ObjectMapper json,CategorySelectionService categorySelection) {
+        this.categories=categories;this.users=users;this.uploads=uploads;this.json=json;this.categorySelection=categorySelection;
     }
     @Override public PageResult<ItemView> page(int page,int size,String keyword,Long categoryId,boolean admin) {
         if(page<1 || size<1 || size>100 || (keyword!=null && keyword.length()>100)) throw new ApiException(400,"分页或搜索参数不正确");
@@ -114,7 +116,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         return views(List.of(baseMapper.selectById(item.getId()))).get(0);
     }
     private String validateFields(long ownerId,PublishItemRequest request) {
-        if(categories.selectById(request.categoryId())==null || categories.selectById(request.wantedCategoryId())==null) throw new ApiException(400,"分类不存在");
+        categorySelection.requireActive(Arrays.asList(request.categoryId(),request.wantedCategoryId()));
         String image=request.imageUrl();
         if(image!=null && !image.isBlank()) {
             if(!image.matches("/uploads/[a-f0-9-]{36}\\.png") || uploads.selectCount(new QueryWrapper<Upload>().eq("url",image).eq("owner_id",ownerId))!=1)

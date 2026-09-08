@@ -1,0 +1,11 @@
+ALTER TABLE cl_category ADD COLUMN status VARCHAR(16) NOT NULL DEFAULT 'ACTIVE';
+ALTER TABLE cl_category ADD COLUMN sort_order INT NOT NULL DEFAULT 0;
+ALTER TABLE cl_category ADD COLUMN version INT NOT NULL DEFAULT 0;
+ALTER TABLE cl_category ADD COLUMN name_key VARCHAR(256);
+UPDATE cl_category SET name_key = LOWER(TRIM(name));
+ALTER TABLE cl_category MODIFY COLUMN name_key VARCHAR(256) NOT NULL;
+ALTER TABLE cl_category ADD CONSTRAINT uk_category_name_key UNIQUE (name_key);
+ALTER TABLE cl_category ADD CONSTRAINT ck_category_status CHECK (status IN ('ACTIVE','INACTIVE'));
+ALTER TABLE cl_category ADD CONSTRAINT ck_category_sort CHECK (sort_order BETWEEN 0 AND 9999);
+ALTER TABLE cl_category ADD CONSTRAINT ck_category_version CHECK (version >= 0);
+CREATE INDEX idx_category_status_sort ON cl_category(status, sort_order, id);
