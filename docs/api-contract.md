@@ -220,7 +220,7 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 
 `ExchangeLifecycleService`在exchange→用户→需求→物品/占用锁内调用`ExchangeLifecycleRules`，最终数据库UTC决定权限；状态、参与者时间、取消审计、事件、按item_id+exchange_id条件释放及物品version更新原子提交。allowedActions共用纯规则，未确认为CONFIRM/CANCEL，已确认/READY为CANCEL，截止/交接/终态为空；按钮不替代鉴权和锁内重校验。V9追加取消字段和按exchange/new_version唯一的审计事件，旧行不伪造审计。
 
-共同内部expire入口已可用，A-04定时扫描/批次/恢复仍未实现，无公共expire路径；交接仍501。状态矩阵、兼容与D/C样例见[B-03.2说明](b03-invitation-rules.md)。
+共同内部expire入口由A-04定时扫描接通，批次与持久退避在重启后继续处理。仅AWAITING_CONFIRMATION/READY、数据库UTC达到原expiresAt且无handedOffAt/receivedAt才EXPIRED；保留原24h截止，不延长、不释放其他交换占用。处理中或失败退避期间，GET可返回已到期活动状态且allowedActions为空，客户端回读结果，不能自行标记完成。无公共expire路径，技术重试字段不返回ExchangeView；运维和恢复证据见[A-04](a04-exchange-expiry.md)。交接仍501。状态矩阵、兼容与D/C样例见[B-03.2说明](b03-invitation-rules.md)。
 
 ## 后续接口设计（未实现）
 

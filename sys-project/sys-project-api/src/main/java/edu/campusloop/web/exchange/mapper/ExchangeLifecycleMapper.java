@@ -8,6 +8,8 @@ import java.util.List;
 public interface ExchangeLifecycleMapper {
     @Select("SELECT * FROM cl_exchange WHERE id=#{id} FOR UPDATE")
     ExchangeRecord lock(long id);
+    @Select("SELECT * FROM cl_exchange WHERE id=#{id} FOR UPDATE SKIP LOCKED")
+    ExchangeRecord tryLock(long id);
     @Select("SELECT demand_id FROM cl_exchange_demand WHERE exchange_id=#{id} ORDER BY demand_id")
     List<Long> demandIds(long id);
     @Select("SELECT item_id FROM cl_item_hold WHERE exchange_id=#{id} ORDER BY item_id")
@@ -19,7 +21,7 @@ public interface ExchangeLifecycleMapper {
     int otherReferences(@Param("item") long item,@Param("exchange") long exchange);
     @Update("UPDATE cl_exchange_participant SET confirmed_at=#{at} WHERE exchange_id=#{exchange} AND user_id=#{actor} AND confirmed_at IS NULL AND handed_off_at IS NULL AND received_at IS NULL")
     int confirm(@Param("exchange") long exchange,@Param("actor") long actor,@Param("at") LocalDateTime at);
-    @Update("UPDATE cl_exchange SET status=#{status},version=version+1,cancelled_by=#{cancelledBy},cancellation_reason=#{cancellationReason},cancelled_at=#{cancelledAt} " +
+    @Update("UPDATE cl_exchange SET status=#{status},version=version+1,expiry_retry_at=NULL,expiry_failure_code=NULL,cancelled_by=#{cancelledBy},cancellation_reason=#{cancellationReason},cancelled_at=#{cancelledAt} " +
         "WHERE id=#{id} AND version=#{version} AND status IN ('AWAITING_CONFIRMATION','READY')")
     int transition(ExchangeRecord row);
     @Insert("INSERT INTO cl_exchange_event(exchange_id,actor_id,event_type,previous_status,new_status,previous_version,new_version,reason,occurred_at) " +

@@ -5,8 +5,8 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Shared pure policy for B-03.2 and A-04. Not wired to production mutation endpoints.
- * A future single lifecycle transaction must supply locked database facts and database UTC,
+ * Shared pure policy for B-03.2 and A-04. Used by the shared production lifecycle transaction.
+ * The single lifecycle transaction must supply locked database facts and database UTC,
  * atomically apply the decision and audit, and release only the specified exchange's holds.
  */
 public final class ExchangeLifecycleRules {

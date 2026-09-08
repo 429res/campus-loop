@@ -593,6 +593,182 @@ class ExchangeDomainIntegrationTest {
         assertEquals(List.of(1L,-409L),result);assertEquals(1,eventCount(expired));
     }
 
+    @Autowired ExchangeExpiryScanner expiryScanner;
+    @Autowired edu.campusloop.web.exchange.mapper.ExchangeExpiryMapper expiryQueue;
+    @Autowired ExchangeTransactionExecutor exchangeTransactions;
+
+    @Test void scannerUsesDatabaseDeadlineAndOnlyExpiresOpenUnhandedExchanges() throws Exception {
+        long pending=creation.create(a.id(),ring(2,"scan-pending"));
+        long ready=creation.create(a.id(),ring(3,"scan-ready"));
+        lifecycle.confirm(a.id(),ready,0);lifecycle.confirm(b.id(),ready,1);lifecycle.confirm(c.id(),ready,2);
+        long future=creation.create(a.id(),ring(2,"scan-future"));
+        jdbc.update("UPDATE cl_item_hold SET expires_at=? WHERE exchange_id=?",exchangeClock.now().minusDays(1),future);
+        List<Long> protectedIds=new ArrayList<>();
+        for(String state:List.of("COMPLETED","CANCELLED","EXPIRED","DISPUTED")) {
+            long id=creation.create(a.id(),ring(2,"scan-"+state.toLowerCase(Locale.ROOT)));
+            jdbc.update("UPDATE cl_exchange SET status=? WHERE id=?",state,id);due(id);protectedIds.add(id);
+        }
+        for(String handover:List.of("handed_off_at","received_at")) {
+            long id=creation.create(a.id(),ring(2,"scan-"+handover));due(id);
+            jdbc.update("UPDATE cl_exchange_participant SET "+handover+"=? WHERE exchange_id=? AND user_id=?",exchangeClock.now(),id,a.id());protectedIds.add(id);
+        }
+        long legacy=seedStoredExchange(List.of(a,b),List.of(item(a,1),item(b,2)),"AWAITING_CONFIRMATION");due(legacy);protectedIds.add(legacy);
+        due(pending);due(ready);
+        var protectedRows=jdbc.queryForList("SELECT * FROM cl_item_hold WHERE exchange_id NOT IN (?,?) ORDER BY item_id",pending,ready);
+        var batch=expiryScanner.scanBatch();assertEquals(2,batch.selected());assertEquals(2,batch.expired());assertEquals(0,batch.deferred());
+        assertEquals("EXPIRED",state(pending));assertEquals("EXPIRED",state(ready));assertEquals("AWAITING_CONFIRMATION",state(future));
+        assertEquals(protectedRows,jdbc.queryForList("SELECT * FROM cl_item_hold WHERE exchange_id NOT IN (?,?) ORDER BY item_id",pending,ready));
+        var after=businessRows();assertEquals(0,expiryScanner.scanBatch().selected());assertEquals(after,businessRows());
+        assertEquals(1,eventCount(pending));assertEquals(4,eventCount(ready));
+        assertTrue(call("GET","/api/exchanges/"+ready,a.token(),null,200).path("allowedActions").isEmpty());
+    }
+
+    @Test void boundedBatchesAndPersistedBackoffPreventPoisonRecordFromBlockingLaterWork() {
+        var small=new ExchangeExpiryScanner(expiryQueue,lifecycle,exchangeClock,exchangeTransactions,1);
+        long bad=creation.create(a.id(),ring(2,"batch-bad"));due(bad);
+        jdbc.update("UPDATE cl_item SET version=version+1 WHERE id=(SELECT offered_item_id FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?)",bad,a.id());
+        long good=creation.create(a.id(),ring(2,"batch-good"));due(good);
+        var before=businessWithoutRetry();var now=exchangeClock.now();
+        var failed=small.scanBatch();assertEquals(1,failed.selected());assertEquals(1,failed.deferred());assertEquals(0,failed.retryWriteFailures());
+        assertEquals(before,businessWithoutRetry());assertEquals(1,retryCount(bad));
+        var retry=jdbc.queryForObject("SELECT expiry_retry_at FROM cl_exchange WHERE id=?",java.time.LocalDateTime.class,bad);
+        assertFalse(retry.isBefore(now.plusSeconds(30)));assertFalse(retry.isAfter(exchangeClock.now().plusSeconds(30)));
+        assertEquals("STATE_CONFLICT",jdbc.queryForObject("SELECT expiry_failure_code FROM cl_exchange WHERE id=?",String.class,bad));
+        assertEquals(1,small.scanBatch().expired());assertEquals("EXPIRED",state(good));assertEquals(0,small.scanBatch().selected());
+        jdbc.update("UPDATE cl_exchange SET expiry_retry_at=? WHERE id=?",exchangeClock.now(),bad);
+        now=exchangeClock.now();assertEquals(1,small.scanBatch().deferred());assertEquals(2,retryCount(bad));
+        assertFalse(jdbc.queryForObject("SELECT expiry_retry_at FROM cl_exchange WHERE id=?",java.time.LocalDateTime.class,bad).isBefore(now.plusSeconds(60)));
+    }
+
+    @Test void failedExpiryAfterEachWriteRollsBackAndNextAttemptRecoversExactlyOnce() {
+        for(String stage:List.of("transition","event","release","restore")) {
+            long id=creation.create(a.id(),ring(3,"expiry-fail-"+stage));due(id);var before=businessWithoutRetry();
+            var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(statement -> {
+                if(statement.endsWith("ExchangeLifecycleMapper."+stage) && once.compareAndSet(false,true))
+                    jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",id);
+            });
+            try {var batch=expiryScanner.scanBatch();assertEquals(1,batch.deferred());assertEquals(0,batch.expired());}
+            finally {SqlProbe.after.remove();}
+            assertTrue(once.get());assertEquals(before,businessWithoutRetry());assertEquals(1,retryCount(id));assertEquals(0,eventCount(id));
+            jdbc.update("UPDATE cl_exchange SET expiry_retry_at=? WHERE id=?",exchangeClock.now(),id);
+            assertEquals(1,expiryScanner.scanBatch().expired());assertEquals(1,eventCount(id));assertEquals("EXPIRED",state(id));
+            assertNull(jdbc.queryForObject("SELECT expiry_failure_code FROM cl_exchange WHERE id=?",String.class,id));
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            var after=businessRows();assertFalse(lifecycle.expireForScan(id));assertEquals(after,businessRows());
+        }
+    }
+
+    @Test void expiryNeverReleasesForeignOrNewExchangeHolds() {
+        var cmd=ring(2,"expiry-foreign");long bad=creation.create(a.id(),cmd);due(bad);
+        long other=creation.create(a.id(),ring(2,"expiry-other"));long item=cmd.flows().get(1).itemId();
+        jdbc.update("UPDATE cl_item_hold SET exchange_id=? WHERE item_id=?",other,item);
+        var before=businessWithoutRetry();assertEquals(1,expiryScanner.scanBatch().deferred());assertEquals(before,businessWithoutRetry());
+        var old=ring(2,"expiry-old");long oldId=creation.create(a.id(),old);lifecycle.cancel(a.id(),oldId,0,"换个方案");
+        var next=new ExchangeCreationCommand(old.ruleVersion(),"expiry-new",old.flows().stream()
+            .map(f -> flow(f.itemId(),f.itemVersion()+2,f.demandId(),f.demandVersion())).toList());
+        long newId=creation.create(a.id(),next);before=businessRows();
+        assertFalse(lifecycle.expireForScan(oldId));assertEquals(before,businessRows());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,newId));
+    }
+
+    @Test
+    @org.junit.jupiter.api.extension.ExtendWith(org.springframework.boot.test.system.OutputCaptureExtension.class)
+    void retryPersistenceFailureLeavesWorkRecoverableAndLogsNoExceptionPayload(org.springframework.boot.test.system.CapturedOutput output) {
+        long id=creation.create(a.id(),ring(2,"expiry-retry-store"));due(id);var before=businessRows();
+        SqlProbe.before.set(statement -> {
+            if(statement.endsWith("ExchangeLifecycleMapper.tryLock") || statement.endsWith("ExchangeExpiryMapper.defer"))
+                throw new IllegalStateException("fictional-sensitive-payload-should-never-be-logged");
+        });
+        try {new ExchangeExpiryScheduler(expiryScanner).poll();}
+        finally {SqlProbe.before.remove();}
+        assertFalse(output.getAll().contains("fictional-sensitive-payload-should-never-be-logged"));
+        assertEquals(before,businessRows());assertEquals(1,expiryScanner.scanBatch().expired());
+    }
+
+    @Test void mysqlTwoScannersSkipLockedExchangeAndCommitOnlyOneExpiry() throws Exception {
+        mysqlOnly();long id=creation.create(a.id(),ring(2,"expiry-workers"));due(id);
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        var locked=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+        try {
+            var first=pool.submit(()-> {
+                SqlProbe.before.set(statement -> {if(statement.endsWith("ExchangeLifecycleMapper.transition")){locked.countDown();await(release);}});
+                try{return expiryScanner.scanBatch();}finally{SqlProbe.before.remove();}
+            });
+            await(locked);
+            var second=expiryScanner.scanBatch();assertEquals(1,second.skipped());assertEquals(0,second.expired());
+            release.countDown();assertEquals(1,first.get(10,java.util.concurrent.TimeUnit.SECONDS).expired());
+            assertEquals(1,eventCount(id));assertEquals(0,expiryScanner.scanBatch().selected());
+        } finally {release.countDown();pool.shutdownNow();}
+    }
+
+    @Test void mysqlScannerSerializesExpiryAgainstConfirmAndCancel() throws Exception {
+        mysqlOnly();
+        for(boolean cancel:List.of(false,true)) {
+            long id=creation.create(a.id(),ring(2,"expiry-action-"+cancel));due(id);
+            var result=race(()->(long)expiryScanner.scanBatch().expired(),()->cancel?lifecycle.cancel(b.id(),id,0,"原因"):lifecycle.confirm(a.id(),id,0),
+                "ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+            assertEquals(List.of(1L,-409L),result);assertEquals(1,eventCount(id));assertEquals("EXPIRED",state(id));
+        }
+    }
+
+    @Test void mysqlFreshJvmAutomaticallyRecoversDueWorkAfterProcessStop() throws Exception {
+        mysqlOnly();long id=creation.create(a.id(),ring(3,"expiry-restart"));
+        var retryCommand=ring(2,"expiry-restart-retry");long retryId=creation.create(a.id(),retryCommand);due(retryId);
+        long retryItem=retryCommand.flows().get(0).itemId();
+        jdbc.update("UPDATE cl_item SET version=version+1 WHERE id=?",retryItem);
+        assertEquals(1,expiryScanner.scanBatch().deferred());assertEquals(1,retryCount(retryId));
+        jdbc.update("UPDATE cl_item SET version=version-1 WHERE id=?",retryItem); // Repair only the deliberate isolated corruption.
+
+        var log=java.nio.file.Files.createTempFile("campus-expiry-recovery-",".log");
+        Process first=null,second=null;
+        try {
+            first=startExpiryApplication(false,log);waitStarted(first,log);
+            assertEquals("AWAITING_CONFIRMATION",state(id));long firstPid=first.pid();
+            first.destroyForcibly();assertTrue(first.waitFor(10,java.util.concurrent.TimeUnit.SECONDS));first=null;
+            jdbc.update("UPDATE cl_exchange SET expiry_retry_at=? WHERE id=?",exchangeClock.now().minusSeconds(1),retryId);
+            due(id); // Deadline passes while the application is stopped; no in-memory task is retained.
+            java.nio.file.Files.writeString(log,"");
+            second=startExpiryApplication(true,log);waitStarted(second,log);assertNotEquals(firstPid,second.pid());
+            long until=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(20);
+            while((!state(id).equals("EXPIRED") || !state(retryId).equals("EXPIRED")) && System.nanoTime()<until) Thread.sleep(100);
+            assertEquals("EXPIRED",state(id));assertEquals(1,eventCount(id));
+            assertEquals("EXPIRED",state(retryId));assertEquals(1,eventCount(retryId));assertEquals(1,retryCount(retryId));
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            Thread.sleep(500);assertEquals(1,eventCount(id));
+            System.out.println("A-04 recovery: two distinct JVMs; stopped process, persisted deadline, automatic EXPIRED and one event verified.");
+        } finally {
+            for(Process process:new Process[]{first,second}) if(process!=null) {process.destroyForcibly();process.waitFor(10,java.util.concurrent.TimeUnit.SECONDS);}
+            java.nio.file.Files.deleteIfExists(log);
+        }
+    }
+    private Process startExpiryApplication(boolean enabled,java.nio.file.Path log) throws Exception {
+        String javaExecutable=java.nio.file.Path.of(System.getProperty("java.home"),"bin","java").toString();
+        var builder=new ProcessBuilder(javaExecutable,"-Duser.timezone=Pacific/Honolulu","-cp",
+            System.getProperty("surefire.test.class.path",System.getProperty("java.class.path")),"edu.campusloop.CampusLoopApplication",
+            "--spring.profiles.active=mysql-test","--server.address=127.0.0.1","--server.port=0",
+            "--campus.exchange-expiry.enabled="+enabled,"--campus.exchange-expiry.delay-ms=200",
+            "--campus.exchange-expiry.initial-delay-ms=100","--campus.bootstrap-enabled=false","--campus.demo-enabled=false");
+        builder.environment().put("JWT_SECRET",UUID.randomUUID().toString()+UUID.randomUUID());
+        builder.redirectErrorStream(true).redirectOutput(log.toFile());return builder.start();
+    }
+    private void waitStarted(Process process,java.nio.file.Path log) throws Exception {
+        long until=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(30);
+        while(process.isAlive() && System.nanoTime()<until) {
+            if(java.nio.file.Files.readString(log).contains("Started CampusLoopApplication")) return;
+            Thread.sleep(100);
+        }
+        fail("Isolated recovery JVM did not start; raw application logs are intentionally not exposed");
+    }
+    private void due(long id) {jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now().minusSeconds(1),id);}
+    private String state(long id) {return jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id);}
+    private int retryCount(long id) {return jdbc.queryForObject("SELECT expiry_retry_count FROM cl_exchange WHERE id=?",Integer.class,id);}
+    private Map<String,List<Map<String,Object>>> businessWithoutRetry() {
+        var rows=businessRows();
+        for(var row:rows.get("cl_exchange")) for(String field:List.of("expiry_retry_at","expiry_retry_count","expiry_failure_code")) row.remove(field);
+        return rows;
+    }
+
     private int eventCount(long id) { return jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_event WHERE exchange_id=?",Integer.class,id); }
 
     private ExchangeCreationCommand ring(int length,String key) {

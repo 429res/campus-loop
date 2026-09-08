@@ -43,13 +43,23 @@ class ItemReviewMigrationCheck {
         jdbc.update("UPDATE cl_exchange SET request_digest=?,rule_version='independent-v2',creation_snapshot='{}' WHERE id=93001","a".repeat(64));
         jdbc.update("INSERT INTO cl_exchange(id,initiator_id,status,version,idempotency_key,expires_at) VALUES (93002,91001,'CANCELLED',2,'legacy_cancel',CURRENT_TIMESTAMP)");
         var beforeLifecycle=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
-        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        Flyway.configure().dataSource(dataSource).target("9").cleanDisabled(true).load().migrate();
         var afterLifecycle=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
         for(int i=0;i<afterLifecycle.size();i++) {
             for(String column:List.of("cancelled_by","cancellation_reason","cancelled_at")) assertNull(afterLifecycle.get(i).remove(column));
             assertEquals(beforeLifecycle.get(i),afterLifecycle.get(i),"V9 must preserve every existing V8 field");
         }
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_event",Integer.class));
+        var beforeExpiry=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
+        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        var afterExpiry=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
+        for(int i=0;i<afterExpiry.size();i++) {
+            assertNull(afterExpiry.get(i).remove("expiry_retry_at"));
+            assertNull(afterExpiry.get(i).remove("expiry_failure_code"));
+            assertEquals(0,((Number)afterExpiry.get(i).remove("expiry_retry_count")).intValue());
+            assertEquals(beforeExpiry.get(i),afterExpiry.get(i),"V10 preserves deadlines, states and existing metadata");
+        }
+
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

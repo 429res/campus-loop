@@ -106,3 +106,7 @@ node scripts/run.mjs build    # 上述前端回归 + 三端构建、微信按钮
 连接预先建好的隔离 MySQL 测试库时使用显式的 `TEST_DB_URL`、`TEST_DB_USERNAME`、`TEST_DB_PASSWORD`，只接受 `localhost` 或 `127.0.0.1`、显式端口及 `campus_loop_*test` 库名（例如 `campus_loop_ci_test`），再执行 `node scripts/run.mjs mysql-test`。只对独立临时测试库运行。GitHub Actions 自建 MySQL service，绝不读取开发者 `.env`。
 
 阅读 [协作规则](CONTRIBUTING.md)、[架构](docs/architecture.md)、[API 契约](docs/api-contract.md)、[设计系统](docs/design-system.md)、[迁移说明](docs/migration.md)、[验收记录](docs/verification.md)。每次改动按实际风险验证，并区分构建、浏览器、数据库和微信真机结果。
+
+### 交换到期任务
+
+后端默认每30秒扫描最多50条到期交换，复用确认/取消事务，仅处理尚未交接的等待或READY状态。暂停、批次参数、持久退避、重启恢复及B/C/D截止语义见[A-04运维说明](docs/a04-exchange-expiry.md)。启用前须部署A-03/B-03.2与V10；定时扫描不依赖客户端倒计时或内存任务列表。

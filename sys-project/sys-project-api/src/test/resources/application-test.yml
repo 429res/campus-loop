@@ -11,3 +11,6 @@ campus:
   bootstrap-only: false
   demo-enabled: false
   cors-origins: http://localhost:5174
+
+  exchange-expiry:
+    enabled: false
