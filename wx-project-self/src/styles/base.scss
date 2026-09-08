@@ -17,6 +17,7 @@ input, textarea { color: var(--cl-text); font: inherit; }
 .cl-btn--primary { background-color: var(--cl-primary); color: #fff; border-color: transparent; }
 .theme-dark .cl-btn--primary { color:#311526; }
 .cl-btn--blue { background-color: var(--cl-blue-soft); color: var(--cl-blue); border-color: transparent; }
+.cl-btn--danger { color:var(--cl-danger); border-color:var(--cl-danger); background:var(--cl-surface); }
 .cl-btn--quiet { color: var(--cl-muted); background: transparent; border-color: transparent; box-shadow:none; }
 .cl-btn--wide { display:flex; width:100%; }
 .cl-label { display:block; color:var(--cl-muted); font-size:13px; line-height:1.65; }

@@ -80,7 +80,11 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
-管理概览统计：推荐规模正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无推荐为0）。仅候选或推荐规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示“— / 推荐规模超限，暂不统计”，不得显示为0。其他接口或数据库错误仍按正常错误链路处理。
+管理概览统计当前无 query 参数、时间范围或 `asOf`，各字段是顺序查询的当前全量读数，不承诺同一时点强一致快照。`users` 是 `cl_user` 全部账号行数，包含 ADMIN/USER 和 ACTIVE/DISABLED；`items` 是 `cl_item` 全状态行数；`availableItems` 只按 `status=AVAILABLE` 计数，不代表排除停用 owner、占用后的精确匹配候选。三者单位分别为 user id、item id、item id；空集合返回0。
+
+`recommendations` 是与公开 legacy-v1 `GET /matches` 同源的当前 2/3 人候选环方案数，按规范化物品 ID 环去重；它不是 independent-v2 推荐数、持久交换数、参与者数或完成交换数，读取不写占用或交换。正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无方案为0）。仅候选或方案规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示不可用及超限原因，不得显示为0。其他数据库/API错误走非200错误链路，消费端显示读取失败，不得转换为0。
+
+当前看板另以 `GET /admin/items?page=1&size=1&status=PENDING_REVIEW` 的服务端 `PageResult.total` 显示待审核物品量；这是独立请求和当前状态计数，不从 `records` 当前页推算，也不与 `/admin/stats` 组成原子快照。生产看板没有日期筛选或趋势数据。完成交换、交换状态分布及期间统计尚无管理员接口，均为待开发，不得由推荐数、参与者私有 `/exchanges/mine` 或分页当前页替代。若后续增加期间完成量，按唯一 exchange id 去重，以 UTC `cl_exchange_event.new_status=COMPLETED` 的 `occurred_at` 使用左闭右开 `[from,to)`；旧 COMPLETED 记录缺少该事件时必须明确排除/时间不可知，不得用 `created_at` 猜测。
 
 ## A-02 第三批：管理员分类维护
 
@@ -268,6 +272,16 @@ READY首次交接必须原截止前；任一handedOffAt/receivedAt非空后允�
 
 ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），participants追加handedOffNote/receivedNote（未声明null，可选说明省略后为空串）。READY未开始且未截止allowedActions=[HANDED_OFF,RECEIVED,CANCEL]；开始后按本人未提交类别返回HANDED_OFF/RECEIVED及DISPUTE；终态空。等待期仍遵循B-03，动作集合与锁内规则共用。两方/三方、错误、精确重放与C/D恢复样例见[B-04](b04-exchange-handoff.md)。
 
+#### C-04 管理员争议读取（本片实现）
+
+仅ADMIN的 `GET /admin/exchange-disputes`、`GET /admin/exchange-disputes/{id}`、`GET /admin/exchange-disputes/{id}/events` 已接通，只读DISPUTED。分页默认1/12、size≤100，详情沿用ExchangeView但allowedActions为空、私人交接说明为null；事件按版本升序，仅争议理由可见。字段、隐私、错误与C/D样例见[领域读取切片](c04-exchange-domain-read.md)。普通举报与争议裁决仍未实现。
+
+#### C-04 管理员争议处理草案（未实现，不可调用）
+
+C 的只读追溯夹具以现有 ExchangeView、持久 flows/participants 和 cl_exchange_event 事实展示 DISPUTED；不能调用参与者专属 `GET /exchanges/{id}` 冒充管理员读取。本片已提供独立 ADMIN 争议队列、详情与事件分页接口；交接私人说明和证据仍不披露。B-04 当前没有争议附件，B-05 履历私有证据也不能自动授权给争议模块。
+
+管理员裁决的决定枚举、允许状态、利益冲突规则、`version/idempotencyKey` 请求、精确重放、裁决审计，以及每种决定对 exchange/item/demand/hold/history 的原子后果尚未确定。C 不提供裁决按钮或请求草案，也不从 UI 推导 owner 变更、释放占用、恢复交接或实物回滚。未来接口必须调用 B 的同一交换事务入口；409 后返回/读取最新交换与事件事实，保留理由但不自动换版本重试。D 的本人结果投影应与该事务同源，且不暴露管理员 ID、内部快照、他人私密证据或存储路径。
+
 ### B-05.1 自述履历、私有证据与查询（已实现）
 
 GET `/items/{id}/history?page=1&size=12`及GET `/items/{id}/history/{eventId}`支持匿名公开基础字段和可选有效认证，page≥1/size1–100、recordedAt/id降序；错误/重复/未知参数400，有无效Authorization则401。公开物品沿用AVAILABLE/RESERVED/EXCHANGED；非公开物品仅当前owner/ADMIN读取全部基础履历，其他作者或该件关联交换交出/接收双方按事件过滤（含total），无权限404。当前owner不自动获得旧私有证据。
@@ -289,3 +303,7 @@ HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保�
 ### B-05.3 管理员单事件核验（已实现）
 
 管理队列、详情、决定、版本与幂等字段、证据门槛及利益冲突规则见[B-05.3](b05-admin-verification.md)。HistoryView增加verification；通过时仅本事件evidenceLevel显示ADMIN_VERIFIED，原recordedEvidenceLevel/confirmation保留。私有理由/快照仅ADMIN；普通时间线不返回核验人ID或证据摘要。
+
+### B-06 性能切片兼容
+
+分类建边索引仅改变independent-v2的内部边构建；字段、结果顺序、理由与全部422上限不变，没有候选分页或部分推荐成功。正式创建仍实时事务重校验。见[B-06基准与边界](b06-matching-benchmark.md)。

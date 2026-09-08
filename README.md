@@ -16,7 +16,7 @@
 | Maven | 3.9.16 | 已提交 Maven Wrapper，无需系统 Maven |
 | MySQL | 8.4.11 | Compose 固定镜像；本地服务用兼容的 MySQL 8.4 |
 | 管理端构建器 | Vite 8.2.2 起的原锁定版本 | 沿用参考工程 lockfile |
-| UniApp 构建器 | Vite 5.2.8 | 与 UniApp 适配，不统一升级 |
+| UniApp 构建器 | DCloud 5.24 / Vite 5.2.8 / Rollup 4.63.1 | Vite 与 DCloud 正式版严格配对；仅在兼容范围内更新 Rollup 与传递依赖 |
 
 ```text
 project-self/                  Vue 3 / Element Plus 管理端
@@ -104,6 +104,8 @@ node scripts/run.mjs build    # 上述前端回归 + 三端构建、微信按钮
 ```
 
 推荐执行 `node scripts/mysql-test.mjs` 自动建立随机口令的临时容器、运行测试并停止容器，需 Docker 引擎，默认3319端口（`CAMPUS_TEST_PORT`可改）。
+
+数据库与上传文件的完整恢复演练使用 `node scripts/run.mjs backup-restore-test`。它不读取 `.env`，只建立一次性源库/恢复库和临时上传目录，并通过应用回读验证；部署变量、反向代理、生产顺序、清理边界和平台实测范围见 [A-05 备份恢复与部署配置](docs/a05-backup-restore-deployment.md)。
 
 连接预先建好的隔离 MySQL 测试库时使用显式的 `TEST_DB_URL`、`TEST_DB_USERNAME`、`TEST_DB_PASSWORD`，只接受 `localhost` 或 `127.0.0.1`、显式端口及 `campus_loop_*test` 库名（例如 `campus_loop_ci_test`），再执行 `node scripts/run.mjs mysql-test`。只对独立临时测试库运行。GitHub Actions 自建 MySQL service，绝不读取开发者 `.env`。
 

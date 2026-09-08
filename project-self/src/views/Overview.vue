@@ -1,68 +1,59 @@
 <script setup>
-import { onMounted, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import {
-  Box,
-  User,
-  Connection,
   RefreshRight,
   ArrowRight,
-  Reading,
 } from "@element-plus/icons-vue";
 import http from "@/http";
 import { imageUrl } from "@/api/uploadApi";
+import BusinessStatsPanel from "@/components/stats/BusinessStatsPanel.vue";
+import { createLatestRequestTracker, STATS_LOAD_STATE } from "@/features/stats/statsPresentation";
 const router = useRouter(),
   stats = ref(null),
+  statsState = ref(STATS_LOAD_STATE.IDLE),
+  pendingReview = ref(null),
+  pendingState = ref(STATS_LOAD_STATE.IDLE),
   items = ref([]),
-  loading = ref(false),
-  failed = ref(false);
+  itemsState = ref(STATS_LOAD_STATE.IDLE);
+const requests = createLatestRequestTracker();
+const loading = computed(() => [statsState.value, pendingState.value, itemsState.value].includes(STATS_LOAD_STATE.LOADING));
 async function load() {
-  loading.value = true;
-  failed.value = false;
-  try {
-    const [s, i] = await Promise.all([
-      http.get("/api/admin/stats"),
-      http.get("/api/admin/items", { params: { page: 1, size: 4 } }),
-    ]);
-    stats.value = s.data;
-    items.value = i.data.records;
-  } catch {
-    failed.value = true;
-  } finally {
-    loading.value = false;
-  }
+  const request = requests.start();
+  statsState.value = pendingState.value = itemsState.value = STATS_LOAD_STATE.LOADING;
+  const config = { signal: request.signal };
+  await Promise.allSettled([
+    http.get("/api/admin/stats", config).then(({ data }) => {
+      if (!request.isLatest()) return;
+      stats.value = data;
+      statsState.value = STATS_LOAD_STATE.READY;
+    }).catch((error) => {
+      if (!request.isLatest() || error?.code === "ERR_CANCELED") return;
+      stats.value = null;
+      statsState.value = STATS_LOAD_STATE.ERROR;
+    }),
+    http.get("/api/admin/items", { ...config, params: { page: 1, size: 1, status: "PENDING_REVIEW" } }).then(({ data }) => {
+      if (!request.isLatest()) return;
+      pendingReview.value = data.total;
+      pendingState.value = STATS_LOAD_STATE.READY;
+    }).catch((error) => {
+      if (!request.isLatest() || error?.code === "ERR_CANCELED") return;
+      pendingReview.value = null;
+      pendingState.value = STATS_LOAD_STATE.ERROR;
+    }),
+    http.get("/api/admin/items", { ...config, params: { page: 1, size: 4 } }).then(({ data }) => {
+      if (!request.isLatest()) return;
+      items.value = data.records;
+      itemsState.value = STATS_LOAD_STATE.READY;
+    }).catch((error) => {
+      if (!request.isLatest() || error?.code === "ERR_CANCELED") return;
+      items.value = [];
+      itemsState.value = STATS_LOAD_STATE.ERROR;
+    }),
+  ]);
 }
 onMounted(load);
-const tiles = [
-  {
-    key: "items",
-    label: "校园物品",
-    icon: Box,
-    color: "pink",
-    note: "记录每一份闲置价值",
-  },
-  {
-    key: "users",
-    label: "循环参与者",
-    icon: User,
-    color: "blue",
-    note: "相同校园，不同需求",
-  },
-  {
-    key: "availableItems",
-    label: "可交换物品",
-    icon: RefreshRight,
-    color: "green",
-    note: "随时准备开启新旅程",
-  },
-  {
-    key: "recommendations",
-    label: "需求匹配方案",
-    icon: Connection,
-    color: "orange",
-    note: "双向与三方循环推荐",
-  },
-];
+onBeforeUnmount(() => requests.cancel());
 </script>
 <template>
   <div class="page-heading">
@@ -107,24 +98,14 @@ const tiles = [
       ><small>概念示意 · 虚构物品</small>
     </div>
   </section>
-  <el-alert
-    v-if="failed"
-    title="数据读取失败，请确认新项目后端和数据库已启动后重试。"
-    type="error"
-    :closable="false"
-    show-icon
+  <BusinessStatsPanel
+    :stats="stats"
+    :stats-state="statsState"
+    :pending-review="pendingReview"
+    :pending-state="pendingState"
+    @open-records="router.push($event)"
   />
-  <section class="stats-grid" v-loading="loading">
-    <article v-for="tile in tiles" :key="tile.key" class="stat-card">
-      <div class="stat-top">
-        <span>{{ tile.label }}</span
-        ><el-icon :class="tile.color"><component :is="tile.icon" /></el-icon>
-      </div>
-      <strong>{{ stats?.[tile.key] ?? "—" }}</strong
-      ><small>{{ tile.key === 'recommendations' && stats?.recommendationsStatus === 'LIMIT_EXCEEDED'
-        ? '推荐规模超限，暂不统计' : tile.note }}</small>
-    </article>
-  </section>
+  <el-alert v-if="itemsState === STATS_LOAD_STATE.ERROR" title="最近物品读取失败；统计卡片仍保留各自的真实读取结果。" type="error" :closable="false" show-icon />
   <section class="panel">
     <div class="section-heading">
       <div>
@@ -164,7 +145,7 @@ const tiles = [
       </button>
     </div>
     <el-empty
-      v-else-if="!loading"
+      v-else-if="itemsState === STATS_LOAD_STATE.READY"
       description="还没有物品，去用户端发布第一件闲置吧"
       :image-size="74"
     />
@@ -178,12 +159,12 @@ const tiles = [
     <div>
       <span>02</span>
       <h3>推荐不占用</h3>
-      <p>浏览方案不会锁定物品。正式交换后续开发。</p>
+      <p>浏览方案不会锁定物品；正式交换与推荐数分别统计。</p>
     </div>
     <div>
       <span>03</span>
       <h3>履历可溯源</h3>
-      <p>规划区分用户自述、双方确认与管理员核验。</p>
+      <p>区分用户自述、参与者确认与管理员核验。</p>
     </div>
   </section>
 </template>

@@ -34,9 +34,10 @@ test('exchange preview remains read-only while B-03 and A-03 are unavailable', (
   assert.doesNotMatch(source,/http\.(post|put|patch|delete)\(['"`]\/api\/exchanges/)
 })
 
-test('my exchanges placeholder never fabricates server records or actions', () => {
+test('my exchanges reads persisted records and limits this slice to the server-authorized dispute action', () => {
   const source = readFileSync(new URL('../src/pages/exchanges/exchanges.vue',import.meta.url),'utf8')
-  assert.match(source,/交换写入口仍返回 501/)
-  assert.match(source,/allowedActions/)
-  assert.doesNotMatch(source,/http\.(get|post|put|patch|delete)\(/)
+  assert.match(source,/http\.get\('\/api\/exchanges\/mine'/)
+  assert.match(source,/allowedActions\?\.includes\('DISPUTE'\)/)
+  assert.match(source,/\/dispute`/)
+  assert.doesNotMatch(source,/\/confirm`|\/cancel`|\/handoff`/)
 })

@@ -13,9 +13,19 @@ const developmentRoutes = import.meta.env.DEV
         meta: { public: true, title: "分类维护组件夹具" },
       },
       {
+        path: "/fixtures/disputes",
+        component: () => import("@/views/Disputes.vue"),
+        meta: { public: true, title: "交换争议组件夹具" },
+      },
+      {
         path: "/fixtures/reports",
         component: () => import("@/views/Reports.vue"),
         meta: { public: true, title: "举报队列组件夹具" },
+      },
+      {
+        path: "/fixtures/stats",
+        component: () => import("@/views/StatsFixture.vue"),
+        meta: { public: true, title: "业务统计展示夹具" },
       },
     ]
   : [];
@@ -52,6 +62,11 @@ const router = createRouter({
       path: "/matches",
       component: () => import("@/views/Matches.vue"),
       meta: { title: "交换推荐" },
+    },
+    {
+      path: "/disputes",
+      component: () => import("@/views/Disputes.vue"),
+      meta: { title: "交换争议" },
     },
     {
       path: "/reports",

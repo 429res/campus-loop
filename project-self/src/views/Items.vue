@@ -171,6 +171,9 @@ const statusType = (value) =>
   ] || "info";
 
 onMounted(async () => {
+  const requestedStatus = String(route.query.status || "");
+  if (["PENDING_REVIEW", "REJECTED", "AVAILABLE", "RESERVED", "EXCHANGED", "DRAFT", "HIDDEN"].includes(requestedStatus))
+    filters.status = requestedStatus;
   await load();
   try {
     categories.value = (await http.get("/api/categories", { params: { includeInactive: true } })).data;

@@ -114,7 +114,7 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 6. 确认截止前可取消；取消与超时任务使用相同 exchange 行锁与条件状态更新，仅释放属于该 exchange 的占用。重试任务幂等。交接开始后不能简单取消，进入争议流程，避免已交付物品被自动重新上架。
 7. 超时使用数据库 UTC 时间、批次扫描和可恢复任务，UI 倒计时只展示。version 乐观锁用于编辑与条件状态变更，唯一占用约束作为最终防线。数据库死锁按有限次数重试，外部通知在事务提交后 outbox 发送。
 
-状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描由A-04接通。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
+状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消、交接与参与者争议登记已接通共用持久事务，自动超时扫描由A-04接通；管理员裁决仍未实现。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
 ## 履历可信度
 
@@ -188,3 +188,11 @@ V13追加请求、真实参与者集合、每人确认和撤回四张表，原�
 ### B-05.3 管理员核验追加审计
 
 V14增加单事件状态守卫及唯一追加审计，读请求虚拟PENDING/version0不写数据库。ADMIN决定以可选exchange→管理员user→item→事件顺序持锁重读，事件查询不联表锁作者；不涉及所有权或参与者写入。version0/PENDING条件更新与审计INSERT同事务，终局不覆盖，管理员ID＋幂等键约束重试。快照绑定当前声明/证据/参与者链，修正或来源变化后旧hash409；已决定后修正不继承来源。APPROVED审计构成新ADMIN_VERIFIED来源，原自述和参与者确认不变。详细权限、来源范围及C/D样例见[B-05.3](b05-admin-verification.md)。
+
+### C-04 管理争议读取
+
+ExchangeDisputeQueryService 在 REPEATABLE_READ 只读事务校验有效ADMIN并限定DISPUTED；复用ExchangeQueryService流向校验，投影全部2/3参与者，移除交接私人说明与动作。事件分页只读已有cl_exchange_event，无新增表/锁/写入口；证据与裁决仍待A受理基础和团队策略，详见[C-04读取边界](c04-exchange-domain-read.md)。
+
+### B-06 单项分类建边优化
+
+独立需求匹配按接收物的需求分类构建本次调用内索引，提供物只访问匹配分类的接收物；仍保留边矩阵、原环枚举及排序。数据库/缓存/规则/所有上限不变。200件目标的可重复数据、收益及退化见[B-06基准](b06-matching-benchmark.md)，不代表全部性能工作完成。

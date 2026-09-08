@@ -45,22 +45,23 @@ public final class IndependentDemandMatcher {
         }
 
         // Each receiver/category list is shared by all matching provider edges, including its ID list.
-        Map<Long, Map<Long, DemandChoices>> choices = new HashMap<>();
-        byReceiver.forEach((itemId, categories) -> {
-            Map<Long, DemandChoices> categoryChoices = new HashMap<>();
-            categories.forEach((categoryId, demands) -> categoryChoices.put(categoryId,
-                new DemandChoices(List.copyOf(demands), demands.stream().map(PreparedDemand::id).toList())));
-            choices.put(itemId, categoryChoices);
-        });
+        // Invert receiver/category choices once. Provider edges inspect only receivers demanding that category.
+        // Receiver indices stay in offer-ID order, preserving edge choice and enumeration behavior.
+        Map<Long, List<ReceiverChoices>> receiversByCategory = new HashMap<>();
+        for (int to = 0; to < offers.size(); to++) {
+            int receiverIndex = to;
+            byReceiver.getOrDefault(offers.get(to).id(), Map.of()).forEach((categoryId, demands) ->
+                receiversByCategory.computeIfAbsent(categoryId, ignored -> new ArrayList<>()).add(
+                    new ReceiverChoices(receiverIndex,
+                        new DemandChoices(List.copyOf(demands), demands.stream().map(PreparedDemand::id).toList()))));
+        }
         Edge[][] edges = new Edge[offers.size()][offers.size()];
         for (int from = 0; from < offers.size(); from++) {
             var provider = offers.get(from);
             Set<String> tags = normalized(provider.tags());
-            for (int to = 0; to < offers.size(); to++) {
-                var receiver = offers.get(to);
-                if (provider.ownerId() == receiver.ownerId()) continue;
-                DemandChoices matching = choices.getOrDefault(receiver.id(), Map.of()).get(provider.categoryId());
-                if (matching != null) edges[from][to] = select(matching, tags);
+            for (var receiver : receiversByCategory.getOrDefault(provider.categoryId(), List.of())) {
+                if (provider.ownerId() == offers.get(receiver.index()).ownerId()) continue;
+                edges[from][receiver.index()] = select(receiver.choices(), tags);
             }
         }
 
@@ -122,6 +123,7 @@ public final class IndependentDemandMatcher {
 
     private record PreparedDemand(long id, Set<String> preferredTags, int version) {}
     private record DemandChoices(List<PreparedDemand> demands, List<Long> ids) {}
+    private record ReceiverChoices(int index, DemandChoices choices) {}
     private record Edge(long demandId, List<Long> matchedDemandIds, List<String> matchedTags, int contribution, int demandVersion) {}
 
     private static final class Results {
