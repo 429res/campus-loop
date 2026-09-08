@@ -16,7 +16,9 @@ public class AdminController {
     private final ItemService items;private final AdminStatsService stats;private final AdminUserService adminUsers;
     public AdminController(ItemService items,AdminStatsService stats,AdminUserService adminUsers){this.items=items;this.stats=stats;this.adminUsers=adminUsers;}
     @GetMapping("/items") public ResultVo<PageResult<ItemView>> list(@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="12") int size,
-        @RequestParam(required=false) String keyword,@RequestParam(required=false) Long categoryId){return ResultVo.success(items.page(page,size,keyword,categoryId,true));}
+        @RequestParam(required=false) String keyword,@RequestParam(required=false) Long categoryId,
+        @RequestParam(required=false) String status){return ResultVo.success(items.adminPage(page,size,keyword,categoryId,status));}
+    @GetMapping("/items/{id}") public ResultVo<ItemView> item(@PathVariable long id){return ResultVo.success(items.adminDetail(id));}
     @GetMapping("/stats") public ResultVo<AdminStatsView> stats(){return ResultVo.success(stats.stats());}
     @GetMapping("/users") public ResultVo<PageResult<AdminUserView>> users(@RequestParam(defaultValue="1") int page,@RequestParam(defaultValue="12") int size,
         @RequestParam(required=false) String keyword,@RequestParam(required=false) String role,@RequestParam(required=false) String status) {

@@ -59,6 +59,7 @@ class FavoritesIntegrationTest {
     @AfterEach void removeOnlyFixtures() {
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_favorite WHERE item_id=?", itemId);
         for (long userId : userIds) jdbc.update("DELETE FROM cl_favorite WHERE user_id=?", userId);
+        for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id=?", itemId);
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item WHERE id=?", itemId);
         for (long userId : userIds) {
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?", userId);
@@ -319,7 +320,9 @@ class FavoritesIntegrationTest {
     private long item(Account account) throws Exception {
         long id = call("POST", "/api/items", account.token(), Map.of("title", "虚构收藏物品", "description", "隔离测试", "categoryId", 1,
             "conditionLevel", 4, "tags", List.of(), "wantedCategoryId", 2, "wantedTags", List.of()), 200).path("id").asLong();
-        itemIds.add(id);return id;
+        itemIds.add(id);
+        // Legacy fixture for the existing favorite visibility/version contract.
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE id=?",id);return id;
     }
     private String favorite(long id) {return "/api/items/" + id + "/favorite";}
     private JsonNode page(String token, int page, int size) throws Exception {return call("GET", "/api/favorites?page=" + page + "&size=" + size, token, null, 200);}

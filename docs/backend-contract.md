@@ -10,14 +10,14 @@
 - 管理员按关键词、角色和状态分页查询账号，以 `version` 条件启停并记录安全审计；停用与全部会话撤销原子提交，且登录与停用锁定同一用户行。自我停用和失去最后一个可用管理员的操作返回409。
 - 分类公开可用目录与含停用的历史目录；ADMIN分类新增/部分编辑/停用/启用/未引用删除及分页，V6名称唯一、版本与引用保护，见 [分类接入说明](a02-category-maintenance.md)。
 - 分页搜索物品、物品详情，登录发布，管理员查看全部物品与统计。
-- 本人分页/详情由会话限定当前归属，覆盖现有全部六种物品状态；完整表单编辑及 AVAILABLE → HIDDEN 下架具备白名单、上传归属、版本与交换保护，详见 [A-02](a02-own-items.md)。无重新上架或硬删除。
+- 本人分页/详情由会话限定当前归属，覆盖现有全部七种物品状态；完整表单编辑及 AVAILABLE → HIDDEN 下架具备白名单、上传归属、版本与交换保护，详见 [A-02](a02-own-items.md)。无重新上架或硬删除。
 - 图片上传及发布时归属校验。支持 PNG / JPEG / GIF，5 MB、1600 万像素上限；解码重存 PNG，GIF 仅保留首帧。返回相对 `/uploads/<UUID>.png`，所有端须以 API 服务地址解析。图片链接是公开展示资源，不应上传私密内容。
 - 私有收藏持久化：本人幂等添加/取消、分页；复用公开物品可见性，不可见目标以 item=null 占位且计入 total。V5唯一关系与非级联外键，D-02消费说明见 [a02-favorites.md](a02-favorites.md)。
 - 双方、三方推荐读取；所有演示来自数据库的虚构数据。
 - `/api/health` 查询数据库连接；不暴露连接串或凭据。
-- 发布在初始版本直接成为 `AVAILABLE`，用于完整示范链路。正式内容审核接入前必须将发布默认状态迁移为 `PENDING_REVIEW` 并补充审核 API；当前页面不得冒充已有审核流程。
+- V7 发布默认 `PENDING_REVIEW`；本人未占用 AVAILABLE/PENDING_REVIEW/REJECTED 完整编辑后复审，ADMIN决定/审计与版本冲突已实现。旧公开数据标记 LEGACY_DIRECT并保留状态，历史直发不是人工批准，详见 [审核接入说明](a02-item-review.md)。
 
-公开物品查询仅显示 AVAILABLE、RESERVED、EXCHANGED；本人物品查询另外包含 DRAFT、PENDING_REVIEW、HIDDEN。分页页码从 1 开始，size 1–100。文本使用纯文本渲染，标题 100、描述 2000 字符；发布/编辑的分类必须 ACTIVE，成色 1–5；两组标签各最多 8 个，每个 20 字符。时间字段按 UTC 的 ISO 格式输出，前端按本地时区显示。
+公开物品查询仅显示 AVAILABLE、RESERVED、EXCHANGED；本人物品查询另外包含 DRAFT、PENDING_REVIEW、REJECTED、HIDDEN。分页页码从 1 开始，size 1–100。文本使用纯文本渲染，标题 100、描述 2000 字符；发布/编辑的分类必须 ACTIVE，成色 1–5；两组标签各最多 8 个，每个 20 字符。时间字段按 UTC 的 ISO 格式输出，前端按本地时区显示。
 
 每件物品当前绑定一个想要分类与一组偏好标签，作为“我有什么 / 想要什么”最小样例。B-01 新增独立需求 CRUD 与本人物品候选关联，接口和兼容边界见 [api-contract.md](api-contract.md) 与 [b01-independent-demands.md](b01-independent-demands.md)。B-02已实现独立需求只读匹配，详见下文；收藏后端由本批A-02提供，用户页面及更多个人资料字段尚未实现；本人显示名称编辑与修改密码已由 A-01 提供，用户端接入见 [D-01 切片记录](d01-profile-password-status.md)。
 
@@ -47,7 +47,7 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 `cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
 
-这是下一阶段的表结构基础，不代表已经具备业务接口。当前 POST `/api/exchanges` 与 confirm/cancel/handoff 明确 HTTP 501。履历、争议、举报、审核不得以伪成功 API 替代。
+这是下一阶段的表结构基础，不代表已经具备业务接口。当前 POST `/api/exchanges` 与 confirm/cancel/handoff 明确 HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
 
 ## 交换创建与并发设计（后续实现）
 

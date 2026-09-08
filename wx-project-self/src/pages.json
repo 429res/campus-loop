@@ -6,6 +6,7 @@
     { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的循环" } },
     { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
     { "path": "pages/demands/demands", "style": { "navigationBarTitleText": "我的需求" } },
+    { "path": "pages/my-items/my-items", "style": { "navigationBarTitleText": "我的物品", "enablePullDownRefresh": true } },
     { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情", "enablePullDownRefresh": true } },
     { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
   ],
