@@ -30,7 +30,7 @@ class ItemReviewMigrationCheck {
         List<Map<String,Object>> holds=jdbc.queryForList("SELECT * FROM cl_item_hold");
         Flyway.configure().dataSource(dataSource).target("7").cleanDisabled(true).load().migrate();
         List<Map<String,Object>> exchanges=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
-        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        Flyway.configure().dataSource(dataSource).target("8").cleanDisabled(true).load().migrate();
         List<Map<String,Object>> migrated=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
         for(int i=0;i<migrated.size();i++) {
             assertNull(migrated.get(i).remove("request_digest"));
@@ -39,6 +39,17 @@ class ItemReviewMigrationCheck {
             assertEquals(exchanges.get(i),migrated.get(i),"V8 must preserve all V2 exchange fields");
         }
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_demand",Integer.class));
+        // Upgrade V8 records separately; V9 must preserve metadata and never invent legacy cancellation audits.
+        jdbc.update("UPDATE cl_exchange SET request_digest=?,rule_version='independent-v2',creation_snapshot='{}' WHERE id=93001","a".repeat(64));
+        jdbc.update("INSERT INTO cl_exchange(id,initiator_id,status,version,idempotency_key,expires_at) VALUES (93002,91001,'CANCELLED',2,'legacy_cancel',CURRENT_TIMESTAMP)");
+        var beforeLifecycle=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
+        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        var afterLifecycle=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
+        for(int i=0;i<afterLifecycle.size();i++) {
+            for(String column:List.of("cancelled_by","cancellation_reason","cancelled_at")) assertNull(afterLifecycle.get(i).remove(column));
+            assertEquals(beforeLifecycle.get(i),afterLifecycle.get(i),"V9 must preserve every existing V8 field");
+        }
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_event",Integer.class));
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

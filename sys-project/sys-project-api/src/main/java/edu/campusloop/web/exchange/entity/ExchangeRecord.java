@@ -13,4 +13,10 @@ public class ExchangeRecord {
     private Integer version;
     private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
+    private String ruleVersion;
+    private String requestDigest;
+    private String creationSnapshot;
+    private Long cancelledBy;
+    private String cancellationReason;
+    private LocalDateTime cancelledAt;
 }

@@ -47,15 +47,15 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 `cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
 
-V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel/handoff仍HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
+V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff仍HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
 
 ## 交换创建与并发设计
 
-创建采用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}`；API字段见[契约](api-contract.md)，完整锁序、失败样例与测试见[A-03](a03-exchange-transaction.md)。ExchangeApplicationService → ExchangeCreationTransaction（唯一实现DefaultExchangeCreationTransaction）→ B纯ExchangeCycleValidator是唯一写路径。成功/重放返回持久ExchangeView；本人分页/详情仍按参与者授权，ADMIN无绕过；allowedActions为空。
+创建采用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}`；API字段见[契约](api-contract.md)，完整锁序、失败样例与测试见[A-03](a03-exchange-transaction.md)。ExchangeApplicationService → ExchangeCreationTransaction（唯一实现DefaultExchangeCreationTransaction）→ B纯ExchangeCycleValidator是唯一写路径。成功/重放返回持久ExchangeView；本人分页/详情仍按参与者授权，ADMIN无绕过；allowedActions按当前确认/取消规则计算。
 
 创建和需求写入共用用户行互斥：用户ID升序 → 完整关联需求ID升序 → 物品/占用ID升序；需求分类选择在后，创建不改变分类引用或分类选择政策。同键先验证摘要重放，新请求在锁内重建完整B规则输入，原子写参与者/需求引用/唯一占用与RESERVED/version+1。V8精确需求引用在进行中冻结，内部快照不返回私人说明；DB UTC创建时间+24h、全员不自动确认沿用B已确认规则。已有交换的未来动作先锁exchange，其后保持相同用户/需求/物品顺序；创建与需求冻结不反向等待已有exchange锁。
 
-确认/取消接口仍未实现。B-03.2 已按发起人批准的规则提供共用纯决策：全员独立确认后READY；任一参与者在原24h截止前且未交接时可取消等待或READY，原因必填；截止等号及以后拒绝新用户动作。确认重放、取消精确重放、新变更version及未来allowedActions由同一规则决定，实际详情仍为空动作。权限矩阵、重试与A-04共用事务要求见 [B-03.2说明](b03-invitation-rules.md)，纯规则不代表生产状态推进或SQL释放已可用。
+确认/取消及内部到期统一调用ExchangeLifecycleService，共享A-03事务执行器、数据库UTC和锁序；权限、幂等、截止、V9审计与条件释放见[B-03.2](b03-invitation-rules.md)。全员确认后READY，原截止前未交接的等待/READY可由任一参与者取消；A-04扫描和交接未实现。
 
 READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双方均确认后才 COMPLETED，更新物品 EXCHANGED，并追加 BOTH_CONFIRMED 履历。禁止一个人的点击冒充所有人的确认。完成事务把物品 owner 转给对应接收人、关闭原挂牌需求，同时保留原物品永久 ID 与包含原始参与者的所有权事件。重新交换须由新拥有者重新填写需求；具体关闭字段及历史快照在后续版本迁移中补全，不能只覆盖 owner 而丢失来源。
 

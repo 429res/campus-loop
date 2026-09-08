@@ -1,5 +1,7 @@
 # A-03：共用交换创建事务
 
+> B-03.2后续接入：当前分支的确认/取消、审计和共同到期入口见[B-03.2](b03-invitation-rules.md)。创建/生命周期已共用提取后的事务执行器和数据库UTC；下文保留A-03 PR #32交付时的范围与验证，不代表当前确认/取消仍501。
+
 分支 `feature/a03-exchange-transaction`，基于main `c8e9185`，保留原工作区未提交改动。B-03 [PR #28](https://github.com/429res/campus-loop/pull/28) 已合入，本次直接接通其端口；核对了 `feature/b03-invitation-rules` 的 `31bfd7c`，该分支只有后续生命周期纯规则，没有另一条创建写路径或预占迁移。创建政策沿用B已确认的全员不自动确认、数据库UTC+24h、independent-v2及进行中需求冻结。
 
 ## 服务与集成

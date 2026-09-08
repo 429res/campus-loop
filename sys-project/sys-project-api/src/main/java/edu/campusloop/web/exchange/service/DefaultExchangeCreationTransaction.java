@@ -11,20 +11,13 @@ import edu.campusloop.web.exchange.mapper.*;
 import edu.campusloop.web.item.mapper.ItemMapper;
 import edu.campusloop.web.item.service.ItemMutationGuard;
 import edu.campusloop.web.user.mapper.UserMapper;
-import org.springframework.dao.*;
-import org.springframework.jdbc.core.ConnectionCallback;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.*;
-import org.springframework.transaction.support.TransactionTemplate;
-import java.time.*;
-import java.time.temporal.ChronoUnit;
 import java.util.*;
 
 /** The implementation of B's sole port. Every retry starts AFTER the previous transaction rolls back. */
 @Service
 public class DefaultExchangeCreationTransaction implements ExchangeCreationTransaction {
-    private final TransactionTemplate transaction;
+    private final ExchangeTransactionExecutor transaction;
     private final ExchangeCreationMapper writes;
     private final ExchangeCandidateMapper candidateItems;
     private final ExchangeCandidateReader candidates;
@@ -33,30 +26,19 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
     private final ItemMapper items;
     private final ItemMutationGuard itemGuard;
     private final ObjectMapper json;
-    private final JdbcTemplate jdbc;
+    private final ExchangeDatabaseClock clock;
 
-    public DefaultExchangeCreationTransaction(PlatformTransactionManager manager, ExchangeCreationMapper writes,
+    public DefaultExchangeCreationTransaction(ExchangeTransactionExecutor transaction, ExchangeCreationMapper writes,
         ExchangeCandidateMapper candidateItems, ExchangeCandidateReader candidates, UserMapper users,
-        DemandMapper demands, ItemMapper items, ItemMutationGuard itemGuard, ObjectMapper json, JdbcTemplate jdbc) {
-        transaction=new TransactionTemplate(manager);
-        transaction.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
-        transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
-        transaction.setTimeout(20);
+        DemandMapper demands, ItemMapper items, ItemMutationGuard itemGuard, ObjectMapper json, ExchangeDatabaseClock clock) {
+        this.transaction=transaction;
         this.writes=writes; this.candidateItems=candidateItems; this.candidates=candidates; this.users=users;
-        this.demands=demands; this.items=items; this.itemGuard=itemGuard; this.json=json; this.jdbc=jdbc;
+        this.demands=demands; this.items=items; this.itemGuard=itemGuard; this.json=json; this.clock=clock;
     }
 
     @Override public long create(long initiatorId, ExchangeCreationCommand command) {
         if (initiatorId<1) throw new ApiException(403,"发起人身份无效");
-        for (int attempt=0; attempt<3; attempt++) {
-            try { return Objects.requireNonNull(transaction.execute(ignored -> createLocked(initiatorId,command))); }
-            catch (TransientDataAccessException conflict) {
-                if (attempt==2) throw new ApiException(409,"交换创建遇到并发冲突，请使用同一幂等键重试");
-            } catch (DataIntegrityViolationException conflict) {
-                throw new ApiException(409,"交换创建约束冲突，整次请求已回滚，请刷新后重试");
-            }
-        }
-        throw new IllegalStateException("Unreachable");
+        return transaction.execute("交换创建",() -> createLocked(initiatorId,command));
     }
 
     private long createLocked(long initiatorId, ExchangeCreationCommand command) {
@@ -102,7 +84,7 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
         row.setRequestDigest(command.requestDigest()); row.setRuleVersion(command.ruleVersion());
         row.setStatus(ExchangeCreationPolicy.INITIAL_STATUS);
         row.setCreationSnapshot(encode(Map.of("command",command.flows(),"recommendation",validated.recommendation())));
-        row.setCreatedAt(databaseUtc()); row.setExpiresAt(row.getCreatedAt().plus(ExchangeCreationPolicy.CONFIRMATION_WINDOW));
+        row.setCreatedAt(clock.now()); row.setExpiresAt(row.getCreatedAt().plus(ExchangeCreationPolicy.CONFIRMATION_WINDOW));
         writes.insert(row);
         var flows=validated.recommendation().flows();
         for(int i=0;i<flows.size();i++) {
@@ -120,18 +102,6 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
         return row.getId();
     }
 
-    private LocalDateTime databaseUtc() {
-        // MySQL is the production clock. H2 supports functional tests only, never row-lock evidence.
-        return jdbc.execute((ConnectionCallback<LocalDateTime>) connection -> {
-            boolean mysql=connection.getMetaData().getDatabaseProductName().equals("MySQL");
-            try(var statement=connection.createStatement(); var result=statement.executeQuery(
-                mysql?"SELECT UTC_TIMESTAMP()":"SELECT CURRENT_TIMESTAMP")) {
-                result.next();
-                return mysql?result.getObject(1,LocalDateTime.class):result.getObject(1,OffsetDateTime.class)
-                    .withOffsetSameInstant(ZoneOffset.UTC).toLocalDateTime().truncatedTo(ChronoUnit.SECONDS);
-            }
-        });
-    }
     private String encode(Object value) {
         try { return json.writeValueAsString(value); }
         catch(JsonProcessingException exception) { throw new IllegalStateException("Cannot serialize exchange snapshot"); }
