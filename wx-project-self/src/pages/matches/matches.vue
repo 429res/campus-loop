@@ -21,6 +21,7 @@ const requestGuard = createLatestRequestGuard(() => uni.getStorageSync(TOKEN_KEY
 const visible = computed(() => recommendations.value.filter(match => !filter.value || match.length === filter.value + 1))
 const login = () => uni.navigateTo({url:`/pages/login/login?redirect=matches${authNotice.value ? '&reason=session-expired' : ''}`})
 const openItem = id => uni.navigateTo({url:`/pages/detail/detail?id=${id}`})
+const openDemands = () => uni.navigateTo({url:'/pages/demands/demands'})
 
 async function load() {
   const ticket = requestGuard.begin()
@@ -57,7 +58,7 @@ onUnload(() => { requestGuard.invalidate(); activeRequest?.abort?.() })
   <LoopLayout>
     <view class="match-heading"><view class="cl-page-heading"><text class="match-kicker">A LITTLE MATCH, A NEW LOOP</text><text class="cl-title">你的需要，可以这样相遇。</text><text class="cl-subtitle">仅展示服务端独立需求规则生成、且包含当前账号的双方或三方方案。</text></view><text class="match-symbol" aria-hidden="true">↻</text></view>
     <view class="match-toolbar"><LoopSegment v-model="filter" :options="['全部推荐','双方交换','三方循环']"/><LoopButton class="cl-btn" :disabled="loading || !authenticated" @click="load">↺ 更新推荐</LoopButton></view>
-    <view class="cl-notice match-notice"><view><text class="cl-field-title">规则 {{ ruleVersion }}</text><text class="cl-hint">分类是硬条件；标签只参与服务端排序。页面不重算得分，浏览和刷新不会创建交换或占用物品。</text></view><text class="cl-tag cl-tag--muted">只读快照</text></view>
+    <view class="cl-notice match-notice"><view><text class="cl-field-title">规则 {{ ruleVersion }}</text><text class="cl-hint">分类是硬条件；标签只参与服务端排序。页面不重算得分，浏览和刷新不会创建交换或占用物品。</text></view><LoopButton class="cl-btn" @click="openDemands">管理独立需求</LoopButton></view>
 
     <view v-if="!authenticated" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ authNotice || '登录后查看与你有关的独立需求推荐' }}</text><text class="cl-hint">不会回退到公开旧推荐冒充结果。</text><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ authNotice ? '重新登录' : '登录' }}</LoopButton></view>
     <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在读取服务端推荐快照…</text></view>

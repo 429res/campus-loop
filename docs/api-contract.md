@@ -15,7 +15,12 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | PATCH /auth/me | 登录 | 仅 `{displayName}` → 从数据库回读的 `{id,username,displayName,role}` |
 | POST /auth/password | 登录 | `{currentPassword,newPassword}`；成功后撤销该账号全部会话，返回 `data: null` |
 | POST /auth/logout | 登录 | 撤销当前会话，前端清本地令牌 |
-| GET /categories | 公开 | `[{id,name}]` |
+| GET /categories | 公开 | 默认 ACTIVE 数组；includeInactive=true 含停用，字段 id/name/status/sortOrder/version |
+| GET /admin/categories | ADMIN | query page=1&size=12&keyword=&status= → 全部分类分页 |
+| GET /admin/categories/{id} | ADMIN | 单条分类回读 |
+| POST /admin/categories | ADMIN | `{name,sortOrder?}` → ACTIVE 分类 |
+| PATCH /admin/categories/{id} | ADMIN | `{version,name?,sortOrder?,status?}` → 数据库回读 |
+| DELETE /admin/categories/{id}?version=0 | ADMIN | 仅未引用分类可删除；成功 data=null |
 | GET /items | 公开 | query `page=1&size=12&keyword=&categoryId=` → 分页 |
 | GET /items/{id} | 公开 | 可见物品详情 |
 | POST /items | 登录 | 发布输入 → 持久化后的物品详情 |
@@ -24,6 +29,9 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | PUT /items/{id} | 登录且本人 | `version` + 完整发布表单 → 数据库回读的物品；仅未占用 AVAILABLE |
 | POST /items/{id}/withdraw | 登录且本人 | 仅 `{version}` → 数据库回读的 HIDDEN 物品；仅未占用 AVAILABLE |
 | POST /uploads | 登录 | multipart字段`file`，返回`{url}` |
+| PUT /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:true}`；目标须公开可见，重复幂等 |
+| DELETE /items/{id}/favorite | 登录 | 无 body 或 `{}` → `{itemId,favorited:false}`；重复取消、目标不可见/不存在也稳定成功 |
+| GET /favorites | 登录 | query `page=1&size=12` → 当前会话本人收藏分页，含不可见占位记录 |
 | GET /admin/items | ADMIN | 与公开列表相同分页字段；可查看管理记录 |
 | GET /admin/users | ADMIN | query `page=1&size=12&keyword=&role=&status=` → 账号安全字段分页 |
 | PATCH /admin/users/{id}/status | ADMIN | 仅 `{status,version,reason}` → 数据库回读的账号安全字段；条件更新并审计 |
@@ -55,7 +63,7 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 本人列表、本人详情、编辑和下架的身份均来自有效会话；管理员也不能借此管理他人物品。本人列表在数据库以 owner_id 限定记录与 total，额外 ownerId 查询参数不改变会话身份；默认包含 `DRAFT/PENDING_REVIEW/AVAILABLE/RESERVED/EXCHANGED/HIDDEN`，status 可省略、空串或上述单个值，其他值400。按 createdAt/id 降序，keyword 最长100，categoryId 若提供须为正整数，page≥1、size1–100。本人详情无公开状态过滤，非本人403，不存在404；未登录、撤销或失效会话401。
 
-编辑为完整 `PUT`：只接受 `version,title,description,categoryId,conditionLevel,tags,wantedCategoryId,wantedTags,imageUrl`。除 imageUrl 外全部必填，不是部分 PATCH。字段复用发布 DTO：title 非空白且最多100字符，description 非空白且最多2000，分类须为存在的正整数，conditionLevel 为整数1–5，两组标签为数组、各最多8个非空白且最长20字符的字符串。标题/描述 trim，标签 trim/小写/去重。旧 wanted 字段仍按旧发布语义编辑，不同步独立需求。imageUrl 最长255，省略、null或空白移除引用；非空必须为本人上传 URL，任意外链、服务器路径及他人上传400。表单保留原图必须原样带回 imageUrl，移除引用不删除上传文件。
+编辑为完整 `PUT`：只接受 `version,title,description,categoryId,conditionLevel,tags,wantedCategoryId,wantedTags,imageUrl`。除 imageUrl 外全部必填，不是部分 PATCH。字段复用发布 DTO：title 非空白且最多100字符，description 非空白且最多2000，分类须为 ACTIVE 的正整数，conditionLevel 为整数1–5，两组标签为数组、各最多8个非空白且最长20字符的字符串。标题/描述 trim，标签 trim/小写/去重。旧 wanted 字段仍按旧发布语义编辑，不同步独立需求。imageUrl 最长255，省略、null或空白移除引用；非空必须为本人上传 URL，任意外链、服务器路径及他人上传400。表单保留原图必须原样带回 imageUrl，移除引用不删除上传文件。
 
 version 必须是 JSON 非负整数，不接受字符串或小数。未声明字段（包括 id/ownerId/owner/role/status/createdAt/fields）和类型错误400，整次不写入。下架只接受 `{version}`，不接受客户端目标 status。所有写入均要求当前 `AVAILABLE`、不存在任何 cl_item_hold 行（包括过期行）、没有 `AWAITING_CONFIRMATION/READY/DISPUTED` 交换的参与者引用；其他状态或占用409。下架置 `HIDDEN`，保留ID、归属、正文、图片引用、需求关联、履历和交换记录；不提供硬删除或重新上架。HIDDEN 当前只允许本人读取，不允许编辑或重复下架。
 
@@ -66,6 +74,36 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
 管理概览统计：推荐规模正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无推荐为0）。仅候选或推荐规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示“— / 推荐规模超限，暂不统计”，不得显示为0。其他接口或数据库错误仍按正常错误链路处理。
+
+## A-02 第三批：管理员分类维护
+
+本功能分支实现以下契约；运行新增 V6 后可用，保留 V1–V5。实现前已在 [Issue #20](https://github.com/429res/campus-loop/issues/20) 同步 C/D/B，消费端确认仍待回复。
+
+Category 为 `{id,name,status,sortOrder,version}`，没有父级或无限层级。name trim 后1–64字符、非空白，大小写归一后唯一（其余等价性遵循数据库排序规则），停用也保留名称唯一性；内部 name_key 不返回。sortOrder 为整数0–9999，越小越靠前，相同时 id 升序。status 仅 ACTIVE/INACTIVE；version 为非负整数。现有分类迁移为 ACTIVE/sortOrder=0/version=0，id/name 不变。
+
+公开 GET /categories 保持数组，默认仅 ACTIVE；includeInactive=true 返回全部用于历史浏览。旧客户端仍可读 id/name 并按返回顺序展示，停用分类不再出现在默认选择器；历史物品/需求的 categoryName 始终按当前分类名称解释，不因停用变空。名称编辑会同步影响历史记录的当前显示名称，不保存分类名称快照。
+
+管理分页默认包含全部状态，status 可省略/空串/ACTIVE/INACTIVE，keyword 最长100且按名称搜索；page≥1、size1–100，排序同公开数组，total 为过滤后的分类数，空结果 records=[]/total=0，越界页 records=[]但保留总数。所有 /admin/categories 路径复用会话 ADMIN 校验，未登录401、普通用户403。
+
+POST 只允许 name、可选 sortOrder（默认0），服务端固定 ACTIVE/version=0。PATCH 只允许 version 与 name/sortOrder/status，至少一个可编辑字段，省略保持原值、显式null或未知字段400；整数不接受字符串、小数。任意有效 PATCH（含相同值）version+1；旧版本409且不覆盖，版本上限409。POST/PATCH 成功返回数据库回读记录；同名或并发重名409，错误 msg 分别说明重名、版本或引用冲突。
+
+DELETE 必须携带 query version；缺少/负数/非整数400，分类不存在404、旧版本409。仅未被任何物品 category_id/wanted_category_id 或独立需求 category_id 引用的分类允许物理删除，成功200/data=null；引用中409，包含 HIDDEN 等历史物品和 INACTIVE/DELETED 需求墓碑。即使已停用仍受保护。既有外键不级联，禁止清除引用来绕过保护；再次删除404。
+
+停用保留历史内容与引用，可经 PATCH 恢复 ACTIVE。新发布、完整物品编辑、需求新增/字段编辑及切换 ACTIVE 都在事务内要求最终选择的分类 ACTIVE；不存在或停用400，整次回滚，包括版本与候选关联。分类停用后，需求可改选 ACTIVE 分类再保存，也仍可停用/逻辑删除；物品下架遵循原状态机，不要求分类可用。分类停用只限制后续选择与上述写入，不修改现有物品/需求状态，不召回已有推荐，不修改交换状态机或匹配算法。
+
+写入先锁已有物品（需求操作先锁需求）及占用，再按分类ID升序锁定所需分类；分类维护只锁分类、引用检查不反向锁物品/需求，READ_COMMITTED 与外键共同防止并发悬空引用。停用/删除先提交时，新业务拒绝；业务先提交时，删除看到引用并409。完整字段样例、C/D/B影响及验证见 [a02-category-maintenance.md](a02-category-maintenance.md)。
+
+## A-02 第二批：收藏与 D-02 消费契约
+
+三个收藏接口只操作服务端会话对应的 user_id；管理员也只能访问本人收藏，没有按用户ID查询、他人收藏列表或收藏者计数接口。写接口不接受查询参数，只允许无 body 或空 JSON 对象 `{}`；携带 userId/ownerId/itemId/status 等任意请求字段或查询参数400。路径 id 须为正整数；未登录/会话失效401，非法ID或分页400。GET 仅接受 page、size 各一次（默认1/12，page≥1、size1–100），其他/重复查询参数400。
+
+添加只允许当前公开详情可见的 `AVAILABLE/RESERVED/EXCHANGED`，可收藏本人公开物品；收藏不是可交换承诺，不检查/建立占用。不存在、`DRAFT/PENDING_REVIEW/HIDDEN` 等非公开目标统一404，即使是自己的非公开物品或此前已经收藏也一样。重复添加成功200且保留原关系、收藏时间和排序位置；并发添加只留下一个 `(user_id,item_id)` 关系。取消只删除当前会话的关系，不受物品可见性限制；不存在、未收藏、已取消均返回200及 `{itemId,favorited:false}`，不披露目标是否存在，不删除物品/历史/上传。再次添加会创建新的收藏时间与排序位置。
+
+列表 data 沿用 `{records,total,page,size}`，record 为 `{itemId,favoritedAt,itemVisible,item}`：`favoritedAt` 为UTC ISO8601；`itemVisible=true` 时 item 为当前公开 `ItemView`，与 GET /items/{id} 一致；目标不可见时 `itemVisible=false,item=null`，不返回其标题、图片、状态、归属或其他非公开字段。占位仅保留本人此前收藏的 itemId 和收藏时间，D 显示“物品暂不可见”，允许取消且不打开详情。即使当前会话恰好拥有该物品，也不扩大收藏里的公开可见性。itemVisible 不能用于判断可交换性，RESERVED/EXCHANGED 仍是公开可见。
+
+total 为当前用户全部收藏关系数，包含不可见占位；先按关系在数据库分页，再在同一只读快照读取物品可见内容，不因过滤造成短页/错误计数。按收藏 created_at/id 降序，时间相同用关系ID稳定排序；无收藏时 records=[]、total=0，超出末页 records=[]、total仍为全部关系数。物品下架不会自动删除关系或保留旧内容快照；将来目标再次公开可见，列表自然恢复当前内容（不代表本批提供重新上架功能）。
+
+新增 Flyway V5 建立 cl_favorite，unique(user_id,item_id)、用户/物品非级联外键及分页索引，V1–V4不改。添加/取消都先锁目标物品再处理关系，与物品状态变更串行；列表不加物品写锁。接口响应是本次操作完成时的结果，随后另一个会话仍可改变该用户收藏，D 在失败/响应不确定时应回读，不用本地数组代替持久化。D-02 的接口、空值、幂等与错误说明见 [a02-favorites.md](a02-favorites.md)，已在 [Issue #17](https://github.com/429res/campus-loop/issues/17) 同步，页面接入/消费确认尚未完成。
 
 ## B-01 独立需求与本人物品关联
 
@@ -83,7 +121,7 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 
 分页沿用 `{records,total,page,size}`，page≥1、size为1–100。需求按 createdAt/id 降序；关联按 itemId 升序返回。
 
-Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,status,version,createdAt,updatedAt,offeredItems`。description 为纯文本可空串、最长2000；categoryId 为已存在正整数分类；preferredTags 必填数组，最多8项，每项非空白且最多20字符，服务端 trim、转小写、去重。`offeredItemIds` 必填数组，允许空，最多100个不同正整数。
+Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,status,version,createdAt,updatedAt,offeredItems`。description 为纯文本可空串、最长2000；categoryId 为 ACTIVE 的正整数分类；preferredTags 必填数组，最多8项，每项非空白且最多20字符，服务端 trim、转小写、去重。`offeredItemIds` 必填数组，允许空，最多100个不同正整数。
 
 `offeredItems` 及 offerable-items 的 records 字段：`itemId,title,categoryId,conditionLevel,status,offerable`，全部来自现有 cl_item 实时读取；offerable 同时校验仍属需求本人、AVAILABLE、无占用。该返回不构成未来可交换承诺。归属已转走的历史关联只返回 itemId、offerable=false，其他字段为null，避免继续披露他人物品的非公开状态。
 
@@ -99,7 +137,7 @@ Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,st
 
 ## B-02 独立需求推荐
 
-B-01 与 B-02 已合入 main，当前迁移为 V4；本节是 D-02 可调用的真实推荐契约，但不代表收藏或正式交换已实现。兼容和多需求策略见 [B-02 说明](b02-independent-matching.md)。
+B-01 与 B-02 已合入 main；本节是 D-02 可调用的真实推荐契约，但不代表正式交换已实现。收藏接口另见上文 A-02 第二批。兼容和多需求策略见 [B-02 说明](b02-independent-matching.md)。
 
 | 方法和路径 | 权限与结果 |
 | --- | --- |
@@ -122,8 +160,6 @@ B-01 与 B-02 已合入 main，当前迁移为 V4；本节是 D-02 可调用的�
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
-| PUT/DELETE /items/{id}/favorite | 当前用户幂等收藏，unique(user,item) |
-| POST/PATCH/DELETE /admin/categories（路径待 A 确认） | C-01 最小依赖草案，尚未实现：仅 ADMIN；名称 trim 后 1–64 字符且唯一；PATCH/DELETE 必须携带服务端版本，过期版本返回409；被物品 `categoryId` 或 `wantedCategoryId` 引用时禁止级联删除并返回409。排序与可用状态尚无契约，本轮前端不提供对应写控件。 |
 | POST /exchanges | 物品有序列表、规则版本、idempotencyKey；事务重校验、锁定、唯一占用；冲突409 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
 | POST /exchanges/{id}/handoff | 参与者交接凭据；全部确认才转移所有权 |
@@ -136,9 +172,5 @@ B-01 与 B-02 已合入 main，当前迁移为 V4；本节是 D-02 可调用的�
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
 物品审核尚未形成可调用契约。共用 `ItemView.version` 已由 A-02 本人物品切片提供，审核接口仍需补充处理人显示名、UTC处理时间、审核理由与决定；普通用户访问管理接口返回403，旧版本或已处理记录返回409且不得覆盖。成功和409后管理端都重新读取列表/详情，409保留未提交理由并要求管理员重新判断，不自动重试。现有 `AVAILABLE` 是审核上线前的历史直发数据，不代表已审核；是否保留或迁移必须由 A/B/C/D 明确并通过后端迁移完成。
-
-分类维护的响应形状仍需 A/C 在实现前确认。写入成功应返回持久化后的分类记录，前端随后从 API 回读；409 后同样回读相关记录，不以本地表单覆盖服务端。若采用停用而非删除，A 需先定义状态字段、公开 `GET /categories` 是否过滤停用项及既有物品的显示规则，D 再同步两端分类选择器。当前消费者只可依赖 `{id,name}`。
-
-对 A 的最小依赖是：确认写路径与 DTO、补分类版本并以409区分并发冲突/重名、以409保护 `cl_item.category_id` 和 `wanted_category_id` 引用、对非 ADMIN 返回403，且写成功返回持久化结果。对 D 的当前影响为零：H5/微信继续只消费 `{id,name}`；只有 A/C 后续确认停用或排序字段时，才需要同步选择器过滤、展示顺序与失效分类回显。
 
 精确DTO限制、已预留路径和后端实现入口见 [backend-contract.md](backend-contract.md)。

@@ -30,7 +30,7 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 用户 | 当前 | id、唯一 username、密码哈希、displayName、ADMIN/USER、status ACTIVE/DISABLED、version |
 | 账号状态审计 | 当前 | target、operator、前后状态、理由、前后版本、记录时间；不保存口令或令牌 |
 | 登录会话 | 当前 | token id、用户、到期；注销删除当前会话行，验证签名后检查有效会话 |
-| 分类 | 当前 | id、name；物品与需求引用有效分类 |
+| 分类 | 当前 | id、name、status、sortOrder、version；物品与需求保留非级联引用 |
 | 物品 | 当前 | owner、title、description、category、condition 1–5、tags、imageUrl、AVAILABLE 等状态、version、时间 |
 | 物品附带需求 | 当前最小实现 | wantedCategoryId、wantedTags；每件物品一条需求，构成“我有/我想要”的可运行样例 |
 | 独立需求清单 | 当前（B-01已合入） | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
@@ -39,9 +39,15 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 有效占用 | 后续 B | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 举报/争议/审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
-| 收藏 | 后续 C/D | unique(user,item)，幂等添加/删除 |
+| 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
 
 实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。当前初始化直接发布为 AVAILABLE，管理员可查看记录；审核状态机接入后新增物品转为 PENDING_REVIEW，迁移与两端需同步发布。
+
+### 分类目录维护与引用锁
+
+A-02 新增 V6，仅扩展一级分类。ACTIVE/INACTIVE控制后续物品与需求选择，不回写历史物品/需求状态，不改变现有推荐候选规则。名称 trim、小写归一唯一，sortOrder/id升序；PATCH/DELETE校验version，重名或旧版本409。删除必须没有任何物品category/wanted或需求category引用，墓碑与隐藏记录同样保护；保留原外键，不能级联清空。历史读取继续解释当前分类名称。
+
+业务事务复用 CategorySelectionService 按分类ID升序加锁并验证ACTIVE，保持到引用写入提交。统一顺序为需求行（如有）→已有物品及占用（按物品ID）→所选分类（按分类ID）；分类维护只锁分类，READ_COMMITTED下非锁定统计引用，不反向锁物品或需求。这样停用/删除先提交时业务复核失败，业务先提交时删除看到引用而409；数据库外键最终兜底。细节和消费方边界见 [A-02 分类说明](a02-category-maintenance.md)。
 
 ### A-02 本人物品写入边界
 
@@ -52,6 +58,12 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 ### 后续物品审核接入边界
 
 物品审核接入前，现有 `AVAILABLE` 记录视为“审核上线前直发”，前端不得回写或暗示已经人工审核。A/D 必须共同确定新发布切换到 `PENDING_REVIEW` 的时间点，A/B/C/D 必须确认旧数据迁移策略；只有服务端状态为 `AVAILABLE` 的物品可进入 B 的推荐候选。审核决定须锁定物品并核对 `version`，从待审状态条件迁移，追加处理人、理由、决定和 UTC 时间审计；并发旧版本返回409且不覆盖。
+
+## A-02 收藏持久化
+
+收藏是当前会话用户的私有关系，V5新增 cl_favorite，不复制物品内容，不影响需求、推荐、占用或所有权。添加复用公开物品可见性 AVAILABLE/RESERVED/EXCHANGED；本人非公开物品也不能经收藏接口读取。取消只删除本人关系，物品隐藏或不存在仍成功，不泄露目标存在性。
+
+添加/取消在 READ_COMMITTED 事务先锁目标物品，再查/写当前用户关系，重复添加保留原时间，unique(user_id,item_id) 是数据库最终约束。同目标的收藏写入会串行，避免重复添加以及添加/取消或下架竞态；列表在 REPEATABLE_READ 只读快照内按关系分页，再批量复用公开 ItemView。不可见目标仅返回 itemId、收藏时间、itemVisible=false 和 item=null；total包含所有本人关系及占位，其他用户不能查看。没有物品写入或推荐算法改动。详见 [A-02 收藏接入说明](a02-favorites.md)。
 
 ## B-01 独立需求边界
 

@@ -36,7 +36,7 @@ async function load({ preservePage = true } = {}) {
   loading.value = true;
   readError.value = false;
   try {
-    const { data } = await http.get("/api/categories");
+    const { data } = await http.get("/api/categories", { params: { includeInactive: true } });
     if (current !== requestSequence) return;
     categories.value = data;
     const lastPage = Math.max(1, Math.ceil(filtered.value.length / PAGE_SIZE));
@@ -107,9 +107,9 @@ onMounted(() => load());
     <div>
       <span class="eyebrow">CATEGORY DIRECTORY</span>
       <h1>分类维护</h1>
-      <p>当前从真实分类接口读取；写操作将在 A-02 接口合入后开放。</p>
+      <p>可查看全部分类、顺序和可用状态；维护操作暂未开放。</p>
     </div>
-    <el-tooltip content="缺少已确认的 ADMIN 分类写接口" placement="bottom">
+    <el-tooltip content="维护操作暂未开放" placement="bottom">
       <span class="disabled-action-wrap">
         <el-button type="primary" :icon="Plus" disabled>新增分类</el-button>
       </span>
@@ -118,8 +118,8 @@ onMounted(() => load());
 
   <el-alert
     class="category-contract-alert"
-    title="正式写入待开发"
-    description="当前契约仅有 GET /api/categories。新增、编辑和停用/删除不会发起请求；需 A 提供 ADMIN 权限、版本冲突与引用保护接口。"
+    title="分类目录预览"
+    description="停用分类保留历史记录的分类名称，不能用于新的发布或需求选择。"
     type="warning"
     :closable="false"
     show-icon
@@ -156,20 +156,20 @@ onMounted(() => load());
       <el-table-column prop="id" label="编号" width="110" />
       <el-table-column prop="name" label="分类名称" min-width="220" />
       <el-table-column label="排序 / 可用状态" min-width="180">
-        <template #default>
-          <span class="muted-cell">当前契约未提供</span>
+        <template #default="{ row }">
+          <span class="muted-cell">{{ row.sortOrder ?? 0 }} · {{ row.status === "INACTIVE" ? "已停用" : "可用" }}</span>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="160" fixed="right">
         <template #default>
-          <el-tooltip content="编辑接口待 A-02 合入" placement="top">
+          <el-tooltip content="维护操作暂未开放" placement="top">
             <span class="disabled-action-wrap">
               <el-button type="primary" link :icon="Edit" disabled
                 >编辑</el-button
               >
             </span>
           </el-tooltip>
-          <el-tooltip content="引用保护接口待 A-02 合入" placement="top">
+          <el-tooltip content="维护操作暂未开放" placement="top">
             <span class="disabled-action-wrap">
               <el-button type="danger" link disabled>停用/删除</el-button>
             </span>

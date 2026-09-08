@@ -376,3 +376,20 @@ for (const outcome of ['success', 'failure']) {
     assert.equal(h.app.loggedIn.value, false)
   })
 }
+
+test('an empty active category catalog clears both restored selections and blocks stale publication', async t => {
+  const h = harness(t, { manualCategories: true })
+  h.storage.set(TOKEN_KEY, 'test-session-1')
+  h.storage.set(draftKey(1), { form: draft('Keep my text') })
+  const showing = h.lifecycle.show()
+  h.requests.findLast(r => r.url === '/api/auth/me').resolve({ id: 1 })
+  h.requests.findLast(r => r.url === '/api/categories').resolve([])
+  await showing
+  assert.equal(h.app.form.value.title, 'Keep my text')
+  assert.equal(h.app.form.value.categoryId, '')
+  assert.equal(h.app.form.value.wantedCategoryId, '')
+  assert.equal(h.storage.get(draftKey(1)).form.categoryId, '')
+  assert.match(h.app.draftNotice.value, /分类已清除/)
+  await h.app.publish()
+  assert.equal(h.posts.length, 0)
+})

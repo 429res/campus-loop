@@ -7,4 +7,8 @@ public class Category {
     @TableId(type = IdType.AUTO)
     private Long id;
     private String name;
+    private String nameKey;
+    private String status;
+    private Integer sortOrder;
+    private Integer version;
 }
