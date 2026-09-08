@@ -1,6 +1,6 @@
 # B-03 第一切片：领域入口、详情与本人列表
 
-基线 main `7d5e515`，B-02 [PR #11](https://github.com/429res/campus-loop/pull/11) 和 A-02 审核 [PR #24](https://github.com/429res/campus-loop/pull/24) 已合入。分支 `feature/b03-exchange-domain`。协作 [Issue #25](https://github.com/429res/campus-loop/issues/25)；当前没有A-03实现/关联PR，A在协作任务明确核对并确认，不是按分支命名猜测。
+基线 main `7d5e515`，B-02 [PR #11](https://github.com/429res/campus-loop/pull/11) 和 A-02 审核 [PR #24](https://github.com/429res/campus-loop/pull/24) 已合入。分支 `feature/b03-exchange-domain`；交付前同步main `052ecc8`，保留D-02 PR #22的独立理由和收藏接线。协作 [Issue #25](https://github.com/429res/campus-loop/issues/25)；当前没有A-03实现/关联PR，A在协作任务明确核对并确认，不是按分支命名猜测。
 
 ## 本切片实际交付与未接通边界
 
@@ -28,7 +28,7 @@ flowchart LR
 
 图中的A事务和写入尚未实现。B的ApplicationService只调用一个端口并在提交后回读，不自行开另一条写路径；缺少端口实现就501。ExchangeCandidateReader只有读取适配能力，没有公开预检接口，其结果不是写入许可。A须在锁内重建IndependentMatchingInput并调用ExchangeCycleValidator；物品版本必须显式传入，不允许缺省填0。
 
-A已复核：新请求采用所选需求ID升序 → 物品ID升序及占用 → 必要分类ID升序，与现有需求编辑一致。已有交换动作exchange锁在前。用户行锁、幂等锁/唯一键与外键隐式锁的完整顺序、死锁有限重试需A-03实际验证。新需求插入/关联改变与规则重选的竞争也必须覆盖；不能仅锁物品而反向等待需求。需求冻结在需求锁下以READ_COMMITTED查询进行中引用，不反向锁exchange。
+A已复核：新请求采用所选需求ID升序 → 物品ID升序及占用 → 必要分类ID升序，与现有需求编辑一致。已有交换动作exchange锁在前。用户行锁、幂等锁/唯一键与外键隐式锁的完整顺序、死锁有限重试需A-03实际验证。新需求插入、未选中需求的标签/分类修改、关联改变与规则重选的竞争也必须覆盖，锁内须稳定完整的需求选择输入；不能仅锁物品而反向等待需求。需求冻结在需求锁下以READ_COMMITTED查询进行中引用，不反向锁exchange。
 
 A必须先识别同键重放：相同发起人/键/规范化摘要返回原交换，不把首次创建的RESERVED/版本递增当作过期，不延长原截止。同键不同摘要409；新请求锁内验证itemVersion/demandVersion、有效归属/关联与当前所选需求，变化409且不自动选另一需求。规范化将整条流向连同版本和需求绑定旋转至最小物品ID，保留方向；反向三环不同。SHA-256摘要包括ruleVersion及这些绑定字段；身份/键作为外层作用域，客户端理由、分数、参与者和状态根本不接收。
 

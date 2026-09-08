@@ -4,9 +4,12 @@ import { computed, ref } from 'vue'
 import { onPullDownRefresh, onShow, onUnload } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import ItemCard from '../../components/ItemCard.vue'
-import http, { isAbortError } from '../../common/http'
+import http, { isAbortError, TOKEN_KEY } from '../../common/http'
+import { favoriteIds, readAllFavorites, setFavorite } from '../../common/favorites.mjs'
 const categories = ref([]), items = ref([]), keyword = ref(''), selected = ref(''), total = ref(0), page = ref(1), loading = ref(false), error = ref(''), categoriesError = ref('')
 const size = 12
+const favorites = ref(new Set()), favoriteBusy = ref(new Set()), favoriteNotice = ref('')
+let favoriteSequence = 0
 let sequence = 0
 let activeRequest
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / size)))
@@ -32,14 +35,41 @@ async function loadCategories() {
   try { categories.value = await http.get('/api/categories',{includeInactive:true}, {silent:true}) }
   catch (e) { if (!isAbortError(e)) categoriesError.value = e.message }
 }
-async function init() { await Promise.all([loadCategories(), load()]) }
+async function loadFavorites() {
+  const requestId = ++favoriteSequence
+  const token = uni.getStorageSync(TOKEN_KEY)
+  favoriteNotice.value = ''
+  if (!token) { favorites.value = new Set(); return }
+  try {
+    const records = await readAllFavorites({silent:true})
+    if (requestId === favoriteSequence && token === uni.getStorageSync(TOKEN_KEY)) favorites.value = favoriteIds(records)
+  } catch (e) { if (requestId === favoriteSequence && token === uni.getStorageSync(TOKEN_KEY) && !isAbortError(e)) favoriteNotice.value = e.message }
+}
+async function toggleFavorite(item) {
+  const id = String(item.id)
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (!token) { uni.navigateTo({url:'/pages/login/login'}); return }
+  if (favoriteBusy.value.has(id)) return
+  favoriteBusy.value = new Set([...favoriteBusy.value,id]); favoriteNotice.value = ''
+  const next = !favorites.value.has(id)
+  try {
+    await setFavorite(id,next)
+    if (token !== uni.getStorageSync(TOKEN_KEY)) return
+    const updated = new Set(favorites.value); next ? updated.add(id) : updated.delete(id); favorites.value = updated
+  } catch (e) {
+    if (token !== uni.getStorageSync(TOKEN_KEY)) return
+    favoriteNotice.value = e.uncertain ? '收藏操作结果无法确认，已重新读取收藏夹。' : e.message
+    if (e.uncertain) await loadFavorites()
+  } finally { const updated = new Set(favoriteBusy.value); updated.delete(id); favoriteBusy.value = updated }
+}
+async function init() { await Promise.all([loadCategories(), load(), loadFavorites()]) }
 function search() { page.value = 1; load() }
 function choose(id) { selected.value = id; search() }
 function changePage(delta) { const next = page.value + delta; if (next < 1 || next > totalPages.value || loading.value) return; page.value = next; load() }
 const goMatch = () => uni.switchTab({url:'/pages/matches/matches'})
 onShow(init)
 onPullDownRefresh(async () => { await init(); uni.stopPullDownRefresh() })
-onUnload(() => { sequence++; activeRequest?.abort?.() })
+onUnload(() => { sequence++; favoriteSequence++; activeRequest?.abort?.() })
 </script>
 <template>
   <LoopLayout>
@@ -50,7 +80,8 @@ onUnload(() => { sequence++; activeRequest?.abort?.() })
     <view v-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-empty-symbol">↺</text><text>{{ error }}</text><LoopButton class="cl-btn" @click="load">重试当前结果</LoopButton></view>
     <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在寻找校园好物…</text></view>
     <view v-else-if="!items.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">⌕</text><text>{{ keyword.trim() || selected ? '没有符合条件的物品' : '还没有可发现的物品' }}</text><text class="cl-hint">{{ keyword.trim() || selected ? '换个关键词或分类再试试。' : '发布第一件闲置，让它开始新的旅程。' }}</text></view>
-    <view v-else class="item-grid"><ItemCard v-for="item in items" :key="item.id" :item="item" /></view>
+    <text v-if="favoriteNotice" class="cl-error favorite-notice" role="alert">{{ favoriteNotice }}</text>
+    <view v-if="!error && !loading && items.length" class="item-grid"><ItemCard v-for="item in items" :key="item.id" :item="item" :show-favorite="!!uni.getStorageSync(TOKEN_KEY)" :favorited="favorites.has(String(item.id))" :favorite-busy="favoriteBusy.has(String(item.id))" @favorite="toggleFavorite" /></view>
     <view class="pagination" v-if="total > size"><LoopButton class="cl-btn" :disabled="page === 1 || loading" @click="changePage(-1)">上一页</LoopButton><text class="cl-label">{{ page }} / {{ totalPages }}</text><LoopButton class="cl-btn" :disabled="page >= totalPages || loading" @click="changePage(1)">下一页</LoopButton></view>
     <view class="home-bottom"><view><text class="home-bottom-title">两人刚刚好，三人也可以。</text><text class="cl-subtitle">用有方向的需求匹配，发现意想不到的交换环。</text></view><LoopButton class="cl-btn cl-btn--blue" @click="goMatch">了解循环交换 ↗</LoopButton></view>
   </LoopLayout>
