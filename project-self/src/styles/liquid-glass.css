@@ -274,7 +274,7 @@ button:not(:disabled):not(.is-disabled):active,
   box-shadow: var(--glass-button-press-shadow);
 }
 .el-button:not(.is-disabled):focus-visible {
-  outline: 2px solid var(--primary-deep);
+  outline: 3px solid var(--cl-focus);
   outline-offset: 3px;
 }
 .el-button:is(.is-text, .is-link),
@@ -328,8 +328,8 @@ button:not(:disabled):not(.is-disabled):active,
 .el-select__wrapper.is-focused,
 .el-textarea__inner:focus {
   box-shadow:
-    inset 0 0 0 1px var(--primary-deep),
-    0 0 0 3px var(--primary-soft),
+    inset 0 0 0 1px var(--cl-focus),
+    0 0 0 3px var(--cl-focus-soft),
     inset 0 1px 0 var(--glass-edge) !important;
 }
 .el-form-item.is-error

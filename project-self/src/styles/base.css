@@ -30,9 +30,9 @@ html.dark[data-theme="dark"] {
   --glass-bg: var(--cl-glass);
   --glass-shadow: var(--cl-shadow);
   --glass-blur: 18px;
-  --motion-fast: 180ms;
-  --motion-normal: 240ms;
-  --motion-panel: 320ms;
+  --motion-fast: var(--cl-motion-fast);
+  --motion-normal: var(--cl-motion-normal);
+  --motion-panel: var(--cl-motion-panel);
   --el-color-primary: var(--cl-primary);
   --el-color-primary-light-3: #e578a0;
   --el-color-primary-light-5: #eca2bd;
@@ -52,7 +52,7 @@ html.dark[data-theme="dark"] {
   --el-fill-color-light: var(--cl-surface-soft);
   --el-border-radius-base: 11px;
   --el-border-radius-small: 8px;
-  --el-mask-color: rgba(13, 23, 38, 0.36);
+  --el-mask-color: var(--cl-overlay);
 }
 html.dark[data-theme="dark"] {
   --danger-soft: #462632;
@@ -64,7 +64,7 @@ html.dark[data-theme="dark"] {
   --el-text-color-placeholder: #919aad;
   --el-fill-color: var(--cl-surface-soft);
   --el-fill-color-darker: #293343;
-  --el-mask-color: rgba(0, 0, 0, 0.62);
+  --el-mask-color: var(--cl-overlay);
 }
 * {
   box-sizing: border-box;
@@ -118,7 +118,7 @@ p {
 }
 a:focus-visible,
 button:focus-visible {
-  outline: 3px solid var(--cl-blue);
+  outline: 3px solid var(--cl-focus);
   outline-offset: 3px;
 }
 ::selection {
@@ -1580,7 +1580,7 @@ button:focus-visible {
     position: fixed;
     inset: 0;
     border: 0;
-    background: rgba(15, 25, 40, 0.3);
+    background: var(--cl-overlay);
     z-index: 50;
   }
   .main-content {

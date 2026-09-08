@@ -6,7 +6,7 @@ export const showAppModal = ({ danger = false, ...options } = {}) => {
   let cleanup = () => {}
   pending = new Promise(resolve => {
     uni.showModal({
-      confirmText:'确定',cancelText:'取消',confirmColor:danger ? '#c63950' : '#d63f78',cancelColor:'#596578',...options,
+      confirmText:'确定',cancelText:'取消',confirmColor:danger ? '#c13748' : '#ca376f',cancelColor:'#596578',...options,
       success(result) { options.success?.(result);resolve(result) },
       complete(result) { cleanup();pending=null;options.complete?.(result) },
     })
