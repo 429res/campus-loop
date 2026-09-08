@@ -1,6 +1,6 @@
 # API 契约 v1
 
-API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态或版本冲突、422候选规模超限、501明确待开发、500内部错误。不要把非200包裹成成功。
+API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态或版本冲突、422候选或推荐规模超限、501明确待开发、500内部错误。不要把非200包裹成成功。
 
 认证头 `Authorization: Bearer <本机登录返回令牌>`，不得写入文档样例或日志。时间以UTC ISO8601返回，前端按本地时区显示。id为数据库整数；当前规模可用JSON number，超过JS安全整数前统一迁移为字符串契约。
 
@@ -24,7 +24,7 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /admin/users | ADMIN | query `page=1&size=12&keyword=&role=&status=` → 账号安全字段分页 |
 | PATCH /admin/users/{id}/status | ADMIN | 仅 `{status,version,reason}` → 数据库回读的账号安全字段；条件更新并审计 |
 | GET /admin/users/{id}/status-audits | ADMIN | query `page=1&size=20` → 该账号启停审计分页 |
-| GET /admin/stats | ADMIN | `{users,items,availableItems,recommendations}` |
+| GET /admin/stats | ADMIN | `{users,items,availableItems,recommendations,recommendationsStatus}`；推荐计数规则见下文 |
 | GET /matches | 公开 | 2/3循环推荐数组；无副作用 |
 
 本人资料写入只接受 `displayName`，去除首尾空白后长度为1–64字符。用户身份、`id`、`username`、`role`、`status` 和密码哈希均由服务端会话与数据库确定；请求出现未声明字段或试图写入受保护字段返回400，且不产生部分更新。成功结果沿用登录用户公开结构，消费端可直接替换本地用户资料。
@@ -49,7 +49,9 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 上传仅接受有效PNG/JPEG/GIF、最大5MB、最多1600万像素；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。初版每物品一张图，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
 
-推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选，超过422，前端显示错误而非“没有结果”。
+推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
+
+管理概览统计：推荐规模正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无推荐为0）。仅候选或推荐规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示“— / 推荐规模超限，暂不统计”，不得显示为0。其他接口或数据库错误仍按正常错误链路处理。
 
 ## B-01 独立需求与本人物品关联
 
@@ -107,6 +109,7 @@ B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
 | PUT/DELETE /items/{id}/favorite | 当前用户幂等收藏，unique(user,item) |
+| POST/PATCH/DELETE /admin/categories（路径待 A 确认） | C-01 最小依赖草案，尚未实现：仅 ADMIN；名称 trim 后 1–64 字符且唯一；PATCH/DELETE 必须携带服务端版本，过期版本返回409；被物品 `categoryId` 或 `wantedCategoryId` 引用时禁止级联删除并返回409。排序与可用状态尚无契约，本轮前端不提供对应写控件。 |
 | POST /exchanges | 物品有序列表、规则版本、idempotencyKey；事务重校验、锁定、唯一占用；冲突409 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
 | POST /exchanges/{id}/handoff | 参与者交接凭据；全部确认才转移所有权 |
@@ -116,5 +119,9 @@ B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不
 | POST /admin/reviews/{id}/decision | ADMIN + version + 理由 + 不可覆盖审计事件 |
 
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
+
+分类维护的响应形状仍需 A/C 在实现前确认。写入成功应返回持久化后的分类记录，前端随后从 API 回读；409 后同样回读相关记录，不以本地表单覆盖服务端。若采用停用而非删除，A 需先定义状态字段、公开 `GET /categories` 是否过滤停用项及既有物品的显示规则，D 再同步两端分类选择器。当前消费者只可依赖 `{id,name}`。
+
+对 A 的最小依赖是：确认写路径与 DTO、补分类版本并以409区分并发冲突/重名、以409保护 `cl_item.category_id` 和 `wanted_category_id` 引用、对非 ADMIN 返回403，且写成功返回持久化结果。对 D 的当前影响为零：H5/微信继续只消费 `{id,name}`；只有 A/C 后续确认停用或排序字段时，才需要同步选择器过滤、展示顺序与失效分类回显。
 
 精确DTO限制、已预留路径和后端实现入口见 [backend-contract.md](backend-contract.md)。

@@ -121,7 +121,8 @@ const tiles = [
         ><el-icon :class="tile.color"><component :is="tile.icon" /></el-icon>
       </div>
       <strong>{{ stats?.[tile.key] ?? "—" }}</strong
-      ><small>{{ tile.note }}</small>
+      ><small>{{ tile.key === 'recommendations' && stats?.recommendationsStatus === 'LIMIT_EXCEEDED'
+        ? '推荐规模超限，暂不统计' : tile.note }}</small>
     </article>
   </section>
   <section class="panel">

@@ -97,8 +97,8 @@ node scripts/run.mjs wechat
 ## 验证与继续开发
 
 ```sh
-node scripts/run.mjs test     # 隔离 H2 后端与匹配测试，不读取日常数据库
-node scripts/run.mjs build    # 管理端、H5、小程序构建 + 后端 verify
+node scripts/run.mjs test     # 发布会话/按钮回归 + 隔离 H2 后端与匹配测试
+node scripts/run.mjs build    # 上述前端回归 + 三端构建、微信按钮产物检查 + 后端 verify
 ```
 
 推荐执行 `node scripts/mysql-test.mjs` 自动建立随机口令的临时容器、运行测试并停止容器，需 Docker 引擎，默认3319端口（`CAMPUS_TEST_PORT`可改）。
