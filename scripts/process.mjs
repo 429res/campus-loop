@@ -21,5 +21,5 @@ export function spawnCommand(command, args, options = {}) {
 /** Frontend tooling only receives public configuration, never the backend's local credentials. */
 export function frontendEnvironment(env) {
   return Object.fromEntries(Object.entries(env).filter(([key]) =>
-    !/^(DB_|MYSQL_|JWT_|CAMPUS_(?:ADMIN|USER|BOOTSTRAP|DEMO)_|TEST_DB_|SPRING_|UPLOAD_DIR$)/i.test(key)))
+    !/^(DB_|MYSQL_|JWT_|CAMPUS_(?:ADMIN|USER|BOOTSTRAP|DEMO|REGISTRATION)_|TEST_DB_|SPRING_|UPLOAD_DIR$)/i.test(key)))
 }
