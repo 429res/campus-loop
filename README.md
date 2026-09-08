@@ -76,6 +76,8 @@ node scripts/run.mjs h5
 
 `DB_HOST/PORT/NAME/USERNAME/PASSWORD`、`JWT_SECRET`、`SERVER_PORT`、`UPLOAD_DIR` 可设置。初始化才使用 `CAMPUS_BOOTSTRAP_ENABLED` 和本地账号变量；平时的 `backend` 命令强制关闭 bootstrap。注册默认使用 `CAMPUS_REGISTRATION_MODE=CLOSED`；仅本地开发联调可显式改为 `DEVELOPMENT_SELF_SERVICE`，这不代表校园身份已核验，公开部署前必须重新确定准入。前端 `.env.example` 只含公开 API 地址、代理地址及微信 AppID；不要把任何口令放进 `VITE_*`。
 
+认证与上传限流默认启用，`CAMPUS_RATE_LIMIT_*` 可调整次数、窗口和有界主体数。当前实现只保证单个后端进程内一致；默认忽略 `X-Forwarded-For`。仅在已确认反向代理地址和防火墙边界后填写 `CAMPUS_RATE_LIMIT_TRUSTED_PROXIES`，不要把客户端网段列为可信代理。接口范围、429恢复头、多实例限制和代理配置见 [A-05认证与上传限流](docs/a05-auth-upload-rate-limit.md)。
+
 如需调整 API 端口，两前端对应 `.env.local` 的 `VITE_API_PROXY` 也要同步。部署 H5 默认用同域 `/api` 和 `/uploads`，配置反向代理；跨域场景设置允许来源和 `VITE_API_BASE_URL`。公开图片默认落在 `.local/uploads`；B-05私有证据放在同级 `.local/uploads-evidence`（随UPLOAD_DIR目录名派生），仅鉴权接口可读，不应将该目录配置为静态目录。备份需同时保留两目录及数据库。OSS 尚未接入，不能填凭据就假定支持。
 
 ## 使用已有本地 MySQL
