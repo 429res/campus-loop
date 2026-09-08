@@ -7,6 +7,11 @@ const developmentRoutes = import.meta.env.DEV
         component: () => import("@/views/Items.vue"),
         meta: { public: true, title: "物品审核组件夹具" },
       },
+      {
+        path: "/fixtures/categories",
+        component: () => import("@/views/Categories.vue"),
+        meta: { public: true, title: "分类维护组件夹具" },
+      },
     ]
   : [];
 const router = createRouter({
@@ -27,6 +32,11 @@ const router = createRouter({
       path: "/items",
       component: () => import("@/views/Items.vue"),
       meta: { title: "物品审核" },
+    },
+    {
+      path: "/categories",
+      component: () => import("@/views/Categories.vue"),
+      meta: { title: "分类维护" },
     },
     {
       path: "/matches",
