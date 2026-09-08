@@ -270,9 +270,13 @@ READY首次交接必须原截止前；任一handedOffAt/receivedAt非空后允�
 
 ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），participants追加handedOffNote/receivedNote（未声明null，可选说明省略后为空串）。READY未开始且未截止allowedActions=[HANDED_OFF,RECEIVED,CANCEL]；开始后按本人未提交类别返回HANDED_OFF/RECEIVED及DISPUTE；终态空。等待期仍遵循B-03，动作集合与锁内规则共用。两方/三方、错误、精确重放与C/D恢复样例见[B-04](b04-exchange-handoff.md)。
 
+#### C-04 管理员争议读取（本片实现）
+
+仅ADMIN的 `GET /admin/exchange-disputes`、`GET /admin/exchange-disputes/{id}`、`GET /admin/exchange-disputes/{id}/events` 已接通，只读DISPUTED。分页默认1/12、size≤100，详情沿用ExchangeView但allowedActions为空、私人交接说明为null；事件按版本升序，仅争议理由可见。字段、隐私、错误与C/D样例见[领域读取切片](c04-exchange-domain-read.md)。普通举报与争议裁决仍未实现。
+
 #### C-04 管理员争议处理草案（未实现，不可调用）
 
-C 的只读追溯夹具以现有 ExchangeView、持久 flows/participants 和 cl_exchange_event 事实展示 DISPUTED；不能调用参与者专属 `GET /exchanges/{id}` 冒充管理员读取。后续至少需要 ADMIN 的争议队列、详情与事件分页接口，并逐字段确认交接说明和证据可见范围。B-04 当前没有争议附件，B-05 履历私有证据也不能自动授权给争议模块。
+C 的只读追溯夹具以现有 ExchangeView、持久 flows/participants 和 cl_exchange_event 事实展示 DISPUTED；不能调用参与者专属 `GET /exchanges/{id}` 冒充管理员读取。本片已提供独立 ADMIN 争议队列、详情与事件分页接口；交接私人说明和证据仍不披露。B-04 当前没有争议附件，B-05 履历私有证据也不能自动授权给争议模块。
 
 管理员裁决的决定枚举、允许状态、利益冲突规则、`version/idempotencyKey` 请求、精确重放、裁决审计，以及每种决定对 exchange/item/demand/hold/history 的原子后果尚未确定。C 不提供裁决按钮或请求草案，也不从 UI 推导 owner 变更、释放占用、恢复交接或实物回滚。未来接口必须调用 B 的同一交换事务入口；409 后返回/读取最新交换与事件事实，保留理由但不自动换版本重试。D 的本人结果投影应与该事务同源，且不暴露管理员 ID、内部快照、他人私密证据或存储路径。
 
