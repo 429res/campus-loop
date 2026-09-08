@@ -1,5 +1,14 @@
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/stores/auth";
+const developmentRoutes = import.meta.env.DEV
+  ? [
+      {
+        path: "/fixtures/item-review",
+        component: () => import("@/views/Items.vue"),
+        meta: { public: true, title: "物品审核组件夹具" },
+      },
+    ]
+  : [];
 const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
@@ -17,7 +26,7 @@ const router = createRouter({
     {
       path: "/items",
       component: () => import("@/views/Items.vue"),
-      meta: { title: "物品管理" },
+      meta: { title: "物品审核" },
     },
     {
       path: "/matches",
@@ -34,6 +43,7 @@ const router = createRouter({
       component: () => import("@/views/Planned.vue"),
       meta: { title: "后续业务" },
     },
+    ...developmentRoutes,
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],
 });

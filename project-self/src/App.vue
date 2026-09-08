@@ -24,7 +24,7 @@ const menuOpen = ref(false),
   dark = ref(document.documentElement.dataset.theme === "dark");
 const links = [
   { path: "/", label: "循环概览", icon: DataBoard },
-  { path: "/items", label: "物品管理", icon: Box },
+  { path: "/items", label: "物品审核", icon: Box },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
