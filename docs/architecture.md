@@ -186,3 +186,7 @@ V13追加请求、真实参与者集合、每人确认和撤回四张表，原�
 ### B-05.3 管理员核验追加审计
 
 V14增加单事件状态守卫及唯一追加审计，读请求虚拟PENDING/version0不写数据库。ADMIN决定以可选exchange→管理员user→item→事件顺序持锁重读，事件查询不联表锁作者；不涉及所有权或参与者写入。version0/PENDING条件更新与审计INSERT同事务，终局不覆盖，管理员ID＋幂等键约束重试。快照绑定当前声明/证据/参与者链，修正或来源变化后旧hash409；已决定后修正不继承来源。APPROVED审计构成新ADMIN_VERIFIED来源，原自述和参与者确认不变。详细权限、来源范围及C/D样例见[B-05.3](b05-admin-verification.md)。
+
+### C-04 管理争议读取
+
+ExchangeDisputeQueryService 在 REPEATABLE_READ 只读事务校验有效ADMIN并限定DISPUTED；复用ExchangeQueryService流向校验，投影全部2/3参与者，移除交接私人说明与动作。事件分页只读已有cl_exchange_event，无新增表/锁/写入口；证据与裁决仍待A受理基础和团队策略，详见[C-04读取边界](c04-exchange-domain-read.md)。
