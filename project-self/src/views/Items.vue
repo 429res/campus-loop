@@ -144,7 +144,7 @@ const statusType = (value) =>
 onMounted(async () => {
   await load();
   try {
-    categories.value = (await http.get("/api/categories")).data;
+    categories.value = (await http.get("/api/categories", { params: { includeInactive: true } })).data;
   } catch {}
   if (route.query.id) {
     const selected = items.value.find(

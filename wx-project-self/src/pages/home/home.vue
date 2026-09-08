@@ -29,7 +29,7 @@ async function load() {
 }
 async function loadCategories() {
   categoriesError.value = ''
-  try { categories.value = await http.get('/api/categories',{}, {silent:true}) }
+  try { categories.value = await http.get('/api/categories',{includeInactive:true}, {silent:true}) }
   catch (e) { if (!isAbortError(e)) categoriesError.value = e.message }
 }
 async function init() { await Promise.all([loadCategories(), load()]) }

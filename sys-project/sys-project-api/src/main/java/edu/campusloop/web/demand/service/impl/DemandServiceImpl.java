@@ -10,6 +10,7 @@ import edu.campusloop.common.ApiException;
 import edu.campusloop.common.PageResult;
 import edu.campusloop.web.category.entity.Category;
 import edu.campusloop.web.category.mapper.CategoryMapper;
+import edu.campusloop.web.category.service.CategorySelectionService;
 import edu.campusloop.web.demand.dto.*;
 import edu.campusloop.web.demand.entity.Demand;
 import edu.campusloop.web.demand.entity.DemandItem;
@@ -36,19 +37,21 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
     private final ItemMapper items;
     private final DemandItemMapper associations;
     private final ObjectMapper json;
+    private final CategorySelectionService categorySelection;
 
     public DemandServiceImpl(CategoryMapper categories, ItemMapper items, DemandItemMapper associations,
-                             ObjectMapper json) {
+                             ObjectMapper json, CategorySelectionService categorySelection) {
         this.categories = categories;
         this.items = items;
         this.associations = associations;
         this.json = json;
+        this.categorySelection = categorySelection;
     }
 
     @Override
     public DemandView create(long ownerId, CreateDemandRequest request) {
-        requireCategory(request.categoryId());
         List<Long> offeredIds = validateAndLockItems(ownerId, request.offeredItemIds());
+        categorySelection.requireActive(Collections.singletonList(request.categoryId()));
         LocalDateTime now = now();
         Demand demand = new Demand();
         demand.setOwnerId(ownerId);
@@ -88,7 +91,6 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
         if (!request.isUpdatePresent()) throw new ApiException(400, "至少提交一个可编辑字段");
         UpdateWrapper<Demand> update = new UpdateWrapper<>();
         if (request.categoryId() != null) {
-            requireCategory(request.categoryId());
             demand.setCategoryId(request.categoryId());
             update.set("category_id", request.categoryId());
         }
@@ -103,6 +105,7 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
         // Omitting this field preserves historical associations without revalidating them.
         List<Long> offeredIds = request.offeredItemIds() == null ? null :
             validateAndLockItems(ownerId, request.offeredItemIds());
+        categorySelection.requireActive(Collections.singletonList(demand.getCategoryId()));
         advance(demand, update);
         if (offeredIds != null) replaceItems(id, offeredIds);
         return views(List.of(demand)).get(0);
@@ -112,7 +115,10 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
     public DemandView changeStatus(long ownerId, long id, DemandStatusRequest request) {
         Demand demand = lockCurrent(ownerId, id, request.version());
         requireStatus(request.status());
-        if ("ACTIVE".equals(request.status())) validateAndLockItems(ownerId, associations.itemIds(id));
+        if ("ACTIVE".equals(request.status())) {
+            validateAndLockItems(ownerId, associations.itemIds(id));
+            categorySelection.requireActive(Collections.singletonList(demand.getCategoryId()));
+        }
         demand.setStatus(request.status());
         advance(demand, new UpdateWrapper<Demand>().set("status", request.status()));
         return views(List.of(demand)).get(0);
@@ -209,10 +215,6 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
         if (item.getOwnerId() != ownerId) return new OfferedItemView(item.getId(), null, null, null, null, false);
         return new OfferedItemView(item.getId(), item.getTitle(), item.getCategoryId(), item.getConditionLevel(),
             item.getStatus(), "AVAILABLE".equals(item.getStatus()) && !held);
-    }
-
-    private void requireCategory(Long id) {
-        if (id == null || id < 1 || categories.selectById(id) == null) throw new ApiException(400, "分类不存在");
     }
 
     private void requireStatus(String status) {
