@@ -5,6 +5,7 @@ import { useAuth } from "@/stores/auth";
 import {
   DataBoard,
   Box,
+  CollectionTag,
   Connection,
   MagicStick,
   Grid,
@@ -25,6 +26,7 @@ const menuOpen = ref(false),
 const links = [
   { path: "/", label: "循环概览", icon: DataBoard },
   { path: "/items", label: "物品管理", icon: Box },
+  { path: "/categories", label: "分类维护", icon: CollectionTag },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
