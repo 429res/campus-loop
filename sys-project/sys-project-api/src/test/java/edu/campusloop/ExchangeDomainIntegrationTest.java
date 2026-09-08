@@ -1145,6 +1145,25 @@ class ExchangeDomainIntegrationTest {
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE item_id=? AND evidence_level='SELF_REPORTED'",Integer.class,item));
     }
 
+    @Test void mysqlLinkedHistoryTakesExchangeAndUsersBeforeForeignKeysWithoutDeadlockRetries() throws Exception {
+        mysqlOnly();long exchange=ready(3,"history-expiry-lock");int version=almostComplete(exchange,3);
+        lifecycle.handoff(c.id(),exchange,version,RECEIVED,"已收到");
+        long item=jdbc.queryForObject("SELECT offered_item_id FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",Long.class,exchange,a.id());
+        var cmd=json.convertValue(statement("REPAIR","关联交换的旧经历",exchange,null,List.of()),edu.campusloop.web.history.dto.HistoryRequest.class);
+        var appendAttempts=new java.util.concurrent.atomic.AtomicInteger();var expiryAttempts=new java.util.concurrent.atomic.AtomicInteger();
+        var result=race(()-> {
+            var probe=SqlProbe.before.get();SqlProbe.before.set(id->{if(id.endsWith("HistoryMapper.append")) appendAttempts.incrementAndGet();probe.accept(id);});
+            return histories.create(a.id(),item,cmd);
+        },()-> {
+            var probe=SqlProbe.before.get();SqlProbe.before.set(id->{if(id.endsWith("ExchangeLifecycleMapper.lock")) expiryAttempts.incrementAndGet();probe.accept(id);});
+            return lifecycle.expire(exchange)?1L:0L;
+        },"HistoryMapper.append","ExchangeLifecycleMapper.lock");
+        assertTrue(result.get(0)>0);assertEquals(0L,result.get(1));
+        assertEquals(1,appendAttempts.get());assertEquals(1,expiryAttempts.get(),"Foreign-key locks must not create a retry-dependent cycle");
+        assertEquals("COMPLETED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,exchange));
+        assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=? AND event_type='EXCHANGED'",Integer.class,exchange));
+    }
+
     private Map<String,List<Map<String,Object>>> businessRows() {
         Map<String,List<Map<String,Object>>> values=new LinkedHashMap<>();
         for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event","cl_item_history","cl_upload")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
