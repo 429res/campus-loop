@@ -96,7 +96,7 @@ DELETE 必须携带 query version；缺少/负数/非整数400，分类不存在
 
 停用保留历史内容与引用，可经 PATCH 恢复 ACTIVE。新发布、完整物品编辑、需求新增/字段编辑及切换 ACTIVE 都在事务内要求最终选择的分类 ACTIVE；不存在或停用400，整次回滚，包括版本与候选关联。分类停用后，需求可改选 ACTIVE 分类再保存，也仍可停用/逻辑删除；物品下架遵循原状态机，不要求分类可用。分类停用只限制后续选择与上述写入，不修改现有物品/需求状态，不召回已有推荐，不修改交换状态机或匹配算法。
 
-写入先锁已有物品（需求操作先锁需求）及占用，再按分类ID升序锁定所需分类；分类维护只锁分类、引用检查不反向锁物品/需求，READ_COMMITTED 与外键共同防止并发悬空引用。停用/删除先提交时，新业务拒绝；业务先提交时，删除看到引用并409。完整字段样例、C/D/B影响及验证见 [a02-category-maintenance.md](a02-category-maintenance.md)。
+写入先锁已有物品（需求操作先锁所属用户、再锁需求）及占用，再按分类ID升序锁定所需分类；分类维护只锁分类、引用检查不反向锁物品/需求，READ_COMMITTED 与外键共同防止并发悬空引用。停用/删除先提交时，新业务拒绝；业务先提交时，删除看到引用并409。完整字段样例、C/D/B影响及验证见 [a02-category-maintenance.md](a02-category-maintenance.md)。
 
 ## A-02 第二批：收藏与 D-02 消费契约
 
@@ -134,7 +134,7 @@ Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,st
 
 关联是多对多的候选集合：一条需求0–100件本人 AVAILABLE 且无占用的物品，同一物品允许出现在本人多条需求中；关联不复制物品、不更改 owner、不占用。重复ID或不存在物品400，外人物品403，不可提供状态/占用409。非法分类400；未登录401。被删除需求的读写404；其他越权403。并发更新按需求行锁与 version 条件串行，关联写入按物品ID升序锁定再校验。
 
-停用保留详情与关联并可恢复 ACTIVE，`GET /demands?status=ACTIVE` 不包含 INACTIVE。删除置 DELETED 并保留原需求内容、关联和ID作为墓碑，普通读写不可再访问，不提供物理删除接口；关联外键禁止物理删除被引用的需求/物品，后续持久化消费者必须采用同样的非级联外键，历史引用不会被接口删除破坏。正式交换引用下的额外编辑/停用限制由 B-03 与 A 协商，本轮没有此写入能力。
+停用保留详情与关联并可恢复 ACTIVE，`GET /demands?status=ACTIVE` 不包含 INACTIVE。删除置 DELETED 并保留原需求内容、关联和ID作为墓碑，普通读写不可再访问，不提供物理删除接口；关联外键禁止物理删除被引用的需求/物品，后续持久化消费者必须采用同样的非级联外键，历史引用不会被接口删除破坏。A-03已落实进行中交换所选需求的编辑/启停/删除冻结，返回409；具体边界见下文创建契约。
 
 旧字段策略：cl_item.wantedCategoryId/wantedTags 仍是旧发布与 GET /matches 的唯一来源；独立需求是上述 CRUD 的唯一来源。不回填、不双写、不自动同步或关闭旧字段，B-01 的停用/删除只影响独立需求，不改变旧推荐结果。B-02的显式独立入口、需求选择与规则版本见下节；本轮不退出旧链路，消费确认仍单独跟踪。requiredTags/最低成色既不接收也不隐式启用。
 
@@ -184,44 +184,43 @@ ItemView 增量字段：`reviewBasis`=LEGACY_DIRECT/UNREVIEWED/ADMIN_REVIEW；`r
 
 V7 不重解释旧数据：现有 AVAILABLE 保持公开及推荐，现有 RESERVED/EXCHANGED 保持交换状态；三者标记 LEGACY_DIRECT，不伪造管理员或批准事件。其余旧状态保留并标记 UNREVIEWED，全部旧 version不变；首次合法编辑保存旧内容快照后进入待审。新建演示夹具明确写 LEGACY_DIRECT，重复启动不覆盖数据。需同批部署后端、C审批及D提交/本人状态读取；接入、示例和验证见 [a02-item-review.md](a02-item-review.md)。
 
-## B-03 第一切片：领域入口与本人读取（A-03 尚未接入）
+## B-03 第一切片与 A-03：正式创建与本人读取
 
-本功能分支提供下列读取和严格创建请求解析；**正式创建仍501**。A已确认当前没有A-03实现/PR，协作与用户已确认规则记录在 [Issue #25](https://github.com/429res/campus-loop/issues/25)，主责及样例见 [B-03接入说明](b03-exchange-domain.md)。
+B-03 [PR #28](https://github.com/429res/campus-loop/pull/28) 的领域入口在本分支接入 A-03 唯一事务实现，正式创建返回200并回读持久详情。创建政策沿用 [Issue #25](https://github.com/429res/campus-loop/issues/25)；事务、锁序、失败样例和验证见 [A-03接入说明](a03-exchange-transaction.md)。
 
 | 方法/路径 | 当前能力 |
 | --- | --- |
 | GET /exchanges/mine | 登录；服务端按参与者关系限定本人，page=1、size=12（1–100）、可选status；按createdAt/id降序，返回PageResult<ExchangeView> |
 | GET /exchanges/{id} | 登录且参与者，ADMIN也不例外；非参与者与不存在均404，非法ID400 |
-| POST /exchanges | 登录；仅接受下述严格命令，参数/类型错误400，旧规则409，合法命令因A-03缺失返回501，data=null；不产生交换或占用 |
+| POST /exchanges | 登录；仅接受下述严格命令；成功/精确重放200返回ExchangeView；参数/类型错误400，旧规则/过期推荐/占用/幂等内容冲突409，非参与发起人403 |
 
 列表status为AWAITING_CONFIRMATION/READY/COMPLETED/CANCELLED/EXPIRED/DISPUTED，空串或未知值400；超页返回空records及真实total。只允许所列参数，ownerId/userId、重复参数400；详情和创建不接受查询参数。所有读取无FOR UPDATE和业务写入，不因截止已过自动改状态或释放占用。异常、不完整的已存环返回409，不拼出虚假流向。
 
-ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,participants,flows,allowedActions`。时间UTC ISO8601；participants按有向环从最小物品ID起点返回，含`userId,displayName,offeredItemId,receivedItemId,confirmationStatus,confirmedAt,handedOffAt,receivedAt`；confirmationStatus仅由confirmedAt是否存在映射PENDING/CONFIRMED。flows为`itemId,fromUserId,toUserId`，来源是持久参与者记录，不能用物品当前owner重建历史流向。displayName是当前公开显示名；V2无物品/需求历史快照，因此不拼接当前私人物品标题、说明、审核理由或需求内容，不伪造ruleVersion/demandId。A-03持久快照后可增量扩展。`allowedActions: []`仅列已实现的写动作，当前所有角色均为空；查看记录不等于获得确认、取消或交接权限。
+ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,participants,flows,allowedActions`。时间UTC ISO8601；participants按有向环从最小物品ID起点返回，含`userId,displayName,offeredItemId,receivedItemId,confirmationStatus,confirmedAt,handedOffAt,receivedAt`；confirmationStatus仅由confirmedAt是否存在映射PENDING/CONFIRMED。flows为`itemId,fromUserId,toUserId`，来源是持久参与者记录，不能用物品当前owner重建历史流向。displayName是当前公开显示名；V8在内部保存创建与所选需求快照；本轮读取字段不扩展，不暴露摘要、幂等键、私人需求说明或内部快照，不拼接后来私人物品字段。`allowedActions: []`仅列已实现的写动作，当前所有角色均为空；查看记录不等于获得确认、取消或交接权限。
 
 创建请求固定为`{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion},...]}`，flows长度2/3，表示本项物品提供给下一项物品的当前所有者，最后一项流向第一项；需求属于该接收者且关联其环内提供物品。ID为不同正整数，版本为非负int32 JSON整数，不接受字符串/小数/null；所有字段必填，不接受owner/参与者/理由/分数/状态/时间。幂等键为8–64位`[a-z0-9_-]`，不trim或大小写折叠。请求体与每条流向均拒绝未知字段。
 
 仅支持independent-v2。B-02响应增量提供`participants[].itemVersion`和`flows[].demandVersion`，从同一次数据库快照取得；结合flow.itemId/demandId组装命令，不能向他人的私有需求详情索取版本。增量元数据不修改硬条件、分数、排序或规则版本。缺少版本时刷新独立推荐，不填0、不复用旧wanted结果。推荐仍不预约物品。
 
-用户已明确确认：发起人也不自动确认，创建后全员PENDING、AWAITING_CONFIRMATION/version=0；expiresAt为DB UTC创建时间+24h；进行中（AWAITING_CONFIRMATION/READY/DISPUTED）所引用需求禁止编辑/启停/删除。A-03须持久化精确需求引用并在开放写入前落实冻结检查，本分支无新增正式引用，不能声称冻结已运行。
+用户已明确确认：发起人也不自动确认，创建后全员PENDING、AWAITING_CONFIRMATION/version=0；expiresAt为DB UTC创建时间+24h；进行中（AWAITING_CONFIRMATION/READY/DISPUTED）所引用需求禁止编辑/启停/删除。V8 cl_exchange_demand保存精确需求引用与历史快照；需求创建/修改先锁所属用户，编辑/启停/删除在需求锁内检查进行中引用，存在引用则409且版本不变。未选中需求不冻结；终态后允许按原需求契约修改，快照保留不变。
 
-唯一调用链为B的ExchangeApplicationService → A主责ExchangeCreationTransaction → B纯ExchangeCycleValidator。端口未注册实现则501；A接入须在同一个正式事务内检查幂等、锁定及重读数据库、调用验证器、持久化交换/参与者/占用/需求快照、将物品置RESERVED且version+1，提交后返回详情。ExchangeCandidateReader是无锁领域核查适配器，无公开预检端点，其结果不能授权写入。
+唯一调用链为B的ExchangeApplicationService → A主责ExchangeCreationTransaction → B纯ExchangeCycleValidator。端口唯一实现 DefaultExchangeCreationTransaction 在同一个READ_COMMITTED事务内检查幂等、锁定及重读数据库、调用验证器、持久化交换/参与者/占用/需求快照、将物品置RESERVED且version+1，提交后返回详情。ExchangeCandidateReader是无锁领域核查适配器，无公开预检端点，其结果不能授权写入。
 
-幂等作用域`(服务端initiatorId,idempotencyKey)`；摘要含ruleVersion和整条绑定流向的itemId/itemVersion/demandId/demandVersion。按最小物品ID旋转、保留方向，旋转起点不同视为同请求，反向三环不同。同键同摘要应先返回原交换，不以首次创建造成的RESERVED/版本递增拒绝重放，不刷新截止时间；同键不同摘要409。状态/物品版本/需求版本或B-02所选需求变化409，不能悄悄替换新需求；越权发起403、非法重复用户/物品或环形状400、有效需求规模超限422。严格JSON之外这些锁内校验属于A接入后的正式创建能力；当前不得用501当作已测试幂等或已创建。
+幂等作用域`(服务端initiatorId,idempotencyKey)`；摘要含ruleVersion和整条绑定流向的itemId/itemVersion/demandId/demandVersion。按最小物品ID旋转、保留方向，旋转起点不同视为同请求，反向三环不同。同键同摘要应先返回原交换，不以首次创建造成的RESERVED/版本递增拒绝重放，不刷新截止时间；同键不同摘要409。状态/物品版本/需求版本或B-02所选需求变化409，不能悄悄替换新需求；越权发起403、非法重复用户/物品或环形状400、有效需求规模超限422。任何校验/唯一约束失败整体回滚，无部分占用/参与者。死锁等数据库瞬态冲突最多重试三次，每次新事务；耗尽返回409，客户端保持同一逻辑提交的键。V2历史行缺摘要时同键拒绝409，不推断成可重放请求。
 
-C-03的管理读取需求：后续单独提供ADMIN的`GET /admin/exchanges?page=1&size=12&status=`与`GET /admin/exchanges/{id}`，基础字段沿用ExchangeView、增加已持久化的审计时间线/快照，限制用户私人说明和凭据披露。**这两个路径尚未注册（404），不能接成现有API**。管理读权限不映射为代确认/代交接权限；无写动作就展示待开发。D-03创建按钮仍应显示待开发；本人列表与详情可先真实接入，501保留选择但不展示成功。
+C-03的管理读取需求：后续单独提供ADMIN的`GET /admin/exchanges?page=1&size=12&status=`与`GET /admin/exchanges/{id}`，基础字段沿用ExchangeView、增加已持久化的审计时间线/快照，限制用户私人说明和凭据披露。**这两个路径尚未注册（404），不能接成现有API**。管理读权限不映射为代确认/代交接权限；无写动作就展示待开发。D-03页面尚未接入本次POST；接入时保持同一逻辑提交的幂等键，并在409保留选择、刷新推荐后让用户重新决定。确认/取消/交接仍501，allowedActions仍为空。
 
 ## 后续接口设计（未实现）
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
-| POST /exchanges（事务待接入） | 已注册严格解析及A端口，合法命令501；最终请求与幂等规则见B-03，不再使用itemIds草案 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
 | POST /exchanges/{id}/handoff | 参与者交接凭据；全部确认才转移所有权 |
 | POST /exchanges/{id}/cancel | 仅允许状态下取消，原子释放属于本交换的占用 |
 | GET/POST /items/{id}/history | 事件、来源、发生/记录时间、证据；提交自述不能设置管理员级别 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
-后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
+后端已预留的exchange确认/取消/交接操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
 
 

@@ -156,3 +156,12 @@ H2后端119项、临时MySQL8.4.11后端119项通过（42公共模块+77API/集�
 ## B-03 第一切片：领域验证与交换读取（2026-09-08）
 
 用户端47项、H2后端140项通过；全新临时MySQL8.4.11执行V1–V7及后端140项通过（52公共+88API），新增10领域/2DTO/9集成。真实读取与域核查前后逐行比较六张业务表无写入，清理后基线不变；无日常库或凭据输出。A已确认没有A-03事务，正式POST保持501；MySQL夹具读取和既有A-02并发回归不计为交换创建/幂等/抢占/回滚验收。无浏览器或微信交互，前端构建和云端检查见本PR。完整边界与样例见 [B-03说明](b03-exchange-domain.md)。
+
+## A-03 正式创建与B端口集成（2026-09-08）
+
+基于main c8e9185，在独立feature/a03-exchange-transaction工作树完成；原工作区未提交改动保留。B-03 PR #28的HTTP/应用/领域/读取已实际接通，唯一事务实现和失败样例见[A-03](a03-exchange-transaction.md)。
+
+- `node scripts/run.mjs test`：用户端49通过；后端52公共+93 API/集成通过，6项MySQL专用明确跳过，无失败。
+- `CAMPUS_TEST_PORT=3333 node scripts/mysql-test.mjs`：全新MySQL8.4.11、Flyway V1–V8，151项后端全部通过；共用ExchangeDomainIntegrationTest为20项，覆盖真实POST两方/三方、重试、同键冲突、并发唯一赢家、FOR UPDATE等待后重校验、冻结与候选需求竞争、五个写阶段唯一约束回滚、SQLSTATE40001整事务重试上限。推荐GET及清理前后逐行业务数据保持。
+- `CAMPUS_TEST_PORT=3333 node scripts/mysql-test.mjs --item-review-upgrade`：独立新空库1项通过，V7→V8保留旧交换字段与占用，新摘要/规则/快照NULL，不伪造需求引用；两个最终测试容器自动删除。
+- 仓库交付检查、62个相关文档相对链接和样例JSON通过。没有页面改动；浏览器、微信、成员日常数据库/前端联调未执行。确认/取消/交接/自动超时仍未实现，本次不宣称完整交换闭环或B-03全部完成。

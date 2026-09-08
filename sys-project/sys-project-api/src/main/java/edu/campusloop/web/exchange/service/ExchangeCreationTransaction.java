@@ -3,7 +3,7 @@ package edu.campusloop.web.exchange.service;
 import edu.campusloop.exchange.ExchangeCreationCommand;
 
 /**
- * The ONE creation transaction boundary, owned by A-03. No implementation is installed in B-03.
+ * The ONE creation transaction boundary, owned by A-03. Implemented by DefaultExchangeCreationTransaction; B calls this port only.
  * Check (initiator,key,digest) replay BEFORE live eligibility: the first creation reserves/version-bumps items.
  * On a new request lock and re-read users, demands, items/holds in the agreed order, invoke B's
  * ExchangeCycleValidator, and atomically persist exchange, participants, demand references and holds.

@@ -1,6 +1,6 @@
 # 后端实现与后续事务契约
 
-完整对外 API 以 [api-contract.md](api-contract.md) 为入口。本文说明已实现的关键行为与尚未实现的交换写入设计。
+完整对外 API 以 [api-contract.md](api-contract.md) 为入口。本文说明已实现的关键行为与后续交换动作设计。
 
 ## 已实现范围
 
@@ -43,17 +43,17 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 本切片无迁移或交换写入，不引入requiredTags/最低成色硬条件；D-02页面和消费确认单独跟踪。
 
-## 已建立的数据结构，写入待开发
+## 交换数据结构与当前能力
 
 `cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
 
-这是下一阶段的表结构基础，不代表已经具备业务接口。当前 POST `/api/exchanges` 与 confirm/cancel/handoff 明确 HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
+V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel/handoff仍HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
 
-## 交换创建与并发设计（后续实现）
+## 交换创建与并发设计
 
-B-03 已用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}` 替代 itemIds 草案，详情见 [API契约](api-contract.md)。ExchangeApplicationService → A主责ExchangeCreationTransaction → B纯ExchangeCycleValidator是唯一调用链；A已确认尚无事务实现，合法POST继续501。本人分页/参与者详情已在本分支实现，非参与者404且ADMIN无绕过；allowedActions为空。
+创建采用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}`；API字段见[契约](api-contract.md)，完整锁序、失败样例与测试见[A-03](a03-exchange-transaction.md)。ExchangeApplicationService → ExchangeCreationTransaction（唯一实现DefaultExchangeCreationTransaction）→ B纯ExchangeCycleValidator是唯一写路径。成功/重放返回持久ExchangeView；本人分页/详情仍按参与者授权，ADMIN无绕过；allowedActions为空。
 
-A接入时先处理(initiator,key)及有向环规范化摘要重放，同键异请求409；同请求返回原交换并保留原截止，不能因首次占用/版本递增而拒绝。新请求按所选需求升序 → 物品及占用升序 → 必要分类升序锁定并重读，兼容需求编辑锁序；已有交换操作先锁exchange。用户行/幂等/外键锁序须A用MySQL验证。锁内调用B验证器，然后原子写AWAITING_CONFIRMATION/version=0、全员未确认、DB UTC+24h截止、参与者/唯一占用，物品RESERVED/version+1且保留审核信息。A负责新增精确需求引用/快照/摘要迁移及进行中需求冻结，B不复制写入器或表。
+创建和需求写入共用用户行互斥：用户ID升序 → 完整关联需求ID升序 → 物品/占用ID升序；需求分类选择在后，创建不改变分类引用或分类选择政策。同键先验证摘要重放，新请求在锁内重建完整B规则输入，原子写参与者/需求引用/唯一占用与RESERVED/version+1。V8精确需求引用在进行中冻结，内部快照不返回私人说明；DB UTC创建时间+24h、全员不自动确认沿用B已确认规则。已有交换的未来动作先锁exchange，其后保持相同用户/需求/物品顺序；创建与需求冻结不反向等待已有exchange锁。
 
 确认接口及其状态推进尚未实现，不能由本轮创建规则暗中决定未来动作；全员确认后READY等后续设计保留如下。
 
