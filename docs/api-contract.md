@@ -9,6 +9,7 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | 方法和路径 | 权限 | 输入/结果 |
 | --- | --- | --- |
 | GET /health | 公开 | 服务状态，不泄露配置 |
+| POST /auth/register | 公开（受运行时准入开关约束） | `{username,password,displayName}` → `{id,username,displayName,role}`；不自动登录 |
 | POST /auth/login | 公开 | `{username,password}` → `{token,user:{id,username,displayName,role}}` |
 | GET /auth/me | 登录 | 用户公开字段；每次服务端验证签名、到期、会话撤销与账号状态 |
 | PATCH /auth/me | 登录 | 仅 `{displayName}` → 从数据库回读的 `{id,username,displayName,role}` |
@@ -29,6 +30,8 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 本人资料写入只接受 `displayName`，去除首尾空白后长度为1–64字符。用户身份、`id`、`username`、`role`、`status` 和密码哈希均由服务端会话与数据库确定；请求出现未声明字段或试图写入受保护字段返回400，且不产生部分更新。成功结果沿用登录用户公开结构，消费端可直接替换本地用户资料。
 
 修改密码的 `currentPassword` 必填，`newPassword` 为12–64字符且UTF-8编码不超过72字节。旧密码不正确、新密码格式不正确或请求含未声明字段返回400，不修改密码也不撤销会话；未登录或会话已撤销返回401。成功时密码哈希更新与该账号全部会话删除位于同一事务，包含发起请求的当前会话及其他设备会话；消费端收到200后必须立即清除本地令牌、用户缓存并跳转登录页。登录与改密按同一用户行串行化，保证改密提交后不存在通过旧密码取得的有效会话；旧密码登录失败，新密码可重新登录。
+
+注册准入默认 `CLOSED`，此时合法注册请求返回403且不写入用户。仅本地开发或隔离联调可显式配置 `CAMPUS_REGISTRATION_MODE=DEVELOPMENT_SELF_SERVICE`；该模式只是开发自助注册，不代表校园身份已核验，不能用于公开部署。注册请求只接受 `username,password,displayName`：用户名 trim 后为3–64位且仅含字母、数字、下划线、点或连字符；密码为12–64字符且UTF-8编码不超过72字节；显示名称 trim 后为1–64字符。服务端固定写入 `USER/ACTIVE`，拒绝 `id/role/status/passwordHash/version` 及其他未声明字段。成功返回公开用户结构但不创建会话、不返回密码、哈希或 token，消费端随后使用现有登录接口；重名返回409，校验错误返回400，关闭准入返回403。并发相同用户名依靠数据库唯一约束保证仅一条用户记录成功，失败请求不留下半成品账号。
 
 分页统一 `{records,total,page,size}`；page从1开始，size1–100；keyword最多100字符；不要由消费端猜测records/list/rows。空结果为records空数组、total0。
 

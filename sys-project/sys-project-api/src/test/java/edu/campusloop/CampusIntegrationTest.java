@@ -60,6 +60,7 @@ class CampusIntegrationTest {
         registry.add("spring.flyway.user",()->username);
         registry.add("spring.flyway.password",()->password);
         registry.add("campus.bootstrap-enabled",()->false);
+        registry.add("campus.registration-mode",()->"DEVELOPMENT_SELF_SERVICE");
         registry.add("campus.jwt-secret",()->UUID.randomUUID().toString()+UUID.randomUUID());
         registry.add("campus.upload-dir",()->UPLOADS.toString());
     }
@@ -234,6 +235,69 @@ class CampusIntegrationTest {
         } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
         assertEquals(1,List.of(users.selectById(firstId),users.selectById(secondId)).stream().filter(user->"ACTIVE".equals(user.getStatus())).count());
         assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE role='ADMIN' AND status='ACTIVE' AND password_hash IS NOT NULL",Integer.class)>0);
+    }
+    @Test void developmentRegistrationPersistsSafeUserAndUsesExistingLogin() throws Exception {
+        String username="reg_"+UUID.randomUUID().toString().substring(0,12),password="Valid-"+UUID.randomUUID();
+        String displayName="注册同学 "+UUID.randomUUID().toString().substring(0,6);
+        JsonNode response=json.readTree(mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username","  "+username+"  ","password",password,"displayName","  "+displayName+"  "))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.username").value(username))
+            .andExpect(jsonPath("$.data.displayName").value(displayName)).andExpect(jsonPath("$.data.role").value("USER"))
+            .andExpect(jsonPath("$.data.status").doesNotExist()).andExpect(jsonPath("$.data.passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.token").doesNotExist()).andReturn().getResponse().getContentAsString());
+        long userId=response.at("/data/id").asLong();User stored=users.selectById(userId);
+        assertEquals("USER",stored.getRole());assertEquals("ACTIVE",stored.getStatus());assertNotEquals(password,stored.getPasswordHash());
+        assertTrue(stored.getPasswordHash().startsWith("$2"));assertTrue(passwords.matches(password,stored.getPasswordHash()));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        String token=login(username,password);
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+token)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.id").value(userId));
+    }
+    @Test void registrationRejectsInvalidAndProtectedFieldsWithoutPartialUser() throws Exception {
+        String username="invalid_"+UUID.randomUUID().toString().substring(0,10),password="Valid-"+UUID.randomUUID();
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username","bad name","password",password,"displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password","too-short","displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password","密".repeat(25),"displayName","同学"))))
+            .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/auth/register").contentType("application/json")
+            .content(json.writeValueAsString(Map.of("username",username,"password",password,"displayName","   "))))
+            .andExpect(status().isBadRequest());
+        Map<String,Object> protectedFields=new LinkedHashMap<>(Map.of("username",username,"password",password,"displayName","不应注册"));
+        protectedFields.put("role","ADMIN");protectedFields.put("status","ACTIVE");protectedFields.put("passwordHash","not-a-hash");
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(json.writeValueAsString(protectedFields)))
+            .andExpect(status().isBadRequest());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,username));
+    }
+    @Test void duplicateAndConcurrentRegistrationKeepExactlyOneUser() throws Exception {
+        String sequentialName="dup_"+UUID.randomUUID().toString().substring(0,10),password="Valid-"+UUID.randomUUID();
+        String sequentialBody=json.writeValueAsString(Map.of("username",sequentialName,"password",password,"displayName","重复注册测试"));
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(sequentialBody)).andExpect(status().isOk());
+        mvc.perform(post("/api/auth/register").contentType("application/json").content(sequentialBody))
+            .andExpect(status().isConflict()).andExpect(jsonPath("$.msg").value("用户名已存在"));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,sequentialName));
+
+        String concurrentName="race_"+UUID.randomUUID().toString().substring(0,9);
+        String concurrentBody=json.writeValueAsString(Map.of("username",concurrentName,"password",password,"displayName","并发注册测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> first=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/register")
+                .contentType("application/json").content(concurrentBody)).andReturn();});
+            Future<MvcResult> second=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/register")
+                .contentType("application/json").content(concurrentBody)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            int firstStatus=first.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            int secondStatus=second.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==200).count());
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==409).count());
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE username=?",Integer.class,concurrentName));
+        User stored=users.selectOne(new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<User>().eq("username",concurrentName));
+        assertEquals("USER",stored.getRole());assertEquals("ACTIVE",stored.getStatus());assertTrue(passwords.matches(password,stored.getPasswordHash()));
     }
     @Test void logoutActuallyRevokesAndExpiredSessionIsRejected() throws Exception {
         String token=login(memberName,memberPassword);

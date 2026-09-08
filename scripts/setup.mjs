@@ -58,7 +58,7 @@ try {
   const env = {
     DB_HOST:'127.0.0.1', DB_PORT:'3308', DB_NAME:'campus_loop_dev', DB_USERNAME:'campus_loop',
     DB_PASSWORD:secret(), MYSQL_ROOT_PASSWORD:secret(), JWT_SECRET:secret(), SERVER_PORT:'8088',
-    UPLOAD_DIR:'.local/uploads', CAMPUS_BOOTSTRAP_ENABLED:'false',
+    UPLOAD_DIR:'.local/uploads', CAMPUS_BOOTSTRAP_ENABLED:'false', CAMPUS_REGISTRATION_MODE:'CLOSED',
     CAMPUS_ADMIN_USERNAME:admin, CAMPUS_ADMIN_PASSWORD:adminPassword,
     CAMPUS_USER_USERNAME:user, CAMPUS_USER_PASSWORD:userPassword,
   }

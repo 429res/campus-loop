@@ -9,7 +9,7 @@ import java.util.Set;
 public class AuthInterceptor implements HandlerInterceptor {
     public static final String USER="campusUser";
     private final AuthService auth;
-    private static final Set<String> PUBLIC=Set.of("POST /api/auth/login", "GET /api/categories", "GET /api/items", "GET /api/items/{id}", "GET /api/matches", "GET /api/health");
+    private static final Set<String> PUBLIC=Set.of("POST /api/auth/login", "POST /api/auth/register", "GET /api/categories", "GET /api/items", "GET /api/items/{id}", "GET /api/matches", "GET /api/health");
     public AuthInterceptor(AuthService auth) { this.auth=auth; }
     @Override public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
         String path=String.valueOf(request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE));
