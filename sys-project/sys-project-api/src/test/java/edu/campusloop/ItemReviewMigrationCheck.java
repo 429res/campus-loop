@@ -94,12 +94,16 @@ class ItemReviewMigrationCheck {
         jdbc.update("INSERT INTO cl_history_evidence(history_id,upload_id) VALUES(94001,'11111111-1111-1111-1111-111111111111')");
         var beforeConfirmationHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
         var beforeConfirmationEvidence=jdbc.queryForList("SELECT * FROM cl_history_evidence ORDER BY history_id,upload_id");
-        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        Flyway.configure().dataSource(dataSource).target("13").cleanDisabled(true).load().migrate();
         assertEquals(beforeConfirmationHistory,jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id"),"V13 must not upgrade or overwrite any legacy source or timestamp");
         assertEquals(beforeConfirmationEvidence,jdbc.queryForList("SELECT * FROM cl_history_evidence ORDER BY history_id,upload_id"));
         for(String table:List.of("cl_history_confirmation_request","cl_history_confirmation_member","cl_history_confirmation","cl_history_confirmation_withdrawal"))
             assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class),"V13 must not fabricate consent, a roster or confirmation");
 
+        var beforeVerification=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
+        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        assertEquals(beforeVerification,jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id"),"V14 does not fabricate admin verification or rewrite old evidence levels");
+        for(String table:List.of("cl_history_verification_state","cl_history_verification_audit")) assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class));
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

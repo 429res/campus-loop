@@ -65,6 +65,7 @@ class ExchangeDomainIntegrationTest {
         List<Long> histories=new ArrayList<>();
         for(long user:users) histories.addAll(jdbc.queryForList("SELECT id FROM cl_item_history WHERE source_user_id=?",Long.class,user));
         for(long id:histories.stream().distinct().sorted(Comparator.reverseOrder()).toList()) {
+            for(String table:List.of("cl_history_verification_audit","cl_history_verification_state")) jdbc.update("DELETE FROM "+table+" WHERE history_id=?",id);
             for(String table:List.of("cl_history_confirmation_withdrawal","cl_history_confirmation","cl_history_confirmation_member","cl_history_confirmation_request")) jdbc.update("DELETE FROM "+table+" WHERE history_id=?",id);
             jdbc.update("DELETE FROM cl_history_evidence WHERE history_id=?",id);
             jdbc.update("DELETE FROM cl_item_history WHERE id=?",id);
@@ -1297,6 +1298,88 @@ class ExchangeDomainIntegrationTest {
                 race(()->confirmHistory(b,f,hash),withdraw,"HistoryConfirmationMapper.appendConfirmation","ExchangeLifecycleMapper.lock");
             assertEquals(List.of(f.event(),withdrawFirst?-409L:f.event()),result);
             var view=call("GET",f.path(),a.token(),null,200);assertEquals("WITHDRAWN",view.at("/confirmation/status").asText());assertEquals(withdrawFirst?"SELF_REPORTED":"BOTH_CONFIRMED",view.path("evidenceLevel").asText());
+        }
+    }
+
+    @Autowired edu.campusloop.web.history.service.HistoryVerificationService verifications;
+    private String verificationPath(long event) {return "/api/admin/history-verifications/"+event;}
+    private Map<String,Object> verificationBody(long event,Account actor,String decision,String key) throws Exception {
+        var detail=call("GET",verificationPath(event),actor.token(),null,200);
+        return Map.of("version",detail.path("version").asInt(),"snapshotHash",detail.path("snapshotHash").asText(),"idempotencyKey",key,"decision",decision,"scope","仅核对此事件提供材料是否支持声明","reason","虚构私有核验理由，不公开");
+    }
+    private long decideHistory(Account actor,long event,Map<String,Object> body) {
+        verifications.decide(actor.id(),event,edu.campusloop.web.history.dto.HistoryVerificationCommand.parse(json.valueToTree(body)));return event;
+    }
+    @Test void adminVerificationPreservesOriginalAndParticipantSourcesAndProtectsPrivateAudit() throws Exception {
+        var f=confirmationFixture(3,true);String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);confirmHistory(b,f,hash);
+        var source=jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",f.event());var body=verificationBody(f.event(),admin,"APPROVED","approve-self");
+        var rows=businessRows();call("GET","/api/admin/history-verifications?size=1",admin.token(),null,200);assertEquals(rows,businessRows());
+        var result=call("POST",verificationPath(f.event())+"/decision",admin.token(),body,200);assertEquals(1,result.path("version").asInt());assertEquals("APPROVED",result.path("status").asText());
+        rows=businessRows();assertEquals(result,call("POST",verificationPath(f.event())+"/decision",admin.token(),body,200));assertEquals(rows,businessRows());
+        var publicView=call("GET",f.path(),null,null,200);assertEquals("ADMIN_VERIFIED",publicView.path("evidenceLevel").asText());assertEquals("SELF_REPORTED",publicView.path("recordedEvidenceLevel").asText());assertEquals(2,publicView.at("/confirmation/confirmedCount").asInt());
+        for(String field:List.of("reason","snapshot","snapshotHash","adminId")) assertTrue(publicView.at("/verification/"+field).isNull());assertFalse(publicView.toString().contains(f.evidence()));assertFalse(publicView.toString().contains("虚构私有核验理由"));assertFalse(publicView.path("verifiedAt").isNull());
+        assertEquals(source,jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",f.event()));assertTrue(result.at("/verification/snapshot/evidence/0/sha256").isTextual());
+        long fact=jdbc.queryForObject("SELECT id FROM cl_item_history WHERE exchange_id=? AND item_id=? AND event_type='EXCHANGED'",Long.class,f.exchange(),f.item());
+        var factBody=verificationBody(fact,admin,"APPROVED","approve-real-fact");call("POST",verificationPath(fact)+"/decision",admin.token(),factBody,200);
+        assertEquals("BOTH_CONFIRMED",jdbc.queryForObject("SELECT evidence_level FROM cl_item_history WHERE id=?",String.class,fact));
+    }
+    @Test void verificationRejectionAndCorrectionCannotOverwritePriorDecisionOrInheritLevel() throws Exception {
+        var f=confirmationFixture(2,false);var approve=verificationBody(f.event(),admin,"APPROVED","no-proof");call("POST",verificationPath(f.event())+"/decision",admin.token(),approve,409);
+        var reject=verificationBody(f.event(),admin,"REJECTED","rejected");call("POST",verificationPath(f.event())+"/decision",admin.token(),reject,200);assertEquals("SELF_REPORTED",call("GET",f.path(),a.token(),null,200).path("evidenceLevel").asText());
+        var original=jdbc.queryForMap("SELECT * FROM cl_history_verification_audit WHERE history_id=?",f.event());
+        var changed=new HashMap<>(reject);changed.put("reason","不同内容");call("POST",verificationPath(f.event())+"/decision",admin.token(),changed,409);
+        changed=new HashMap<>(reject);changed.put("idempotencyKey","different-key");call("POST",verificationPath(f.event())+"/decision",admin.token(),changed,409);
+        String evidence=evidenceUpload(a,true);long next=call("POST","/api/items/"+f.item()+"/history",a.token(),statement("REPAIR","修正后新对象",f.exchange(),f.event(),List.of(evidence)),200).path("id").asLong();
+        assertEquals(0,call("GET",verificationPath(next),admin.token(),null,200).path("version").asInt());
+        assertEquals("SELF_REPORTED",call("GET","/api/items/"+f.item()+"/history/"+next,null,null,200).path("evidenceLevel").asText());assertEquals(original,jdbc.queryForMap("SELECT * FROM cl_history_verification_audit WHERE history_id=?",f.event()));
+        call("POST",verificationPath(next)+"/decision",admin.token(),reject,409);
+        var fresh=verificationBody(next,admin,"APPROVED","fresh-correction");call("POST",verificationPath(next)+"/decision",admin.token(),fresh,200);
+        assertEquals(1,call("GET","/api/admin/history-verifications?status=REJECTED",admin.token(),null,200).path("total").asInt());
+        for(String params:List.of("size=101","page=0","status=FAKE","page=1&page=2","ownerId=1")) call("GET","/api/admin/history-verifications?"+params,admin.token(),null,400);
+    }
+    @Test void verificationRejectsUsersInterestsForgedFieldsStaleSnapshotsAndDisabledAdmins() throws Exception {
+        var f=confirmationFixture(3,true);var body=verificationBody(f.event(),admin,"APPROVED","authorization");var before=businessRows();
+        for(var user:List.of(a,b,outsider)) {call("GET",verificationPath(f.event()),user.token(),null,403);call("POST",verificationPath(f.event())+"/decision",user.token(),body,403);}
+        call("GET",verificationPath(f.event()),null,null,401);
+        for(String field:List.of("adminId","evidenceLevel","sourceLevel","ownerId","verifiedAt")) {var forged=new HashMap<>(body);forged.put(field,"ADMIN_VERIFIED");call("POST",verificationPath(f.event())+"/decision",admin.token(),forged,400);}
+        var stale=new HashMap<>(body);stale.put("version",9);call("POST",verificationPath(f.event())+"/decision",admin.token(),stale,409);
+        assertEquals(before,businessRows());
+        String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);call("POST",verificationPath(f.event())+"/decision",admin.token(),body,409);
+        jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?",b.id());var involved=verificationBody(f.event(),b,"APPROVED","involved");call("POST",verificationPath(f.event())+"/decision",b.token(),involved,403);
+        long ownItem=item(admin,1);long own=call("POST","/api/items/"+ownItem+"/history",admin.token(),statement("REPAIR","本人声明",null,null,List.of()),200).path("id").asLong();call("POST",verificationPath(own)+"/decision",admin.token(),verificationBody(own,admin,"REJECTED","own"),403);
+        jdbc.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",admin.id());rejected(401,()->decideHistory(admin,f.event(),body));jdbc.update("UPDATE cl_user SET status='ACTIVE' WHERE id=?",admin.id());
+    }
+    @Test void verificationSqlFailureRollsBackStateAndAppendAuditAtEveryWriteStage() throws Exception {
+        var f=confirmationFixture(2,true);var body=verificationBody(f.event(),admin,"APPROVED","rollback");
+        for(String phase:List.of("prepare","decide","append")) {
+            var rows=businessRows();var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(id->{if(id.endsWith("HistoryVerificationMapper."+phase) && once.compareAndSet(false,true)) jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",f.exchange());});
+            try{rejected(409,()->decideHistory(admin,f.event(),body));}finally{SqlProbe.after.remove();}assertTrue(once.get());assertEquals(rows,businessRows());
+        }
+        decideHistory(admin,f.event(),body);var rows=businessRows();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("DELETE FROM cl_history_verification_state WHERE history_id=?",f.event()));
+        var constraint=assertThrows(org.springframework.dao.DataAccessException.class,()->jdbc.update("UPDATE cl_history_verification_state SET version=2 WHERE history_id=?",f.event()));
+        assertTrue(constraint.getMostSpecificCause().getMessage().toLowerCase(java.util.Locale.ROOT).contains("ck_verification_state"));assertEquals(rows,businessRows());
+    }
+    @Test void mysqlAdminDecisionsRaceWithoutOverwriteAndSameRequestRetriesOnce() throws Exception {
+        mysqlOnly();var other=account(true);var f=confirmationFixture(2,true);
+        var one=verificationBody(f.event(),admin,"APPROVED","race-one");var two=verificationBody(f.event(),other,"REJECTED","race-two");
+        assertEquals(List.of(f.event(),-409L),race(()->decideHistory(admin,f.event(),one),()->decideHistory(other,f.event(),two),"HistoryVerificationMapper.decide","ExchangeLifecycleMapper.lock"));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_verification_audit WHERE history_id=?",Integer.class,f.event()));
+        var second=confirmationFixture(2,true);var repeat=verificationBody(second.event(),admin,"APPROVED","same-request");
+        assertEquals(List.of(second.event(),second.event()),race(()->decideHistory(admin,second.event(),repeat),()->decideHistory(admin,second.event(),repeat),"HistoryVerificationMapper.decide","ExchangeLifecycleMapper.lock"));
+    }
+    @Test void mysqlAdminVerificationAndCorrectionRespectBothCommitOrders() throws Exception {
+        mysqlOnly();
+        for(boolean correctionFirst:List.of(true,false)) {
+            var f=confirmationFixture(2,true);var body=verificationBody(f.event(),admin,"APPROVED","correction-"+correctionFirst);
+            var correction=json.convertValue(statement("REPAIR","核验后不继承的新修正",f.exchange(),f.event(),List.of(f.evidence())),edu.campusloop.web.history.dto.HistoryRequest.class);
+            var result=correctionFirst?race(()->histories.create(a.id(),f.item(),correction),()->decideHistory(admin,f.event(),body),"HistoryMapper.append","ExchangeLifecycleMapper.lock"):
+                race(()->decideHistory(admin,f.event(),body),()->histories.create(a.id(),f.item(),correction),"HistoryVerificationMapper.decide","ExchangeLifecycleMapper.lock");
+            if(correctionFirst) assertEquals(-409L,result.get(1));else assertTrue(result.get(1)>0);
+            var old=call("GET",f.path(),a.token(),null,200);long next=old.path("correctedByEventId").asLong();assertTrue(next>0);
+            assertEquals("SELF_REPORTED",call("GET","/api/items/"+f.item()+"/history/"+next,a.token(),null,200).path("evidenceLevel").asText());
+            assertEquals(correctionFirst?"SELF_REPORTED":"ADMIN_VERIFIED",old.path("evidenceLevel").asText());
         }
     }
 

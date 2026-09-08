@@ -227,7 +227,7 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
 | POST /exchanges/{id}/handoff | B-04已实现，见下述契约 |
-| GET/POST /items/{id}/history | B-05.1已实现，参与者确认见B-05.2；管理员核验未实现 |
+| GET/POST /items/{id}/history | B-05.1已实现，参与者确认见B-05.2；管理员核验见B-05.3 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
 交接已由B-04接入；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
@@ -263,3 +263,7 @@ HistoryView为`id,itemId,eventType,statement,evidenceLevel,authorDisplayName,occ
 范围、严格请求字段、隐私扩展、来源转换与冲突恢复见[B-05.2](b05-participant-confirmation.md)。本片自动化及隔离MySQL证据见该说明。
 
 HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保留；仅实际N/N确认时evidenceLevel展示BOTH_CONFIRMED，confirmedAt取全部完成时间。confirmation包含mode/status/confirmedCount/requiredCount/currentContent/requestedAt/completedAt/withdrawnAt；仅作者、明确授权成员及ADMIN返回snapshotHash/snapshot/participants/withdrawalReason。公开不返回参与者或证据标识。修正依据recordedEvidenceLevel=SELF_REPORTED；显示来源已获参与者确认的自述仍可由原作者追加新修正，旧确认不继承。
+
+### B-05.3 管理员单事件核验（已实现）
+
+管理队列、详情、决定、版本与幂等字段、证据门槛及利益冲突规则见[B-05.3](b05-admin-verification.md)。HistoryView增加verification；通过时仅本事件evidenceLevel显示ADMIN_VERIFIED，原recordedEvidenceLevel/confirmation保留。私有理由/快照仅ADMIN；普通时间线不返回核验人ID或证据摘要。
