@@ -1,20 +1,90 @@
 <script setup>
-import LoopButton from '../../components/LoopButton.vue'
 import { computed, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onUnload } from '@dcloudio/uni-app'
+import LoopButton from '../../components/LoopButton.vue'
 import LoopLayout from '../../components/LoopLayout.vue'
 import LoopSegment from '../../components/LoopSegment.vue'
-import http from '../../common/http'
-const recommendations = ref([]), loading = ref(false), error = ref(''), filter = ref(0)
+import http, { TOKEN_KEY, isAbortError } from '../../common/http'
+import { createLatestRequestGuard } from '../../common/latest-request.mjs'
+
+const recommendations = ref([])
+const ruleVersion = ref('independent-v2')
+const loading = ref(false)
+const error = ref('')
+const errorStatus = ref(0)
+const authenticated = ref(false)
+const authNotice = ref('')
+const filter = ref(0)
+let activeRequest
+const requestGuard = createLatestRequestGuard(() => uni.getStorageSync(TOKEN_KEY))
+
 const visible = computed(() => recommendations.value.filter(match => !filter.value || match.length === filter.value + 1))
-async function load() {loading.value = true;error.value = '';try {recommendations.value = await http.get('/api/matches',{}, {silent:true})} catch(e){error.value = e.message} finally {loading.value = false}}
+const login = () => uni.navigateTo({url:`/pages/login/login?redirect=matches${authNotice.value ? '&reason=session-expired' : ''}`})
 const openItem = id => uni.navigateTo({url:`/pages/detail/detail?id=${id}`})
 const openDemands = () => uni.navigateTo({url:'/pages/demands/demands'})
+
+async function load() {
+  const ticket = requestGuard.begin()
+  const token = ticket.identity
+  activeRequest?.abort?.()
+  authenticated.value = !!token
+  recommendations.value = []
+  error.value = ''
+  errorStatus.value = 0
+  if (!authenticated.value) { loading.value = false; return }
+  authNotice.value = ''
+  loading.value = true
+  try {
+    activeRequest = http.get('/api/matches/independent',{ruleVersion:'independent-v2'},{silent:true})
+    const data = await activeRequest
+    if (!requestGuard.isCurrent(ticket)) return
+    ruleVersion.value = data.ruleVersion
+    recommendations.value = data.recommendations
+  } catch (cause) {
+    if (!requestGuard.isCurrent(ticket) || isAbortError(cause)) return
+    error.value = cause.message
+    errorStatus.value = cause.status || 0
+    if (cause.status === 401) { authenticated.value = false; authNotice.value = '登录已过期，请重新登录后读取推荐。' }
+  } finally {
+    if (requestGuard.isCurrent(ticket)) loading.value = false
+  }
+}
+
 onShow(load)
+onUnload(() => { requestGuard.invalidate(); activeRequest?.abort?.() })
 </script>
+
 <template>
-  <LoopLayout><view class="match-heading"><view class="cl-page-heading"><text class="match-kicker">A LITTLE MATCH, A NEW LOOP</text><text class="cl-title">你的需要，可以这样相遇。</text><text class="cl-subtitle">两人互换，或三人循环。每一条推荐，都说得清楚为什么。</text></view><text class="match-symbol" aria-hidden="true">↻</text></view><view class="match-toolbar"><LoopSegment v-model="filter" :options="['全部推荐','双方交换','三方循环']"/><LoopButton class="cl-btn" :disabled="loading" @click="load">↺ 更新推荐</LoopButton></view><view class="cl-notice match-notice"><text>当前推荐仍使用物品发布时附带的需求；独立需求清单暂未用于本页推荐。</text><LoopButton class="cl-btn" @click="openDemands">管理独立需求</LoopButton></view><view v-if="loading" class="cl-empty"><text class="cl-label">正在寻找需求形成的交换环…</text></view><view v-else-if="error" class="cl-panel cl-empty"><text>{{ error }}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton></view><view v-else-if="!visible.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">↻</text><text>暂时没有符合条件的交换环</text><text class="cl-hint">当前只读取物品发布时附带的需求。独立需求保存后暂不改变本页推荐。</text></view><view v-else class="match-list"><view v-for="match in visible" :key="match.id" class="cl-panel match-card"><view class="match-card-header"><view class="cl-row"><text class="cl-tag" :class="{'cl-tag--pink':match.length===3}">{{ match.length === 2 ? '双方交换' : '三方循环' }}</text><text class="match-card-title">{{ match.length }} 位同学，各得所需</text></view><text class="cl-hint">推荐得分 {{ match.score }}</text></view><view class="flow-list"><view v-for="(flow,index) in match.flows" :key="`${flow.itemId}-${flow.toUserId}`" class="flow-row"><view class="flow-index">{{ index+1 }}</view><view class="flow-main"><view class="flow-people"><text>{{ flow.fromName }}</text><text class="flow-arrow">→</text><text>{{ flow.toName }}</text></view><LoopButton class="flow-item" @click="openItem(flow.itemId)">{{ flow.itemTitle }} ↗</LoopButton><text class="flow-reason">{{ flow.reason }}</text></view></view></view><view class="match-explanation"><text class="cl-field-title">为什么推荐</text><text class="cl-subtitle">{{ match.explanation }}</text></view><view class="match-pending"><text class="cl-hint">推荐仅供浏览，不代表双方已达成交换。</text><LoopButton class="cl-btn" disabled>交换邀请 · 待开发</LoopButton></view></view></view></LoopLayout>
+  <LoopLayout>
+    <view class="match-heading"><view class="cl-page-heading"><text class="match-kicker">A LITTLE MATCH, A NEW LOOP</text><text class="cl-title">你的需要，可以这样相遇。</text><text class="cl-subtitle">仅展示服务端独立需求规则生成、且包含当前账号的双方或三方方案。</text></view><text class="match-symbol" aria-hidden="true">↻</text></view>
+    <view class="match-toolbar"><LoopSegment v-model="filter" :options="['全部推荐','双方交换','三方循环']"/><LoopButton class="cl-btn" :disabled="loading || !authenticated" @click="load">↺ 更新推荐</LoopButton></view>
+    <view class="cl-notice match-notice"><view><text class="cl-field-title">规则 {{ ruleVersion }}</text><text class="cl-hint">分类是硬条件；标签只参与服务端排序。页面不重算得分，浏览和刷新不会创建交换或占用物品。</text></view><LoopButton class="cl-btn" @click="openDemands">管理独立需求</LoopButton></view>
+
+    <view v-if="!authenticated" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ authNotice || '登录后查看与你有关的独立需求推荐' }}</text><text class="cl-hint">不会回退到公开旧推荐冒充结果。</text><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ authNotice ? '重新登录' : '登录' }}</LoopButton></view>
+    <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在读取服务端推荐快照…</text></view>
+    <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><text v-if="errorStatus===422" class="cl-hint">这是候选规模超限，服务端未返回截断方案。请等待候选分区能力或缩小可交换候选范围后再试，不能视为“暂无推荐”。</text><LoopButton class="cl-btn" @click="load">重新读取</LoopButton></view>
+    <view v-else-if="!recommendations.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">↻</text><text>当前没有独立需求交换环</text><text class="cl-hint">只有 ACTIVE 需求及其本人 AVAILABLE、未占用的关联物品会参与；不会用旧物品需求随机补位。</text></view>
+    <template v-else>
+      <view v-if="!visible.length" class="cl-panel cl-empty"><text>当前筛选下没有推荐</text><text class="cl-hint">切换“全部推荐”可查看其他环长，筛选不会重新请求或改变服务端方案。</text></view>
+      <view v-else class="match-list">
+        <view v-for="match in visible" :key="match.id" class="cl-panel match-card">
+          <view class="match-card-header"><view class="cl-row"><text class="cl-tag" :class="{'cl-tag--pink':match.length===3}">{{ match.length === 2 ? '双方交换' : '三方循环' }}</text><text class="match-card-title">{{ match.length }} 位同学，各得所需</text></view><view class="score"><text>{{ match.score }}</text><text class="cl-hint">服务端得分</text></view></view>
+          <view class="participant-list"><view v-for="participant in match.participants" :key="participant.userId" class="participant"><text class="cl-avatar">{{ participant.displayName.slice(0,1) }}</text><view><text class="cl-field-title">{{ participant.displayName }}</text><text class="cl-hint">提供：{{ participant.itemTitle }}</text></view></view></view>
+          <view class="cl-divider"/>
+          <view class="flow-list">
+            <view v-for="(flow,index) in match.flows" :key="`${flow.itemId}-${flow.toUserId}`" class="flow-row">
+              <view class="flow-index">{{ index+1 }}</view>
+              <view class="flow-main"><view class="flow-people"><text>{{ flow.fromName }}</text><text class="flow-arrow">→</text><text>{{ flow.toName }}</text></view><LoopButton class="flow-item" @click="openItem(flow.itemId)">{{ flow.itemTitle }} ↗</LoopButton><view class="demand-proof"><text class="cl-field-title">命中需求 #{{ flow.demandId }}</text><text class="hard-rule">硬条件 · {{ flow.matchedCategoryName }}分类</text><text class="soft-rule">标签排序 · {{ flow.matchedTags.length ? flow.matchedTags.join('、') : '无共同偏好标签' }}</text><text v-if="flow.matchedDemandIds.length>1" class="cl-hint">同方向另有 {{ flow.matchedDemandIds.length-1 }} 条分类匹配需求；服务端已按规则选定本条计分。</text></view><text class="flow-reason">{{ flow.reason }}</text></view>
+            </view>
+          </view>
+          <view class="match-explanation"><text class="cl-field-title">规则解释</text><text class="cl-subtitle">{{ match.explanation }}</text><text class="cl-hint">方案 ID：{{ match.id }} · {{ match.ruleVersion }}</text></view>
+          <view class="match-pending"><text class="cl-hint">这是读取时快照，不保证物品下一刻仍可交换，也不代表任何参与者已同意。</text><LoopButton class="cl-btn" disabled>创建交换 · 留到 D-03</LoopButton></view>
+        </view>
+      </view>
+    </template>
+  </LoopLayout>
 </template>
+
 <style scoped>
-.match-heading{display:flex;align-items:center;justify-content:space-between;margin:12px 0;background:var(--cl-primary-soft);padding:30px 36px;border-radius:22px;overflow:hidden}.match-heading .cl-page-heading{margin:0}.match-kicker{display:block;font-size:10px;color:var(--cl-primary);letter-spacing:2px;margin-bottom:15px}.match-symbol{font-size:110px;line-height:1;color:var(--cl-primary);opacity:.5}.match-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:25px 0 18px}.match-notice{margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:16px}.match-notice>text{flex:1}.match-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.match-card-header{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:25px}.match-card-title{font-size:14px;font-weight:700}.match-card-header .cl-row{gap:8px}.flow-list{display:flex;flex-direction:column;gap:17px}.flow-row{display:flex;align-items:flex-start;gap:12px}.flow-index{width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--cl-blue);background:var(--cl-blue-soft);flex-shrink:0;margin-top:3px}.flow-main{min-width:0;flex:1}.flow-people{display:flex;gap:13px;align-items:center;font-size:14px;font-weight:650}.flow-arrow{color:var(--cl-primary);font-size:22px}.flow-item{display:inline-block;background:transparent;color:var(--cl-blue);text-align:left;padding:6px 0;font-size:13px}.flow-reason{display:block;font-size:11px;line-height:1.8;color:var(--cl-muted);overflow-wrap:anywhere}.match-explanation{background:var(--cl-surface-soft);padding:16px;border-radius:12px;margin-top:22px}.match-explanation .cl-subtitle{font-size:12px;margin-top:6px}.match-pending{display:flex;flex-direction:column;gap:12px;margin-top:18px}.match-pending .cl-btn{align-self:flex-start;font-size:12px;min-height:36px;padding:7px 12px}@media(max-width:900px){.match-list{grid-template-columns:1fr}.match-symbol{font-size:80px}}@media(max-width:550px){.match-heading{padding:25px}.match-heading .cl-title{font-size:23px}.match-heading .cl-subtitle{font-size:12px}.match-symbol{display:none}.match-toolbar,.match-notice{flex-direction:column;align-items:stretch}.match-toolbar>.cl-btn{align-self:flex-end}.match-card-header{align-items:flex-start}.match-card-header .cl-row{flex-direction:column;align-items:flex-start}.match-card-header .cl-hint{font-size:10px}}
+.match-heading{display:flex;align-items:center;justify-content:space-between;margin:12px 0;background:var(--cl-primary-soft);padding:30px 36px;border-radius:22px;overflow:hidden}.match-heading .cl-page-heading{margin:0}.match-kicker{display:block;font-size:10px;color:var(--cl-primary);letter-spacing:2px;margin-bottom:15px}.match-symbol{font-size:110px;line-height:1;color:var(--cl-primary);opacity:.5}.match-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:25px 0 18px}.match-notice{margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;gap:18px}.match-notice>view{display:flex;flex-direction:column;gap:5px}.match-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:22px}.match-card{min-width:0}.match-card-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:20px}.match-card-title{font-size:14px;font-weight:700}.match-card-header .cl-row{gap:8px}.score{display:flex;flex-direction:column;align-items:flex-end}.score>text:first-child{font-size:22px;font-weight:750;color:var(--cl-primary)}.participant-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}.participant{display:flex;align-items:center;gap:8px;min-width:0}.participant>view{display:flex;flex-direction:column;min-width:0}.participant .cl-hint{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.flow-list{display:flex;flex-direction:column;gap:20px}.flow-row{display:flex;align-items:flex-start;gap:12px}.flow-index{width:26px;height:26px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--cl-blue);background:var(--cl-blue-soft);flex-shrink:0;margin-top:3px}.flow-main{min-width:0;flex:1}.flow-people{display:flex;gap:13px;align-items:center;font-size:14px;font-weight:650}.flow-arrow{color:var(--cl-primary);font-size:22px}.flow-item{display:inline-block;background:transparent;color:var(--cl-blue);text-align:left;padding:6px 0;font-size:13px}.demand-proof{display:flex;flex-direction:column;gap:5px;padding:12px;margin:3px 0 8px;border-radius:12px;background:var(--cl-surface-soft)}.hard-rule,.soft-rule{font-size:12px}.hard-rule{color:var(--cl-blue)}.soft-rule{color:var(--cl-muted)}.flow-reason{display:block;font-size:11px;line-height:1.8;color:var(--cl-muted);overflow-wrap:anywhere}.match-explanation{background:var(--cl-surface-soft);padding:16px;border-radius:12px;margin-top:22px}.match-explanation .cl-subtitle,.match-explanation .cl-hint{display:block;font-size:12px;margin-top:6px;overflow-wrap:anywhere}.match-pending{display:flex;flex-direction:column;gap:12px;margin-top:18px}.match-pending .cl-btn{align-self:flex-start;font-size:12px;min-height:36px;padding:7px 12px}@media(max-width:900px){.match-list{grid-template-columns:1fr}.match-symbol{font-size:80px}}@media(max-width:550px){.match-heading{padding:25px}.match-heading .cl-title{font-size:23px}.match-heading .cl-subtitle{font-size:12px}.match-symbol{display:none}.match-toolbar,.match-notice{flex-direction:column;align-items:stretch}.match-toolbar>.cl-btn{align-self:flex-end}.match-card-header{align-items:flex-start}.match-card-header .cl-row{flex-direction:column;align-items:flex-start}.participant-list{grid-template-columns:1fr}.flow-people{flex-wrap:wrap}}
 </style>

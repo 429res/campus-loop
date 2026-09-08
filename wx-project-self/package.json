@@ -2,7 +2,7 @@
   "name": "campus-loop-user",
   "version": "0.1.0",
   "scripts": {
-    "test": "node --test scripts/publish-session.test.cjs scripts/demand-categories.test.cjs scripts/item-review-read.test.cjs scripts/test-loop-button.mjs",
+    "test": "node --test scripts/publish-session.test.cjs scripts/demand-categories.test.cjs scripts/item-review-read.test.cjs scripts/test-loop-button.mjs scripts/matches-page.test.mjs",
     "test:mp-build": "node scripts/test-loop-button.mjs --mp-build",
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",

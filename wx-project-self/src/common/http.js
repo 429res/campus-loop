@@ -77,6 +77,7 @@ export const imageUrl = (path, title = '') => {
 export default {
   get: (url, data, options) => request('GET', url, data, options),
   post: (url, data, options) => request('POST', url, data, options),
+  put: (url, data, options) => request('PUT', url, data, options),
   patch: (url, data, options) => request('PATCH', url, data, options),
   delete: (url, data, options) => request('DELETE', url, data, options),
   upload,
