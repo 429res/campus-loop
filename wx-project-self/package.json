@@ -4,6 +4,7 @@
   "scripts": {
     "test": "node --test scripts/publish-session.test.cjs scripts/demand-categories.test.cjs scripts/item-review-read.test.cjs scripts/test-loop-button.mjs scripts/matches-page.test.mjs scripts/d04-history-reports.test.mjs",
     "test:mp-build": "node scripts/test-loop-button.mjs --mp-build",
+    "test:mp-readiness": "node scripts/check-mp-readiness.mjs",
     "dev:h5": "uni",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:h5": "uni build",
