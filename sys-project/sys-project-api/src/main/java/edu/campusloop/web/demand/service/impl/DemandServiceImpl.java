@@ -19,6 +19,7 @@ import edu.campusloop.web.demand.mapper.DemandMapper;
 import edu.campusloop.web.demand.service.DemandService;
 import edu.campusloop.web.demand.vo.*;
 import edu.campusloop.web.item.entity.Item;
+import edu.campusloop.web.user.mapper.UserMapper;
 import edu.campusloop.web.item.mapper.ItemMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
@@ -33,6 +34,7 @@ import java.util.stream.Collectors;
 // Current reads after row locking must not reuse an earlier repeatable-read item snapshot.
 @Transactional(isolation = Isolation.READ_COMMITTED)
 public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> implements DemandService {
+    private final UserMapper users;
     private final CategoryMapper categories;
     private final ItemMapper items;
     private final DemandItemMapper associations;
@@ -40,7 +42,8 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
     private final CategorySelectionService categorySelection;
 
     public DemandServiceImpl(CategoryMapper categories, ItemMapper items, DemandItemMapper associations,
-                             ObjectMapper json, CategorySelectionService categorySelection) {
+                             ObjectMapper json, CategorySelectionService categorySelection, UserMapper users) {
+        this.users = users;
         this.categories = categories;
         this.items = items;
         this.associations = associations;
@@ -50,6 +53,7 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
 
     @Override
     public DemandView create(long ownerId, CreateDemandRequest request) {
+        lockOwner(ownerId);
         List<Long> offeredIds = validateAndLockItems(ownerId, request.offeredItemIds());
         categorySelection.requireActive(Collections.singletonList(request.categoryId()));
         LocalDateTime now = now();
@@ -147,10 +151,18 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
 
     private Demand lockCurrent(long ownerId, long id, Integer version) {
         if (version == null || version < 0) throw new ApiException(400, "需要非负整数 version");
+        lockOwner(ownerId);
         Demand demand = requireOwned(baseMapper.selectForUpdate(id), ownerId);
+        if (baseMapper.activeExchangeReferences(id) > 0)
+            throw new ApiException(409, "需求正在参与交换，不能编辑、启停或删除");
         if (!version.equals(demand.getVersion())) throw new ApiException(409, "需求已更新，请刷新后重试");
         if (version == Integer.MAX_VALUE) throw new ApiException(409, "需求版本已达到上限");
         return demand;
+    }
+
+    private void lockOwner(long ownerId) {
+        var owner = users.selectByIdForUpdate(ownerId);
+        if (owner == null || !"ACTIVE".equals(owner.getStatus())) throw new ApiException(403, "需求所属账号不可用");
     }
 
     private Demand requireOwned(Demand demand, long ownerId) {

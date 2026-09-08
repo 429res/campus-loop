@@ -28,7 +28,17 @@ class ItemReviewMigrationCheck {
         jdbc.update("INSERT INTO cl_item_hold(item_id,exchange_id,expires_at) VALUES (92002,93001,CURRENT_TIMESTAMP)");
         List<Map<String,Object>> before=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         List<Map<String,Object>> holds=jdbc.queryForList("SELECT * FROM cl_item_hold");
+        Flyway.configure().dataSource(dataSource).target("7").cleanDisabled(true).load().migrate();
+        List<Map<String,Object>> exchanges=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
         Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        List<Map<String,Object>> migrated=jdbc.queryForList("SELECT * FROM cl_exchange ORDER BY id");
+        for(int i=0;i<migrated.size();i++) {
+            assertNull(migrated.get(i).remove("request_digest"));
+            assertNull(migrated.get(i).remove("rule_version"));
+            assertNull(migrated.get(i).remove("creation_snapshot"));
+            assertEquals(exchanges.get(i),migrated.get(i),"V8 must preserve all V2 exchange fields");
+        }
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_demand",Integer.class));
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

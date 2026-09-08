@@ -1,0 +1,17 @@
+{
+  "fixtureNotice": "虚构请求与失败契约样例；正式成功通过隔离数据库测试验证，ID不对应成员日常数据。",
+  "request": {
+    "ruleVersion": "independent-v2",
+    "idempotencyKey": "a03-fictional-01",
+    "flows": [
+      {"itemId": 11, "itemVersion": 3, "demandId": 502, "demandVersion": 4},
+      {"itemId": 22, "itemVersion": 5, "demandId": 501, "demandVersion": 6}
+    ]
+  },
+  "sameKeyDifferentContent": {"code":409,"msg":"幂等键已用于不同请求，请勿复用该键提交其他方案","data":null},
+  "staleRecommendation": {"code":409,"msg":"物品、需求或推荐已变化，请刷新后重新选择","data":null},
+  "constraintRollback": {"code":409,"msg":"交换创建约束冲突，整次请求已回滚，请刷新后重试","data":null},
+  "nonParticipantCreator": {"code":403,"msg":"发起人必须提供本环中的一件物品","data":null},
+  "frozenDemand": {"code":409,"msg":"需求正在参与交换，不能编辑、启停或删除","data":null},
+  "transientConflictExhausted": {"code":409,"msg":"交换创建遇到并发冲突，请使用同一幂等键重试","data":null}
+}
