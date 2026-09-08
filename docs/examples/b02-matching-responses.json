@@ -1,0 +1,137 @@
+{
+  "twoWay" : {
+    "code" : 200,
+    "msg" : "成功",
+    "data" : {
+      "recommendations" : [ {
+        "id" : "independent-v2:cycle-11-22",
+        "ruleVersion" : "independent-v2",
+        "length" : 2,
+        "score" : 75,
+        "participants" : [ {
+          "userId" : 101,
+          "displayName" : "叶同学",
+          "itemId" : 11,
+          "itemTitle" : "闲置教材"
+        }, {
+          "userId" : 102,
+          "displayName" : "蓝同学",
+          "itemId" : 22,
+          "itemTitle" : "便携音箱"
+        } ],
+        "flows" : [ {
+          "fromUserId" : 101,
+          "fromName" : "叶同学",
+          "toUserId" : 102,
+          "toName" : "蓝同学",
+          "itemId" : 11,
+          "itemTitle" : "闲置教材",
+          "demandId" : 504,
+          "matchedDemandIds" : [ 502, 503, 504 ],
+          "matchedCategoryId" : 1,
+          "matchedCategoryName" : "图书教材",
+          "matchedTags" : [ "教材", "轻便" ],
+          "reason" : "满足蓝同学的独立需求 #504：「图书教材」分类；偏好标签：教材、轻便"
+        }, {
+          "fromUserId" : 102,
+          "fromName" : "蓝同学",
+          "toUserId" : 101,
+          "toName" : "叶同学",
+          "itemId" : 22,
+          "itemTitle" : "便携音箱",
+          "demandId" : 501,
+          "matchedDemandIds" : [ 501 ],
+          "matchedCategoryId" : 2,
+          "matchedCategoryName" : "数码电子",
+          "matchedTags" : [ "便携" ],
+          "reason" : "满足叶同学的独立需求 #501：「数码电子」分类；偏好标签：便携"
+        } ],
+        "explanation" : "每人提供 1 件可交换物品，每名接收者至少一条与本人在本环提供物品关联的有效独立需求得到满足。每条流向选择标签计分贡献最高、同分需求 ID 最小的一条需求，标签计分贡献最多 4 个。标签仅用于排序，该推荐尚未占用物品。"
+      } ],
+      "ruleVersion" : "independent-v2"
+    }
+  },
+  "threeWay" : {
+    "code" : 200,
+    "msg" : "成功",
+    "data" : {
+      "recommendations" : [ {
+        "id" : "independent-v2:cycle-11-22-33",
+        "ruleVersion" : "independent-v2",
+        "length" : 3,
+        "score" : 70,
+        "participants" : [ {
+          "userId" : 101,
+          "displayName" : "叶同学",
+          "itemId" : 11,
+          "itemTitle" : "闲置教材"
+        }, {
+          "userId" : 102,
+          "displayName" : "蓝同学",
+          "itemId" : 22,
+          "itemTitle" : "便携音箱"
+        }, {
+          "userId" : 103,
+          "displayName" : "月同学",
+          "itemId" : 33,
+          "itemTitle" : "运动球拍"
+        } ],
+        "flows" : [ {
+          "fromUserId" : 101,
+          "fromName" : "叶同学",
+          "toUserId" : 102,
+          "toName" : "蓝同学",
+          "itemId" : 11,
+          "itemTitle" : "闲置教材",
+          "demandId" : 502,
+          "matchedDemandIds" : [ 502 ],
+          "matchedCategoryId" : 1,
+          "matchedCategoryName" : "图书教材",
+          "matchedTags" : [ "教材" ],
+          "reason" : "满足蓝同学的独立需求 #502：「图书教材」分类；偏好标签：教材"
+        }, {
+          "fromUserId" : 102,
+          "fromName" : "蓝同学",
+          "toUserId" : 103,
+          "toName" : "月同学",
+          "itemId" : 22,
+          "itemTitle" : "便携音箱",
+          "demandId" : 503,
+          "matchedDemandIds" : [ 503 ],
+          "matchedCategoryId" : 2,
+          "matchedCategoryName" : "数码电子",
+          "matchedTags" : [ "便携" ],
+          "reason" : "满足月同学的独立需求 #503：「数码电子」分类；偏好标签：便携"
+        }, {
+          "fromUserId" : 103,
+          "fromName" : "月同学",
+          "toUserId" : 101,
+          "toName" : "叶同学",
+          "itemId" : 33,
+          "itemTitle" : "运动球拍",
+          "demandId" : 501,
+          "matchedDemandIds" : [ 501 ],
+          "matchedCategoryId" : 3,
+          "matchedCategoryName" : "运动户外",
+          "matchedTags" : [ "运动" ],
+          "reason" : "满足叶同学的独立需求 #501：「运动户外」分类；偏好标签：运动"
+        } ],
+        "explanation" : "每人提供 1 件可交换物品，每名接收者至少一条与本人在本环提供物品关联的有效独立需求得到满足。每条流向选择标签计分贡献最高、同分需求 ID 最小的一条需求，标签计分贡献最多 4 个。标签仅用于排序，该推荐尚未占用物品。"
+      } ],
+      "ruleVersion" : "independent-v2"
+    }
+  },
+  "noResultAfterDeactivation" : {
+    "code" : 200,
+    "msg" : "成功",
+    "data" : {
+      "recommendations" : [ ],
+      "ruleVersion" : "independent-v2"
+    }
+  },
+  "overCandidateLimit" : {
+    "code" : 422,
+    "msg" : "初版匹配支持最多 200 件可交换物品；请先实现候选分区",
+    "data" : null
+  }
+}

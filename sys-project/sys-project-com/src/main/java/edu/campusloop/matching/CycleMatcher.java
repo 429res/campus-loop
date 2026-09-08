@@ -4,6 +4,9 @@ import java.util.*;
 
 /** Pure directed matching; reading recommendations never reserves an item. */
 public final class CycleMatcher {
+    public static final int MAX_ITEMS = 200;
+    public static final int MAX_RECOMMENDATIONS = 1000;
+
     public record Offer(long id, long ownerId, String ownerName, String title, long categoryId,
                         String categoryName, long wantedCategoryId, Set<String> tags,
                         Set<String> wantedTags, String status) {
@@ -30,6 +33,9 @@ public final class CycleMatcher {
         List<Offer> offers = byId.values().stream()
             .filter(group -> group.stream().distinct().count() == 1).map(group -> group.get(0))
             .filter(offer -> "AVAILABLE".equals(offer.status())).toList();
+        if (offers.size() > MAX_ITEMS) {
+            throw new MatchingLimitException("初版匹配支持最多 " + MAX_ITEMS + " 件可交换物品；请先缩小候选范围");
+        }
         Map<String, Recommendation> result = new LinkedHashMap<>();
         for (Offer a : offers) for (Offer b : offers) {
             if (a.id() >= b.id() || !edge(a, b)) continue;
@@ -51,6 +57,12 @@ public final class CycleMatcher {
             && provider.categoryId() == receiver.wantedCategoryId();
     }
     private void add(Map<String, Recommendation> result, List<Offer> ring) {
+        String id = "cycle-" + String.join("-", ring.stream().map(o -> Long.toString(o.id())).toList());
+        if (result.containsKey(id)) return;
+        // Fail before constructing another explanation; never return a partial recommendation list.
+        if (result.size() >= MAX_RECOMMENDATIONS) {
+            throw new MatchingLimitException("匹配方案超过 " + MAX_RECOMMENDATIONS + " 条；请先缩小候选范围");
+        }
         List<Flow> flows = new ArrayList<>(); int tagHits = 0;
         for (int i = 0; i < ring.size(); i++) {
             Offer provider = ring.get(i), receiver = ring.get((i + 1) % ring.size());
@@ -61,7 +73,6 @@ public final class CycleMatcher {
             flows.add(new Flow(provider.ownerId(), provider.ownerName(), receiver.ownerId(), receiver.ownerName(),
                 provider.id(), provider.title(), reason));
         }
-        String id = "cycle-" + String.join("-", ring.stream().map(o -> Long.toString(o.id())).toList());
         int score = 60 + (int) Math.round(10.0 * tagHits / ring.size());
         result.put(id, new Recommendation(id, ring.size(), score,
             ring.stream().map(o -> new Participant(o.ownerId(), o.ownerName(), o.id(), o.title())).toList(),

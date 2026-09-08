@@ -52,15 +52,20 @@ try {
     case 'admin': await run('npm',['run','dev','--','--host','127.0.0.1'],resolve(root,'project-self')); break
     case 'h5': await run('npm',['run','dev:h5','--','--host','127.0.0.1'],resolve(root,'wx-project-self')); break
     case 'wechat': await run('npm',['run','build:mp-weixin'],resolve(root,'wx-project-self')); break
-    case 'test': await run(wrapper,['-B','-ntp','test'],backend); break
+    case 'test':
+      await run('npm',['test'],resolve(root,'wx-project-self'))
+      await run(wrapper,['-B','-ntp','test'],backend)
+      break
     case 'mysql-test':
       if (!env.TEST_DB_URL || !env.TEST_DB_URL.includes('_test')) throw new Error('mysql-test 只允许显式 TEST_DB_URL 指向 _test 数据库。')
       await run(wrapper,['-B','-ntp','-Dcampus.mysql-test=true','test'],backend)
       break
     case 'build':
+      await run('npm',['test'],resolve(root,'wx-project-self'))
       await run('npm',['run','build'],resolve(root,'project-self'))
       await run('npm',['run','build:h5'],resolve(root,'wx-project-self'))
       await run('npm',['run','build:mp-weixin'],resolve(root,'wx-project-self'))
+      await run('npm',['run','test:mp-build'],resolve(root,'wx-project-self'))
       await run(wrapper,['-B','-ntp','verify'],backend)
       break
     case 'doctor':

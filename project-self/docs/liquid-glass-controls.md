@@ -15,6 +15,7 @@
 | 弹窗、抽屉 | SysDialog / Element Drawer + useOverlayLock；实验室 05、物品详情 |
 | 商品、表格、长表单 | 固定内容底色，内部操作沿用控件规范；不对每张卡片实时模糊 |
 | 物品审核表单 | Items / ReviewDecisionDialog；开发环境 `/fixtures/item-review` 覆盖理由错误、loading/disabled、403、409回读和失败保留。生产不注册夹具路由，写接口未合入前正式按钮禁用 |
+| 分类维护表单 | Categories / CategoryFormDialog；开发环境 `/fixtures/categories` 提供真实读取、空白/长度校验、提交防重入、错误保留与409回读夹具。生产不注册夹具路由，写接口未合入前正式按钮禁用 |
 
 所有控件共享悬停、聚焦、按下、选中、加载、禁用、错误、打开/关闭的相应状态。表格本身保持阅读效率。原生按钮和 Element Plus 保留键盘语义与焦点环，切换主题保持明确语义色；深色填充主按钮使用深色文字以保持对比。
 

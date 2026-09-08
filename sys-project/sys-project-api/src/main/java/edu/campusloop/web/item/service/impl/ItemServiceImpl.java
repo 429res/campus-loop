@@ -56,7 +56,8 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         baseMapper.insert(item);return views(List.of(item)).get(0);
     }
     @Override public List<ItemView> availableForMatching() {
-        List<Item> available=baseMapper.selectList(new QueryWrapper<Item>().eq("status","AVAILABLE").inSql("owner_id","SELECT id FROM cl_user WHERE status = 'ACTIVE'").orderByAsc("id").last("LIMIT 201"));
+        List<Item> available=baseMapper.selectList(new QueryWrapper<Item>().eq("status","AVAILABLE").inSql("owner_id","SELECT id FROM cl_user WHERE status = 'ACTIVE'")
+            .notExists("SELECT 1 FROM cl_item_hold h WHERE h.item_id = cl_item.id").orderByAsc("id").last("LIMIT 201"));
         if(available.size()>200) throw new ApiException(422,"初版匹配支持最多 200 件可交换物品；请先实现候选分区");
         return views(available);
     }
