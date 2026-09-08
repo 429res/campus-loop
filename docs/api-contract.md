@@ -43,6 +43,8 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 启停审计返回 `id,targetUserId,operatorUserId,operatorUsername,operatorDisplayName,previousStatus,newStatus,reason,previousVersion,newVersion,createdAt`。审计不保存口令、密码哈希、JWT、会话标识或请求头。停用不会删除或改写账号已有物品；既有公开物品仍按物品状态保持可读，但停用账号的物品不进入匹配候选，重新启用后再按物品状态参与推荐。
 
+管理端账号页面在启停成功后使用原筛选和分页重新查询列表，并重新读取已打开账号的审计；409 时保留理由和操作上下文、回读最新账号版本后要求人工重新判断，不自动重试。403 不清空已有页面；401 统一清除本地会话并返回登录页。前端角色入口仅改善体验，不替代上述服务端鉴权。
+
 发布输入：`title`、`description`、`categoryId`、`conditionLevel`（1–5）、`tags`（数组）、`wantedCategoryId`、`wantedTags`（偏好数组）、可选`imageUrl`。实际长度限制见后端DTO；两端应同步校验，服务端是最终约束。
 
 物品输出：`id,ownerId,ownerName,title,description,categoryId,categoryName,conditionLevel,tags,wantedCategoryId,wantedCategoryName,wantedTags,imageUrl,status,createdAt`。发布者从会话确定，不接受客户端owner/role/status；本次初始化直接写AVAILABLE，后续内容审核引入PENDING_REVIEW需契约变更。

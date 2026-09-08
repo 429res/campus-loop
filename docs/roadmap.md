@@ -40,6 +40,7 @@ B-02独立匹配进度见下一节；requiredTags/最低成色硬条件、正式
 
 ### C-01 分批状态
 
+- “账号查询与启停”管理端切片已接入 A-01 的真实分页查询、筛选、审计与版本化启停 API；前端实现和验证边界见 [c01-account-status.md](c01-account-status.md)。
 - “物品审核”管理端只读切片和表单夹具已在功能分支实现，接入说明见 [c01-item-review.md](c01-item-review.md)。
 - A-02 尚未提供审核写接口、`ItemView.version`、审核元数据或状态筛选；D-01 仍按直发 `AVAILABLE` 工作，B-02 仍只消费 `AVAILABLE`。因此真实审核、并发冲突和跨端状态迁移未完成，不能将 C-01 标记完成。
 

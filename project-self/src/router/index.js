@@ -39,6 +39,11 @@ const router = createRouter({
       meta: { title: "分类维护" },
     },
     {
+      path: "/users",
+      component: () => import("@/views/Users.vue"),
+      meta: { title: "账号管理" },
+    },
+    {
       path: "/matches",
       component: () => import("@/views/Matches.vue"),
       meta: { title: "交换推荐" },

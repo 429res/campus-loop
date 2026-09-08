@@ -27,6 +27,7 @@ const links = [
   { path: "/", label: "循环概览", icon: DataBoard },
   { path: "/items", label: "物品审核", icon: Box },
   { path: "/categories", label: "分类维护", icon: CollectionTag },
+  { path: "/users", label: "账号管理", icon: User },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
