@@ -37,6 +37,7 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | --- | --- |
 | GET/POST/PATCH /demands | 当前用户需求清单，owner权限，version条件更新 |
 | PUT/DELETE /items/{id}/favorite | 当前用户幂等收藏，unique(user,item) |
+| POST/PATCH/DELETE /admin/categories（路径待 A 确认） | C-01 最小依赖草案，尚未实现：仅 ADMIN；名称 trim 后 1–64 字符且唯一；PATCH/DELETE 必须携带服务端版本，过期版本返回409；被物品 `categoryId` 或 `wantedCategoryId` 引用时禁止级联删除并返回409。排序与可用状态尚无契约，本轮前端不提供对应写控件。 |
 | POST /exchanges | 物品有序列表、规则版本、idempotencyKey；事务重校验、锁定、唯一占用；冲突409 |
 | POST /exchanges/{id}/confirm | 仅参与者，state/version校验，重复确认幂等 |
 | POST /exchanges/{id}/handoff | 参与者交接凭据；全部确认才转移所有权 |
@@ -46,5 +47,9 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | POST /admin/reviews/{id}/decision | ADMIN + version + 理由 + 不可覆盖审计事件 |
 
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
+
+分类维护的响应形状仍需 A/C 在实现前确认。写入成功应返回持久化后的分类记录，前端随后从 API 回读；409 后同样回读相关记录，不以本地表单覆盖服务端。若采用停用而非删除，A 需先定义状态字段、公开 `GET /categories` 是否过滤停用项及既有物品的显示规则，D 再同步两端分类选择器。当前消费者只可依赖 `{id,name}`。
+
+对 A 的最小依赖是：确认写路径与 DTO、补分类版本并以409区分并发冲突/重名、以409保护 `cl_item.category_id` 和 `wanted_category_id` 引用、对非 ADMIN 返回403，且写成功返回持久化结果。对 D 的当前影响为零：H5/微信继续只消费 `{id,name}`；只有 A/C 后续确认停用或排序字段时，才需要同步选择器过滤、展示顺序与失效分类回显。
 
 精确DTO限制、已预留路径和后端实现入口见 [backend-contract.md](backend-contract.md)。
