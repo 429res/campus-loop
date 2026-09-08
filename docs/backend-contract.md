@@ -51,16 +51,11 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 ## 交换创建与并发设计（后续实现）
 
-建议 POST `/api/exchanges` 请求含 `{ itemIds: [..], idempotencyKey }`，由服务器重新计算和验证环方向，不能相信客户端 score、用户 ID、reason 或状态。发起人必须拥有其中一件物品。
+B-03 已用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion}]}` 替代 itemIds 草案，详情见 [API契约](api-contract.md)。ExchangeApplicationService → A主责ExchangeCreationTransaction → B纯ExchangeCycleValidator是唯一调用链；A已确认尚无事务实现，合法POST继续501。本人分页/参与者详情已在本分支实现，非参与者404且ADMIN无绕过；allowedActions为空。
 
-一个数据库事务中：
+A接入时先处理(initiator,key)及有向环规范化摘要重放，同键异请求409；同请求返回原交换并保留原截止，不能因首次占用/版本递增而拒绝。新请求按所选需求升序 → 物品及占用升序 → 必要分类升序锁定并重读，兼容需求编辑锁序；已有交换操作先锁exchange。用户行/幂等/外键锁序须A用MySQL验证。锁内调用B验证器，然后原子写AWAITING_CONFIRMATION/version=0、全员未确认、DB UTC+24h截止、参与者/唯一占用，物品RESERVED/version+1且保留审核信息。A负责新增精确需求引用/快照/摘要迁移及进行中需求冻结，B不复制写入器或表。
 
-1. 以确定的物品 ID 升序执行 `SELECT ... FOR UPDATE`，重新读取所有拥有者、分类、需求、状态、version，并检查参与者和环规则。
-2. 读取幂等键；相同发起人 + 幂等键的相同请求返回原交换，不同 payload 返回 409。需新增规范化请求摘要字段防止幂等键被误复用。
-3. 创建 AWAITING_CONFIRMATION 交换及参与者。创建时即插入短时 `cl_item_hold`、将物品标为 RESERVED；“正式交换创建”会占用，推荐浏览不会。唯一 item_id 是跨不同交换并发的最后保障；冲突整笔回滚并返回 409。
-4. 记录 expires_at 和 version。事务提交后才通知；下一阶段使用事务 outbox，通知失败不回滚已确认交易。
-
-确认接口只允许该交换参与者。每次事务先锁 exchange，再按同一顺序锁 items，校验到期时间及当前状态；重复确认幂等。全部确认才变 READY。确认截止时间与交接截止时间区分设置，建议在下一迁移增加明确字段。
+确认接口及其状态推进尚未实现，不能由本轮创建规则暗中决定未来动作；全员确认后READY等后续设计保留如下。
 
 READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双方均确认后才 COMPLETED，更新物品 EXCHANGED，并追加 BOTH_CONFIRMED 履历。禁止一个人的点击冒充所有人的确认。完成事务把物品 owner 转给对应接收人、关闭原挂牌需求，同时保留原物品永久 ID 与包含原始参与者的所有权事件。重新交换须由新拥有者重新填写需求；具体关闭字段及历史快照在后续版本迁移中补全，不能只覆盖 owner 而丢失来源。
 

@@ -12,7 +12,7 @@ public record IndependentMatchingInput(List<Offer> offers, List<Demand> demands)
 
     public record Offer(long id, long ownerId, String ownerName, String title, long categoryId,
                         String categoryName, Set<String> tags, String status, String userStatus,
-                        boolean held) {
+                        boolean held, int version) {
         public Offer {
             tags = tags == null ? Set.of() : Set.copyOf(tags);
         }

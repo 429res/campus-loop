@@ -409,7 +409,7 @@ class CampusIntegrationTest {
         } finally {jdbc.update("UPDATE cl_user SET status='ACTIVE' WHERE id=1001");}
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold",Integer.class));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange",Integer.class));
-        mvc.perform(post("/api/exchanges").header("Authorization","Bearer "+memberToken)).andExpect(status().isNotImplemented()).andExpect(jsonPath("$.code").value(501));
+        mvc.perform(post("/api/exchanges").contentType("application/json").content("{\"ruleVersion\":\"independent-v2\",\"idempotencyKey\":\"pending-test\",\"flows\":[{\"itemId\":1,\"itemVersion\":0,\"demandId\":2,\"demandVersion\":0},{\"itemId\":2,\"itemVersion\":0,\"demandId\":1,\"demandVersion\":0}]}").header("Authorization","Bearer "+memberToken)).andExpect(status().isNotImplemented()).andExpect(jsonPath("$.code").value(501));
     }
     @Test void uploadValidatesContentAndOwnership() throws Exception {
         mvc.perform(multipart("/api/uploads").file(new MockMultipartFile("file","fake.png","image/png","not an image".getBytes())).header("Authorization","Bearer "+memberToken)).andExpect(status().isBadRequest());

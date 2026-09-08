@@ -1,12 +1,12 @@
 # B-03 第二切片：邀请确认与取消规则准备
 
-2026-09-08，分支 `feature/b03-invitation-rules`，基线main `be38017`。依赖核查：B-03.1 [PR #28](https://github.com/429res/campus-loop/pull/28)未合入，A-03正式创建/唯一占用尚无实现，A-04也未实现。发起人明确选择“先由A完成A-03；B先整理本片契约与独立验证”。因此本PR不接入生产写动作，不标记B-03.2完整验收。协作见 [Issue #30](https://github.com/429res/campus-loop/issues/30)，创建边界延续 [Issue #25](https://github.com/429res/campus-loop/issues/25)。
+2026-09-08，分支 `feature/b03-invitation-rules`，同步main `c8e9185`。依赖核查：B-03.1 [PR #28](https://github.com/429res/campus-loop/pull/28)已合入，提供领域入口及本人读取，A-03正式创建/唯一占用尚无实现，A-04也未实现。发起人明确选择“先由A完成A-03；B先整理本片契约与独立验证”。因此本PR不接入生产写动作，不标记B-03.2完整验收。协作见 [Issue #30](https://github.com/429res/campus-loop/issues/30)，创建边界延续 [Issue #25](https://github.com/429res/campus-loop/issues/25)。
 
 ## 当前交付
 
 `sys-project-com`新增单一 `ExchangeLifecycleRules` 纯规则，确认、取消、A-04到期决策及未来allowedActions共用同一状态/时间判断。它只接收不可变数据库事实与显式databaseNow，返回下一快照、一个可选事件和可选releaseExchangeId；没有Mapper、事务、时钟读取、定时任务、消息发送或物品写入。null事件表示重放/不操作，不能据此再次写审计或释放。
 
-现有创建/confirm/cancel/handoff控制器原样返回501。纯规则算出的permittedActions不能直接开放按钮：生产能力尚未接入，实际可执行动作仍为空；B-03.1详情也仍是未合入PR中的能力。没有新增取消/超时服务、表或迁移号，不给A另造一套实现。邀请沿用交换参与者及本人查询，不启用外部消息服务。
+合法创建命令及已认证的confirm/cancel/handoff仍返回501。纯规则算出的permittedActions不能直接开放按钮：生产能力尚未接入，实际可执行动作仍为空；B-03.1本人列表/详情已真实可读，当前allowedActions始终为空。没有新增取消/超时服务、表或迁移号，不给A另造一套实现。邀请沿用交换参与者及本人查询，不启用外部消息服务。
 
 ## 已确认的状态与权限矩阵
 

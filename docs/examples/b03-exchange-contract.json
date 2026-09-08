@@ -1,0 +1,269 @@
+{
+  "note": "全部身份和ID为虚构；200是V2已存交换的读取契约样例，不是本轮POST创建成功证据。A-03尚未接入。",
+  "create": {
+    "request": {
+      "ruleVersion": "independent-v2",
+      "idempotencyKey": "fictional-request-01",
+      "flows": [
+        {
+          "itemId": 11,
+          "itemVersion": 3,
+          "demandId": 502,
+          "demandVersion": 4
+        },
+        {
+          "itemId": 22,
+          "itemVersion": 5,
+          "demandId": 501,
+          "demandVersion": 6
+        }
+      ]
+    },
+    "currentResponse": {
+      "code": 501,
+      "msg": "A-03 创建事务尚未接入；未创建交换或占用物品",
+      "data": null
+    }
+  },
+  "twoPartyDetail": {
+    "code": 200,
+    "msg": "成功",
+    "data": {
+      "id": 9101,
+      "initiatorId": 101,
+      "status": "AWAITING_CONFIRMATION",
+      "version": 0,
+      "createdAt": "2026-09-08T01:00:00Z",
+      "expiresAt": "2026-09-09T01:00:00Z",
+      "participants": [
+        {
+          "userId": 101,
+          "displayName": "叶同学",
+          "offeredItemId": 11,
+          "receivedItemId": 22,
+          "confirmationStatus": "PENDING",
+          "confirmedAt": null,
+          "handedOffAt": null,
+          "receivedAt": null
+        },
+        {
+          "userId": 102,
+          "displayName": "蓝同学",
+          "offeredItemId": 22,
+          "receivedItemId": 11,
+          "confirmationStatus": "PENDING",
+          "confirmedAt": null,
+          "handedOffAt": null,
+          "receivedAt": null
+        }
+      ],
+      "flows": [
+        {
+          "itemId": 11,
+          "fromUserId": 101,
+          "toUserId": 102
+        },
+        {
+          "itemId": 22,
+          "fromUserId": 102,
+          "toUserId": 101
+        }
+      ],
+      "allowedActions": []
+    }
+  },
+  "threePartyDetail": {
+    "code": 200,
+    "msg": "成功",
+    "data": {
+      "id": 9102,
+      "initiatorId": 101,
+      "status": "AWAITING_CONFIRMATION",
+      "version": 0,
+      "createdAt": "2026-09-08T01:00:00Z",
+      "expiresAt": "2026-09-09T01:00:00Z",
+      "participants": [
+        {
+          "userId": 101,
+          "displayName": "叶同学",
+          "offeredItemId": 11,
+          "receivedItemId": 33,
+          "confirmationStatus": "PENDING",
+          "confirmedAt": null,
+          "handedOffAt": null,
+          "receivedAt": null
+        },
+        {
+          "userId": 102,
+          "displayName": "蓝同学",
+          "offeredItemId": 22,
+          "receivedItemId": 11,
+          "confirmationStatus": "PENDING",
+          "confirmedAt": null,
+          "handedOffAt": null,
+          "receivedAt": null
+        },
+        {
+          "userId": 103,
+          "displayName": "月同学",
+          "offeredItemId": 33,
+          "receivedItemId": 22,
+          "confirmationStatus": "PENDING",
+          "confirmedAt": null,
+          "handedOffAt": null,
+          "receivedAt": null
+        }
+      ],
+      "flows": [
+        {
+          "itemId": 11,
+          "fromUserId": 101,
+          "toUserId": 102
+        },
+        {
+          "itemId": 22,
+          "fromUserId": 102,
+          "toUserId": 103
+        },
+        {
+          "itemId": 33,
+          "fromUserId": 103,
+          "toUserId": 101
+        }
+      ],
+      "allowedActions": []
+    }
+  },
+  "mine": {
+    "code": 200,
+    "msg": "成功",
+    "data": {
+      "records": [
+        {
+          "id": 9102,
+          "initiatorId": 101,
+          "status": "AWAITING_CONFIRMATION",
+          "version": 0,
+          "createdAt": "2026-09-08T01:00:00Z",
+          "expiresAt": "2026-09-09T01:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "叶同学",
+              "offeredItemId": 11,
+              "receivedItemId": 33,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "蓝同学",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 103,
+              "displayName": "月同学",
+              "offeredItemId": 33,
+              "receivedItemId": 22,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 103
+            },
+            {
+              "itemId": 33,
+              "fromUserId": 103,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": []
+        },
+        {
+          "id": 9101,
+          "initiatorId": 101,
+          "status": "AWAITING_CONFIRMATION",
+          "version": 0,
+          "createdAt": "2026-09-08T01:00:00Z",
+          "expiresAt": "2026-09-09T01:00:00Z",
+          "participants": [
+            {
+              "userId": 101,
+              "displayName": "叶同学",
+              "offeredItemId": 11,
+              "receivedItemId": 22,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            },
+            {
+              "userId": 102,
+              "displayName": "蓝同学",
+              "offeredItemId": 22,
+              "receivedItemId": 11,
+              "confirmationStatus": "PENDING",
+              "confirmedAt": null,
+              "handedOffAt": null,
+              "receivedAt": null
+            }
+          ],
+          "flows": [
+            {
+              "itemId": 11,
+              "fromUserId": 101,
+              "toUserId": 102
+            },
+            {
+              "itemId": 22,
+              "fromUserId": 102,
+              "toUserId": 101
+            }
+          ],
+          "allowedActions": []
+        }
+      ],
+      "total": 2,
+      "page": 1,
+      "size": 12
+    }
+  },
+  "emptyMine": {
+    "code": 200,
+    "msg": "成功",
+    "data": {
+      "records": [],
+      "total": 0,
+      "page": 1,
+      "size": 12
+    }
+  },
+  "nonParticipant": {
+    "code": 404,
+    "msg": "交换不存在或不可见",
+    "data": null
+  },
+  "oldRule": {
+    "code": 409,
+    "msg": "推荐规则已失效，请重新获取独立需求推荐",
+    "data": null
+  }
+}
