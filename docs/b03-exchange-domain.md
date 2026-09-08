@@ -63,7 +63,7 @@ C-03后续独立ADMIN路径：`GET /api/admin/exchanges?page=1&size=12&status=`�
 
 ## 本次实际验证（2026-09-08）
 
-- `node scripts/run.mjs test`：用户端现有36项、后端140项通过；后端为52项公共规则+88项API/集成，其中本次新增10项领域、2项DTO、9项隔离集成。原B-02标签/排序/反向/上限测试保留，版本测试增加元数据断言。
+- `node scripts/run.mjs test`：用户端47项、后端140项通过；后端为52项公共规则+88项API/集成，其中本次新增10项领域、2项DTO、9项隔离集成。原B-02标签/排序/反向/上限测试保留，版本测试增加元数据断言。
 - `CAMPUS_TEST_PORT=3331 node scripts/mysql-test.mjs`：全新MySQL8.4.11，Flyway V1–V7成功，后端140项通过。新9项经MockMvc真实认证/MVC/事务/Mapper读取MySQL；涉及用户/物品/需求状态、归属、关联、版本、私有读取、合法2/3环域验证及缺失A端口501。
 - 查询及域核查前后逐行比较cl_item/cl_demand/cl_demand_item/cl_exchange/cl_exchange_participant/cl_item_hold六表，无写入变化；测试结束仅清理自身夹具，原始基线逐行保持不变。容器已自动停止删除，未连接日常库或输出凭据。
 - MySQL整套还运行既有A-02审核/物品/收藏/分类的并发回归，但它们**不证明A-03创建锁行为**。没有A-03创建并发用例可复用，正式创建/同键重放/争抢唯一成功/失败无部分参与者或占用仍待A-03，不以H2或手写SQL夹具替代。
