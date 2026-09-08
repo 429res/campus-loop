@@ -7,7 +7,7 @@
 - 正式创建继续走 B 的 `ExchangeApplicationService → A 的 DefaultExchangeCreationTransaction → ExchangeCycleValidator`，没有第二个创建器。
 - 确认、取消和内部到期统一走 `ExchangeLifecycleService → ExchangeLifecycleRules`。创建与生命周期共用从 A-03 提取的 `ExchangeTransactionExecutor`（READ_COMMITTED、REQUIRES_NEW、20秒超时、瞬态冲突最多3次整事务重试）和 `ExchangeDatabaseClock`（数据库UTC、沿用TIMESTAMP秒精度）。
 - `POST /api/exchanges/{id}/confirm`、`/cancel` 已实现，完成提交后回读参与者详情。本人列表/详情将参与记录作为邀请，返回当前动作；没有外部消息服务。
-- A-04 后续只需在扫描中调用 `ExchangeLifecycleService.expire(id)`；目前已有共同事务入口，但没有定时扫描、批次重试和重启恢复联调。没有对外expire接口。交接仍501，不执行所有权转移。
+- A-04已通过 `ExchangeLifecycleService.expireForScan(id)` 接通扫描，复用同一个applyLocked，仅首锁改为SKIP LOCKED；批次、V10持久退避和重启恢复见[A-04](a04-exchange-expiry.md)。没有对外expire接口。交接仍501，不执行所有权转移。
 
 ## 已确认的状态与权限矩阵
 
@@ -57,4 +57,4 @@ A-03 V8 明确后续从V9协调，已在Issue #30同步 `V9__exchange_lifecycle.
 
 扩展同一 `ExchangeDomainIntegrationTest`，复用A-03真实创建、SQL探针、事务等待与回滚检查。完整命令、最终数量、MySQL及迁移升级结果见[验证记录](verification.md)和本PR；纯规则/H2不单独证明锁行为。清理仅处理本轮虚构数据并比较原业务行，临时MySQL由脚本自动删除。
 
-本轮只完成B-03第二切片后端。交接、所有权转移、C/D页面接入、A-04扫描/恢复及浏览器/微信联调仍待后续，不标记整个B-03或A-04完成。
+本轮只完成B-03第二切片后端。交接、所有权转移、C/D页面接入、浏览器/微信联调仍待后续；A-04扫描/恢复由独立切片补充，不标记整个B-03或A-04完成。

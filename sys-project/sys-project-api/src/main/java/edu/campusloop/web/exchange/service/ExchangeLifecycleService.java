@@ -36,6 +36,14 @@ public class ExchangeLifecycleService {
     public long confirm(long actor,long id,int version) { change(actor,id,version,null,Operation.CONFIRM);return id; }
     public long cancel(long actor,long id,int version,String reason) { change(actor,id,version,reason,Operation.CANCEL);return id; }
     public boolean expire(long id) { return change(null,id,null,null,Operation.EXPIRE); }
+    /** Scanner skips busy exchanges; all state/time/ownership decisions still use the same locked path. */
+    public boolean expireForScan(long id) {
+        if(id<1) throw new ApiException(400,"交换ID须为正整数");
+        return transactions.execute("交换到期",() -> {
+            var row=writes.tryLock(id);
+            return row!=null && applyLocked(null,id,null,null,Operation.EXPIRE,row);
+        });
+    }
     private boolean change(Long actor,long id,Integer version,String reason,Operation operation) {
         if(id<1) throw new ApiException(400,"交换ID须为正整数");
         return transactions.execute("交换操作",() -> locked(actor,id,version,reason,operation));
@@ -43,6 +51,9 @@ public class ExchangeLifecycleService {
     private boolean locked(Long actor,long id,Integer version,String reason,Operation operation) {
         var row=writes.lock(id);
         if(row==null) { if(operation==Operation.EXPIRE) return false;throw new ApiException(404,"交换不存在或不可见"); }
+        return applyLocked(actor,id,version,reason,operation,row);
+    }
+    private boolean applyLocked(Long actor,long id,Integer version,String reason,Operation operation,ExchangeRecord row) {
         var people=exchanges.participants(List.of(id));
         if(actor!=null && people.stream().noneMatch(p -> p.getUserId().equals(actor))) throw new ApiException(404,"交换不存在或不可见");
         if(!supported(row)) throw new ApiException(409,"旧交换缺少创建依据，仅支持读取");

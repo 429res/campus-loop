@@ -42,3 +42,9 @@ campus:
   bootstrap-user-password: ${CAMPUS_USER_PASSWORD:}
   bootstrap-only: ${CAMPUS_BOOTSTRAP_ONLY:false}
   demo-enabled: ${CAMPUS_DEMO_ENABLED:true}
+
+  exchange-expiry:
+    enabled: ${CAMPUS_EXCHANGE_EXPIRY_ENABLED:true}
+    batch-size: ${CAMPUS_EXCHANGE_EXPIRY_BATCH_SIZE:50}
+    delay-ms: ${CAMPUS_EXCHANGE_EXPIRY_DELAY_MS:30000}
+    initial-delay-ms: ${CAMPUS_EXCHANGE_EXPIRY_INITIAL_DELAY_MS:1000}
