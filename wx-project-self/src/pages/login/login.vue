@@ -1,9 +1,12 @@
 <script setup>
 import LoopButton from '../../components/LoopButton.vue'
 import { ref } from 'vue'
+import { onLoad } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
 const username = ref(''), password = ref(''), busy = ref(false), error = ref('')
+let redirect = 'profile'
+onLoad(options => { if (options.redirect === 'publish') redirect = 'publish' })
 async function login() {
   if (busy.value) return
   error.value = ''
@@ -12,7 +15,7 @@ async function login() {
   try {
     const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true})
     uni.setStorageSync(TOKEN_KEY,result.token); uni.setStorageSync(USER_KEY,result.user); password.value = ''
-    uni.switchTab({url:'/pages/profile/profile'})
+    uni.switchTab({url:`/pages/${redirect}/${redirect}`})
   } catch(e) { error.value = e.message } finally { busy.value = false }
 }
 </script>
