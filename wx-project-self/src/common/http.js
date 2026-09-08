@@ -9,13 +9,18 @@ export const TOKEN_KEY = 'campus-loop-token'
 export const USER_KEY = 'campus-loop-user'
 export const clearSession = () => { uni.removeStorageSync(TOKEN_KEY); uni.removeStorageSync(USER_KEY) }
 const showError = message => uni.showToast({ title: message || '请求失败，请重试', icon: 'none', duration: 2500 })
-const unpack = (response, token) => {
+const unpack = (response, token, options = {}) => {
   let result = response.data
-  if (typeof result === 'string') result = JSON.parse(result)
+  if (typeof result === 'string') {
+    try { result = JSON.parse(result) } catch { result = null }
+  }
   if (response.statusCode >= 200 && response.statusCode < 300 && result?.code === 200) return result.data
-  if (response.statusCode === 401 && token === uni.getStorageSync(TOKEN_KEY)) clearSession()
-  const error = new Error(result?.msg || `请求失败（${response.statusCode}）`)
+  const staleSession = response.statusCode === 401 && !!token
+  if (staleSession && token === uni.getStorageSync(TOKEN_KEY)) clearSession()
+  const error = new Error(staleSession ? '登录已过期，请重新登录' : result?.msg || `请求失败（${response.statusCode}）`)
   error.status = response.statusCode
+  error.reauth = staleSession
+  error.uncertain = options.uncertainOnFailure === true && [408, 502, 503, 504].includes(response.statusCode)
   throw error
 }
 const request = (method, url, data = {}, options = {}) => new Promise((resolve, reject) => {
@@ -23,8 +28,16 @@ const request = (method, url, data = {}, options = {}) => new Promise((resolve, 
   uni.request({
     url: `${baseUrl}${url}`, method, data, timeout: 15000,
     header: { 'content-type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    success(response) { try { resolve(unpack(response, token)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
-    fail() { const error = new Error('无法连接服务器，请检查后端服务'); if (!options.silent) showError(error.message); reject(error) },
+    success(response) { try { resolve(unpack(response, token, options)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
+    fail(result) {
+      const uncertain = options.uncertainOnFailure === true
+      const timeout = /timeout/i.test(result?.errMsg || '')
+      const error = new Error(uncertain ? '未收到服务器响应，操作结果无法确认' : timeout ? '请求超时，请稍后重试' : '无法连接服务器，请检查后端服务')
+      error.code = timeout ? 'TIMEOUT' : 'NETWORK_ERROR'
+      error.uncertain = uncertain
+      if (!options.silent) showError(error.message)
+      reject(error)
+    },
   })
 })
 const upload = filePath => new Promise((resolve, reject) => {
@@ -43,4 +56,10 @@ export const imageUrl = (path, title = '') => {
   const kind = /相机|拍|摄影/.test(title) ? 'camera' : /灯/.test(title) ? 'lamp' : /车|骑/.test(title) ? 'bike' : 'book'
   return `/static/demo/${kind}.svg`
 }
-export default { get: (url, data, options) => request('GET', url, data, options), post: (url, data, options) => request('POST', url, data, options), upload, baseUrl }
+export default {
+  get: (url, data, options) => request('GET', url, data, options),
+  post: (url, data, options) => request('POST', url, data, options),
+  patch: (url, data, options) => request('PATCH', url, data, options),
+  upload,
+  baseUrl,
+}
