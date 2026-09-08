@@ -15,6 +15,7 @@ const passwordForm = reactive({ currentPassword:'', newPassword:'', confirmPassw
 const login = reason => uni.navigateTo({url:`/pages/login/login${reason ? `?reason=${reason}` : ''}`})
 const gallery = () => uni.navigateTo({url:'/pages/controls/controls'})
 const publish = () => uni.switchTab({url:'/pages/publish/publish'})
+const favorites = () => uni.navigateTo({url:'/pages/favorites/favorites'})
 
 function applyUser(value) {
   user.value = value
@@ -139,10 +140,10 @@ onShow(load)
           </form>
         </view>
       </view>
-      <view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="publish"><text class="profile-action-icon">＋</text><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="gallery"><text class="profile-action-icon blue">◫</text><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><text class="profile-action-arrow">↗</text></LoopButton></view>
+      <view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="publish"><text class="profile-action-icon">＋</text><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="favorites"><text class="profile-action-icon blue">♡</text><text class="profile-action-title">我的收藏</text><text class="cl-hint">服务端接口待 A-02 后续批次</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="gallery"><text class="profile-action-icon blue">◫</text><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><text class="profile-action-arrow">↗</text></LoopButton></view>
     </template>
     <view v-else class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>登录后管理本人资料</text><text class="cl-hint">注册、头像、联系方式与角色修改暂未开放。</text><LoopButton class="cl-btn cl-btn--primary" @click="login()">登录</LoopButton></view>
-    <view class="cl-section-heading"><text class="cl-section-title">我的物品</text><text class="cl-tag cl-tag--muted">等待 A-02 接口</text></view><view class="cl-panel cl-empty"><text>本人列表、编辑与下架暂未开放</text><text class="cl-hint">客户端不会从公开列表按 ownerId 过滤来冒充本人权限查询；接口契约和鉴权就绪后再接入。</text></view><view class="cl-section-heading"><text class="cl-section-title">接下来，一起完善</text><text class="cl-tag cl-tag--muted">待开发</text></view><view class="cl-panel pending-grid"><view v-for="module in [{name:'独立需求清单',desc:'我想要的物品与偏好管理'},{name:'我的交换',desc:'邀请、确认、交接、取消与超时'},{name:'收藏夹',desc:'收藏物品与跨设备读取'},{name:'物品履历',desc:'用户自述、双方确认与管理员核验'},{name:'个人资料',desc:'头像、联系方式与校园身份'},{name:'举报与争议',desc:'处理流程与结果记录'}]" :key="module.name" class="pending-module"><text class="cl-field-title">{{ module.name }}</text><text class="cl-hint">{{ module.desc }}</text><text class="pending-label">规划中 · 尚未开放</text></view></view>
+    <view class="cl-section-heading"><text class="cl-section-title">我的物品</text><text class="cl-tag cl-tag--muted">A-02 接口已就绪</text></view><view class="cl-panel cl-empty"><text>本人列表、编辑与下架等待 D-01 页面接入</text><text class="cl-hint">本次只处理收藏入口和推荐理由，不扩大到物品管理。</text></view><view class="cl-section-heading"><text class="cl-section-title">接下来，一起完善</text><text class="cl-tag cl-tag--muted">待开发</text></view><view class="cl-panel pending-grid"><view v-for="module in [{name:'独立需求清单',desc:'我想要的物品与偏好管理'},{name:'我的交换',desc:'邀请、确认、交接、取消与超时'},{name:'物品履历',desc:'用户自述、双方确认与管理员核验'},{name:'个人资料',desc:'头像、联系方式与校园身份'},{name:'举报与争议',desc:'处理流程与结果记录'}]" :key="module.name" class="pending-module"><text class="cl-field-title">{{ module.name }}</text><text class="cl-hint">{{ module.desc }}</text><text class="pending-label">规划中 · 尚未开放</text></view></view>
   </LoopLayout>
 </template>
 

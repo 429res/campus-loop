@@ -21,9 +21,9 @@ B-02独立匹配进度见下一节；requiredTags/最低成色硬条件、正式
 
 ## B-02：独立需求与可解释匹配
 
-状态：`feature/b02-independent-matching` 已实现并完成本地验收（H2和一次性MySQL各64项通过），待PR审阅与CI，基于已合入B-01的main；协作 [Issue #7](https://github.com/429res/campus-loop/issues/7)。新显式登录入口只使用独立ACTIVE需求及有效本人物品关联，返回需求命中、流向、分类/标签与规则版本；旧入口保持旧来源。分类仍是硬条件，requiredTags/最低成色未启用。本轮只读，无正式交换或占用。
+状态：已通过 PR #11 合入 main；协作 [Issue #7](https://github.com/429res/campus-loop/issues/7)。新显式登录入口只使用独立 ACTIVE 需求及有效本人物品关联，返回需求命中、流向、分类/标签与规则版本；旧入口保持旧来源。分类仍是硬条件，requiredTags/最低成色未启用。本轮只读，无正式交换或占用。D-02 推荐理由接入见 [切片状态](d02-favorites-reasons-status.md)。
 
-多需求确定性选择、D样例和限额已同步，D-02消费复核仍待完成；该页面不在本切片实现。实际后端与隔离MySQL证据见 [B-02说明](b02-independent-matching.md)。
+多需求确定性选择、D 样例和限额已同步。D-02 只消费服务端结果，不在前端重算规则；实际后端与隔离 MySQL 证据见 [B-02 说明](b02-independent-matching.md)。
 
 ## 下一迭代：闭合交换链路
 

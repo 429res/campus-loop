@@ -97,9 +97,9 @@ Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,st
 
 需求迁移使用 V4，保留 main 已合入的 V3 用户状态管理迁移及 V1/V2 原文。A/D 的候选基数复核仍待团队回复；不把未收到的确认写成已完成。接入样例和状态见 [b01-independent-demands.md](b01-independent-demands.md)。
 
-## B-02 独立需求推荐（本功能分支）
+## B-02 独立需求推荐
 
-B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不代表已合入main或完成D-02页面。兼容和多需求策略已在 [Issue #7](https://github.com/429res/campus-loop/issues/7) 同步，消费端复核状态见 [B-02说明](b02-independent-matching.md)。
+B-01 与 B-02 已合入 main，当前迁移为 V4；本节是 D-02 可调用的真实推荐契约，但不代表收藏或正式交换已实现。兼容和多需求策略见 [B-02 说明](b02-independent-matching.md)。
 
 | 方法和路径 | 权限与结果 |
 | --- | --- |
