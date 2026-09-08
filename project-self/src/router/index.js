@@ -3,6 +3,11 @@ import { useAuth } from "@/stores/auth";
 const developmentRoutes = import.meta.env.DEV
   ? [
       {
+        path: "/fixtures/item-review",
+        component: () => import("@/views/Items.vue"),
+        meta: { public: true, title: "物品审核组件夹具" },
+      },
+      {
         path: "/fixtures/categories",
         component: () => import("@/views/Categories.vue"),
         meta: { public: true, title: "分类维护组件夹具" },
@@ -26,7 +31,7 @@ const router = createRouter({
     {
       path: "/items",
       component: () => import("@/views/Items.vue"),
-      meta: { title: "物品管理" },
+      meta: { title: "物品审核" },
     },
     {
       path: "/categories",

@@ -33,8 +33,8 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 分类 | 当前 | id、name；物品与需求引用有效分类 |
 | 物品 | 当前 | owner、title、description、category、condition 1–5、tags、imageUrl、AVAILABLE 等状态、version、时间 |
 | 物品附带需求 | 当前最小实现 | wantedCategoryId、wantedTags；每件物品一条需求，构成“我有/我想要”的可运行样例 |
-| 独立需求清单 | B-01 分支已实现 | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
-| 需求候选关联 | B-01 分支已实现 | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
+| 独立需求清单 | 当前（B-01已合入） | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
+| 需求候选关联 | 当前（B-01已合入） | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
 | 交换及参与者 | 预留模型/后续实现 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | 后续 B | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
@@ -43,15 +43,25 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 
 实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。当前初始化直接发布为 AVAILABLE，管理员可查看记录；审核状态机接入后新增物品转为 PENDING_REVIEW，迁移与两端需同步发布。
 
+### A-02 本人物品写入边界
+
+本人分页和详情直接由服务端会话限定当前 owner，可查看现有六种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。编辑与下架仅限 AVAILABLE、无占用且无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 是保留记录的下架状态，本轮不恢复、不编辑；DRAFT/PENDING_REVIEW/RESERVED/EXCHANGED 也不可通过本人接口修改。审核与正式交换尚无写入实现，这些预留状态的防护通过隔离数据夹具验证。
+
+写事务使用 READ_COMMITTED，先锁 cl_item 行，再检查占用行及进行中的参与者引用，以免读取等待锁之前的旧快照；按 id/owner/status/version 条件更新并数据库回读，version 每次成功加1。过期占用不能由此清除。未来交换写入必须先按物品ID升序锁定相关物品，再写占用/参与者及物品状态；其他所有权、审核或交换物品变更必须同步推进物品 version。本人接口不锁 exchange 行，避免反向嵌套交换锁；不更新/删除需求关联、参与者、占用或履历。已有 V1/V2 的 version、HIDDEN、占用和参与者表足够，本批无迁移。详见 [A-02](a02-own-items.md)。
+
+### 后续物品审核接入边界
+
+物品审核接入前，现有 `AVAILABLE` 记录视为“审核上线前直发”，前端不得回写或暗示已经人工审核。A/D 必须共同确定新发布切换到 `PENDING_REVIEW` 的时间点，A/B/C/D 必须确认旧数据迁移策略；只有服务端状态为 `AVAILABLE` 的物品可进入 B 的推荐候选。审核决定须锁定物品并核对 `version`，从待审状态条件迁移，追加处理人、理由、决定和 UTC 时间审计；并发旧版本返回409且不覆盖。
+
 ## B-01 独立需求边界
 
-独立需求和物品附带需求按入口分离：新 CRUD 只写 cl_demand/cl_demand_item，旧发布与推荐只读写 cl_item 的 wanted 字段。不迁移、不双写、不自动清空旧 wanted 字段。停用独立需求不改变旧演示推荐；本轮没有把独立需求接入算法。
+独立需求和物品附带需求按入口分离：新 CRUD 只写 cl_demand/cl_demand_item，旧发布与推荐只读写 cl_item 的 wanted 字段。不迁移、不双写、不自动清空旧 wanted 字段。停用独立需求不改变旧演示推荐；B-02通过下文的显式新入口接入算法。
 
 需求创建默认 ACTIVE，允许空候选集合。编辑、状态切换和逻辑删除锁定需求行并核对 version，更新成功 version+1；替换候选在同一事务内按 item id 升序锁定现有物品，复核归属、AVAILABLE 和无占用。候选可被本人多条需求共享，基数不代表未来交换允许复用物品。读取实时展示 offerable；物品状态、占用或归属变化不会自动改写需求，后续匹配与创建必须重新校验。
 
 INACTIVE 可查可编辑，可切换 ACTIVE（恢复前重校验关联）。DELETED 是接口不可恢复的墓碑，保留内容、原关联和 ID 供历史引用，普通查询/写入返回404；不提供物理删除操作。关联外键采用 RESTRICT，后续持久引用也必须保留非级联外键，不能级联删除历史需求。正式交换引用下的编辑/停用限制需在 B-03 与 A 共同确定，本轮不建立交换引用。
 
-需求结构使用 V4，接在 main 的 V3 用户状态管理迁移之后，不改写 V1–V3。A/D 的候选基数复核仍待团队确认。B-02 再确认新旧需求的切换、每条流向选择哪条需求、requiredTags/最低成色是否为硬条件及规则版本，B-01 不开放这些未定字段。详见 [B-01 接入说明](b01-independent-demands.md)。
+需求结构使用 V4，接在 main 的 V3 用户状态管理迁移之后，不改写 V1–V3。A/D 的候选基数复核仍待团队确认。B-02本分支的显式来源、多需求选择与规则版本见下文；消费复核单独跟踪。requiredTags/最低成色继续不开放、不启用。详见 [B-01 接入说明](b01-independent-demands.md)。
 
 ## 可解释的匹配
 
@@ -64,6 +74,18 @@ INACTIVE 可查可编辑，可切换 ACTIVE（恢复前重校验关联）。DELE
 种子中的虚构同学叶、蓝、月提供不同物品。例如叶的书籍 → 蓝、蓝的音箱 → 叶可双向交换；叶的书籍 → 月、月的球拍 → 蓝、蓝的耳机 → 叶构成三方循环。数据来自本地幂等种子，不是真实校园用户。
 
 读取推荐只查询，不建立交换、不更新状态、不锁定物品。当前实现限定最多200件AVAILABLE物品、1000条推荐，任一超限返回422，不隐式截断候选或结果。匹配器在构建第1001条推荐的解释对象前中止，限制密集环的内存增长；正常范围内保留完整结果和原有排序。管理概览在规模超限时保留基础计数，推荐数量标为不可用。它适合小规模校园开发数据，不能把全量 O(n³) 搜索当作无限规模方案；后续按分类建立邻接表、限定候选集/分页和缓存，保证缓存不作为交换创建依据。
+
+## B-02：显式独立需求规则 independent-v2
+
+B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁移，保留旧公开 `/api/matches` 的物品wanted字段来源（legacy-v1），新增登录后的 `/api/matches/independent` 仅使用独立需求并只返回含当前用户的环；没有自动混合、回退或新旧双写。独立需求停用/删除只影响新入口，旧演示仍使用旧入口。
+
+适配层先在一个只读REPEATABLE_READ快照内读取全体AVAILABLE、ACTIVE用户、无占用的物品，执行原200件上限，再读取ACTIVE需求与关联。关联须属于该物品当前owner；空关联、停用/删除、物品下架/审核/占用、账号失效或owner漂移会排除对应候选。无FOR UPDATE或写入，不把推荐当作正式创建的依据。
+
+纯模块 `IndependentDemandMatcher` 接收不可变物品/需求快照。边 A→B 只匹配 B 在环内提供物品所关联的需求；不假设 B 的任意其他物品都可交换。每条边按标签计分贡献 `min(交集数,4)` 最大、同贡献需求ID最小选一条；输出该 demandId、全部命中需求ID、分类和所选需求命中的标签。不同需求不能并集加分，需求组合不重复展开同一个物品有向环。
+
+先计算并复用有向边，再以当前用户的每件物品为起点枚举2/3环，避免先构造无关用户的所有方案。输出时旋转到最小物品ID生成 `independent-v2:cycle-...`；保留方向，反向三环分开。评分及score降序/length升序/ID字典序沿用旧算法，读取不生成任何交换、状态或占用。显式版本用于解释规则，不是预约凭据。
+
+资源保护均整次返回422：200件可交换物品、20000条有效需求关联、1000个返回方案、全响应流向的命中需求ID累计20000项，任一超出不返回部分结果。新增上限和多需求展示选择已在 [Issue #7](https://github.com/429res/campus-loop/issues/7) 同步，D消费复核仍待完成。分类硬匹配、标签软排序按本次明确范围保持；requiredTags/最低成色没有字段、规则或版本启用变更。详情与虚构样例见 [B-02说明](b02-independent-matching.md)。
 
 ## 正式交换的事务和并发设计（后续）
 

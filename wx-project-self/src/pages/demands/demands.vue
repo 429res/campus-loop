@@ -207,7 +207,7 @@ onShow(init)
 <template>
   <LoopLayout>
     <view class="demand-heading"><view class="cl-page-heading"><text class="cl-title">我的独立需求</text><text class="cl-subtitle">需求可以不依附物品保存；关联只来自服务端核实的本人可提供物品。</text></view><LoopButton v-if="authenticated" class="cl-btn cl-btn--primary" :disabled="loading || !!actionBusy" @click="openCreate">＋ 新建需求</LoopButton></view>
-    <view class="cl-notice compatibility-note">独立需求是唯一的新需求来源，但暂未接入 B-02 匹配。旧物品上的 wanted 字段继续服务现有推荐；本页不会回填、合并或双写。</view>
+    <view class="cl-notice compatibility-note">独立需求保存在需求清单中，当前推荐页仍使用发布物品时填写的需求。本页保存不会修改物品附带的需求。</view>
     <view v-if="!authenticated" class="cl-panel cl-empty"><text class="cl-empty-symbol">◎</text><text>登录后管理本人需求</text><LoopButton class="cl-btn cl-btn--primary" @click="login">重新登录</LoopButton></view>
     <template v-else>
       <view class="demand-toolbar"><LoopSegment :model-value="filter" :options="['全部','进行中','已停用']" @update:model-value="changeFilter"/><text class="cl-hint">共 {{ total }} 条</text></view>
