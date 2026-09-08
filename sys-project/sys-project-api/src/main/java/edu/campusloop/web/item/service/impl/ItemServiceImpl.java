@@ -1,6 +1,7 @@
 package edu.campusloop.web.item.service.impl;
 import edu.campusloop.common.*;
 import edu.campusloop.web.item.service.ItemService;
+import edu.campusloop.web.item.service.ItemVisibility;
 import edu.campusloop.web.item.entity.Item;
 import edu.campusloop.web.item.mapper.ItemMapper;
 import edu.campusloop.web.item.dto.*;
@@ -33,7 +34,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     @Override public PageResult<ItemView> page(int page,int size,String keyword,Long categoryId,boolean admin) {
         if(page<1 || size<1 || size>100 || (keyword!=null && keyword.length()>100)) throw new ApiException(400,"分页或搜索参数不正确");
         QueryWrapper<Item> query=new QueryWrapper<>();
-        if(!admin) query.in("status","AVAILABLE","RESERVED","EXCHANGED");
+        if(!admin) query.in("status",ItemVisibility.PUBLIC_STATES);
         if(keyword!=null && !keyword.isBlank()) query.like("title",keyword.trim());
         if(categoryId!=null) query.eq("category_id",categoryId);
         query.orderByDesc("created_at","id");
@@ -42,8 +43,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     }
     @Override public ItemView detail(long id) {
         Item item=baseMapper.selectById(id);
-        if(item==null || !Set.of("AVAILABLE","RESERVED","EXCHANGED").contains(item.getStatus())) throw new ApiException(404,"物品不存在或暂不可见");
+        if(item==null || !ItemVisibility.PUBLIC_STATES.contains(item.getStatus())) throw new ApiException(404,"物品不存在或暂不可见");
         return views(List.of(item)).get(0);
+    }
+    @Override public List<ItemView> visibleDetails(List<Long> ids) {
+        if(ids.isEmpty()) return List.of();
+        return views(baseMapper.selectList(new QueryWrapper<Item>().in("id",ids).in("status",ItemVisibility.PUBLIC_STATES)));
     }
     @Override @Transactional public ItemView publish(long ownerId,PublishItemRequest request) {
         String image=validateFields(ownerId,request);
