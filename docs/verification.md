@@ -1,5 +1,13 @@
 # 验收记录
 
+## 2026-09-08：D-04 履历、自述与用户争议入口
+
+- `wx-project-self` 执行 `corepack npm test`：53 项通过；新增静态回归覆盖真实履历/私有证据/参与者确认路径、争议只服从 `allowedActions`、结果不确定恢复，以及未实现举报不发送请求。
+- `wx-project-self` 执行 `corepack npm run build:h5` 与 `corepack npm run build:mp-weixin`：均通过。微信开发者工具和真机未运行，不能以构建替代。
+- 根目录执行 `node scripts/run.mjs test`：用户端 53 项通过；后端模块测试 72 项通过，API 测试 148 项通过、22 项 MySQL 专用用例跳过。`node scripts/repository-check.mjs` 通过。
+- 尝试启动项目隔离 MySQL，但本机 Docker Desktop daemon 未运行；默认后端随后因 MySQL 连接被拒绝而停止。因此本轮未进行真实 API/数据库写入、双方/三方页面确认、越权、刷新回读或争议数据库验证，不复用 B-05/B-04 既有记录冒充本轮证据。
+- H5 开发服务已成功编译并监听本机地址，但本轮浏览器控制被环境审批服务阻止，未完成人工手机/平板、浅深色、键盘焦点、快速弹层、减少动态及滤镜降级检查。通用举报与管理员争议裁决 API 不存在，保持待开发。
+
 ## 2026-09-08：C-04 业务统计口径与管理看板切片
 
 - 生产概览继续读取真实 `GET /api/admin/stats`，另以 `GET /api/admin/items?status=PENDING_REVIEW&page=1&size=1` 的服务端 `total` 展示待审量；没有从当前页推全量。统计、待审量、最近物品独立失败，真实0、推荐超限 null 和请求失败分别显示。

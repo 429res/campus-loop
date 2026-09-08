@@ -5,11 +5,11 @@ const change = event => emit('change',{detail:{value:event.target.value}})
 </script>
 <template>
   <!-- #ifdef H5 -->
-  <component v-if="mode==='date'" :is="'input'" class="native-picker" type="date" :value="value" :disabled="disabled" :aria-label="ariaLabel" @change="change"/>
+  <component v-if="mode==='date' || mode==='time'" :is="'input'" class="native-picker" :type="mode" :value="value" :disabled="disabled" :aria-label="ariaLabel" @change="change"/>
   <component v-else :is="'select'" class="native-picker" :value="value" :disabled="disabled" :aria-label="ariaLabel" @change="change"><option v-if="Number(value)<0" value="-1" disabled>请选择分类</option><option v-for="(option,index) in range" :key="index" :value="index">{{ rangeKey ? option[rangeKey] : option }}</option></component>
   <!-- #endif -->
   <!-- #ifndef H5 -->
-  <picker :range="range" :range-key="rangeKey" :value="mode==='date' ? value : Math.max(0,Number(value))" :mode="mode" :disabled="disabled" :aria-label="ariaLabel" @change="emit('change',$event)"><slot/></picker>
+  <picker :range="range" :range-key="rangeKey" :value="mode==='date' || mode==='time' ? value : Math.max(0,Number(value))" :mode="mode" :disabled="disabled" :aria-label="ariaLabel" @change="emit('change',$event)"><slot/></picker>
   <!-- #endif -->
 </template>
 <style scoped>
