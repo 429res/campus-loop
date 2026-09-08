@@ -103,6 +103,8 @@ node scripts/run.mjs build    # 上述前端回归 + 三端构建、微信按钮
 
 推荐执行 `node scripts/mysql-test.mjs` 自动建立随机口令的临时容器、运行测试并停止容器，需 Docker 引擎，默认3319端口（`CAMPUS_TEST_PORT`可改）。
 
+数据库与上传文件的完整恢复演练使用 `node scripts/run.mjs backup-restore-test`。它不读取 `.env`，只建立一次性源库/恢复库和临时上传目录，并通过应用回读验证；部署变量、反向代理、生产顺序、清理边界和平台实测范围见 [A-05 备份恢复与部署配置](docs/a05-backup-restore-deployment.md)。
+
 连接预先建好的隔离 MySQL 测试库时使用显式的 `TEST_DB_URL`、`TEST_DB_USERNAME`、`TEST_DB_PASSWORD`，只接受 `localhost` 或 `127.0.0.1`、显式端口及 `campus_loop_*test` 库名（例如 `campus_loop_ci_test`），再执行 `node scripts/run.mjs mysql-test`。只对独立临时测试库运行。GitHub Actions 自建 MySQL service，绝不读取开发者 `.env`。
 
 阅读 [协作规则](CONTRIBUTING.md)、[架构](docs/architecture.md)、[API 契约](docs/api-contract.md)、[设计系统](docs/design-system.md)、[迁移说明](docs/migration.md)、[验收记录](docs/verification.md)。每次改动按实际风险验证，并区分构建、浏览器、数据库和微信真机结果。
