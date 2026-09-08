@@ -16,7 +16,7 @@
 | Maven | 3.9.16 | 已提交 Maven Wrapper，无需系统 Maven |
 | MySQL | 8.4.11 | Compose 固定镜像；本地服务用兼容的 MySQL 8.4 |
 | 管理端构建器 | Vite 8.2.2 起的原锁定版本 | 沿用参考工程 lockfile |
-| UniApp 构建器 | Vite 5.2.8 | 与 UniApp 适配，不统一升级 |
+| UniApp 构建器 | DCloud 5.24 / Vite 5.2.8 / Rollup 4.63.1 | Vite 与 DCloud 正式版严格配对；仅在兼容范围内更新 Rollup 与传递依赖 |
 
 ```text
 project-self/                  Vue 3 / Element Plus 管理端

@@ -1,5 +1,13 @@
 # 验收记录
 
+## 2026-09-08：A-05 UniApp 工具链兼容补丁
+
+- 在 Node 24.20.0、npm 12.0.2 下显式联网执行 `npm audit`，升级前为 65 项（14 high、17 moderate、34 low、0 critical）；本机 npm 的离线缓存曾返回 0，未采用该错误结果。
+- 保持 DCloud 5.24 正式版 `3.0.0-5020420260813003` 与其严格 peer `vite@5.2.8`，未切换 5.25 Alpha、Vite 8 或执行 `audit fix --force`。Rollup 更新至同一主版本内的 4.63.1，并对 Intlify 9、Express 4、PostCSS 8、qs 6、ws 8 使用已验证的补丁版本；移除源码和脚本均未使用的 `@dcloudio/uni-automator`。npm 12 安装脚本策略仅批准锁定的 `esbuild@0.20.2`，明确拒绝非必要的 core-js 提示脚本。
+- 更新后联网审计为 39 项（4 high、10 moderate、25 low、0 critical），不是“全部解决”。剩余高风险由 DCloud 正式版固定的 Vite/esbuild/Babel/adm-zip 链及 Jimp/jpeg-js 链传播；其修复需要越过当前 DCloud peer 或 0.x 兼容边界，留待上游正式版组合。
+- `npm ci` 可从锁文件重装 602 个依赖；用户端 Node 自动化 49 项、H5 生产构建、mp-weixin 生产构建及微信产物连线 6 项通过。首次沙箱内运行因 Windows 子进程权限 `EPERM` 失败，获准在沙箱外重跑后通过，该失败不是代码或依赖错误。
+- 本切片未改业务、管理端或后端，故未重复管理端构建。未启动真实后端或浏览器，登录/发布/上传由既有 49 项会话与请求竞态自动化覆盖，公共按钮同时覆盖源级行为和微信构建产物；未执行微信开发者工具/真机验证，须由 D 按 [A-05 验证说明](a05-uniapp-toolchain.md) 完成，H5 结果不替代该结论。
+
 ## 2026-09-08：A-02 收藏持久化后端
 
 - `node scripts/run.mjs test`：UniApp Node 26项、后端97项（42匹配 + 55 H2 API集成）全部通过，0失败/错误/跳过。
