@@ -135,6 +135,7 @@ class ExchangeLifecycleRulesTest {
     @Test void invalidDatabaseSnapshotsFailClosedAndInputsRemainImmutable() {
         rejected(409,()->new Snapshot(91,State.READY,0,deadline,Set.of(101L,102L),Set.of(),false,null));
         rejected(409,()->new Snapshot(91,State.AWAITING_CONFIRMATION,0,deadline,Set.of(101L,102L),Set.of(999L),false,null));
+        rejected(409,()->new Snapshot(91,State.AWAITING_CONFIRMATION,0,deadline,Set.of(101L,102L),new HashSet<>(Arrays.asList(101L,null)),false,null));
         var participants=new HashSet<>(Set.of(101L,102L));var current=new Snapshot(91,State.AWAITING_CONFIRMATION,0,deadline,participants,Set.of(),false,null);
         participants.clear();rules.confirm(current,101,0,before);
         assertEquals(Set.of(101L,102L),current.participants());assertTrue(current.confirmed().isEmpty());assertEquals(0,current.version());

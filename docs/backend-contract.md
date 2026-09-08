@@ -55,7 +55,7 @@ B-03 已用严格 `{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demand
 
 A接入时先处理(initiator,key)及有向环规范化摘要重放，同键异请求409；同请求返回原交换并保留原截止，不能因首次占用/版本递增而拒绝。新请求按所选需求升序 → 物品及占用升序 → 必要分类升序锁定并重读，兼容需求编辑锁序；已有交换操作先锁exchange。用户行/幂等/外键锁序须A用MySQL验证。锁内调用B验证器，然后原子写AWAITING_CONFIRMATION/version=0、全员未确认、DB UTC+24h截止、参与者/唯一占用，物品RESERVED/version+1且保留审核信息。A负责新增精确需求引用/快照/摘要迁移及进行中需求冻结，B不复制写入器或表。
 
-确认接口及其状态推进尚未实现，不能由本轮创建规则暗中决定未来动作；全员确认后READY等后续设计保留如下。
+确认/取消接口仍未实现。B-03.2 已按发起人批准的规则提供共用纯决策：全员独立确认后READY；任一参与者在原24h截止前且未交接时可取消等待或READY，原因必填；截止等号及以后拒绝新用户动作。确认重放、取消精确重放、新变更version及未来allowedActions由同一规则决定，实际详情仍为空动作。权限矩阵、重试与A-04共用事务要求见 [B-03.2说明](b03-invitation-rules.md)，纯规则不代表生产状态推进或SQL释放已可用。
 
 READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双方均确认后才 COMPLETED，更新物品 EXCHANGED，并追加 BOTH_CONFIRMED 履历。禁止一个人的点击冒充所有人的确认。完成事务把物品 owner 转给对应接收人、关闭原挂牌需求，同时保留原物品永久 ID 与包含原始参与者的所有权事件。重新交换须由新拥有者重新填写需求；具体关闭字段及历史快照在后续版本迁移中补全，不能只覆盖 owner 而丢失来源。
 
@@ -66,9 +66,10 @@ READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双�
 | 当前状态 | 合法下一状态（计划） | 条件 |
 | --- | --- | --- |
 | AWAITING_CONFIRMATION | READY | 全体参与者确认且未过期 |
-| AWAITING_CONFIRMATION | CANCELLED / EXPIRED | 撤回、拒绝或确认截止到期，释放本交换占用 |
+| AWAITING_CONFIRMATION | CANCELLED / EXPIRED | 未交接时，任一参与者可在原截止前取消；达到原截止由A-04到期，条件释放本交换占用 |
 | READY | COMPLETED | 每条交接由双方完成确认 |
-| READY | CANCELLED / EXPIRED / DISPUTED | 按协商取消、交接超时或发起争议规则处理；已发生交接时不能直接释放并恢复上架 |
+| READY | CANCELLED / EXPIRED | 未交接时，任一参与者可在原截止前取消；达到原截止由A-04到期；READY不延长原截止 |
+| READY | DISPUTED | 交接异常处理留后续；已发生交接不能直接取消/到期释放并恢复上架 |
 | DISPUTED | COMPLETED / CANCELLED | 管理员基于证据裁定，保留审计 |
 | COMPLETED / CANCELLED / EXPIRED | 无 | 终态不可复活；补充证据使用新事件 |
 

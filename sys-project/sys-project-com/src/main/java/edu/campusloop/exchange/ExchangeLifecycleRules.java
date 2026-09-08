@@ -21,6 +21,7 @@ public final class ExchangeLifecycleRules {
             if (exchangeId<1 || state==null || version<0 || expiresAt==null || participants==null || confirmed==null)
                 throw invalidSnapshot();
             if (participants.size()<2 || participants.size()>3 || participants.stream().anyMatch(id -> id==null || id<1)
+                || confirmed.stream().anyMatch(id -> id==null || id<1)
                 || !participants.containsAll(confirmed)) throw invalidSnapshot();
             participants=Set.copyOf(participants); confirmed=Set.copyOf(confirmed);
             if (state==State.READY && confirmed.size()!=participants.size()
