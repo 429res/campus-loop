@@ -683,6 +683,287 @@ class CampusIntegrationTest {
         assertEquals(legacyTags,jdbc.queryForObject("SELECT wanted_tags_json FROM cl_item WHERE id=?",String.class,item));
         assertEquals(holds,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold",Long.class));assertEquals(exchanges,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange",Long.class));
     }
+
+    @Test void ownItemsAreSessionScopedAcrossAllStatesAndPages() throws Exception {
+        String owner=demandUser(),other=demandUser();
+        List<String> states=List.of("DRAFT","PENDING_REVIEW","AVAILABLE","RESERVED","EXCHANGED","HIDDEN");
+        List<Long> ids=new ArrayList<>();
+        for(String state:states) {
+            long id=demandItem(owner);ids.add(id);
+            jdbc.update("UPDATE cl_item SET status=?,created_at='2026-01-01 00:00:00' WHERE id=?",state,id);
+        }
+        long foreign=demandItem(other);
+        long ownerId=jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,ids.get(0));
+        long otherId=jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,foreign);
+        JsonNode first=demandCall("GET","/api/items/mine?page=1&size=2&ownerId="+otherId,owner,null,200);
+        JsonNode second=demandCall("GET","/api/items/mine?page=2&size=2",owner,null,200);
+        assertEquals(6,first.path("total").asInt());assertEquals(2,first.path("size").asInt());
+        assertEquals(ids.get(5).longValue(),first.at("/records/0/id").asLong());
+        assertEquals(ids.get(3).longValue(),second.at("/records/0/id").asLong());
+        JsonNode all=demandCall("GET","/api/items/mine",owner,null,200);
+        Set<String> seen=new HashSet<>();
+        for(JsonNode item:all.path("records")) {
+            assertEquals(ownerId,item.path("ownerId").asLong());seen.add(item.path("status").asText());
+            assertEquals(0,item.path("version").asInt());
+            demandCall("GET","/api/items/mine/"+item.path("id").asLong(),other,null,403);
+        }
+        assertEquals(new HashSet<>(states),seen);
+        for(String state:states) assertEquals(1,demandCall("GET","/api/items/mine?status="+state+"&categoryId=1&keyword=需求关联测试",owner,null,200).path("total").asInt());
+        assertEquals(0,demandCall("GET","/api/items/mine?categoryId=6",owner,null,200).path("total").asInt());
+        assertEquals(0,demandCall("GET","/api/items/mine",demandUser(),null,200).path("total").asInt());
+        assertTrue(demandCall("GET","/api/items/mine?page=20",owner,null,200).path("records").isEmpty());
+        for(String query:List.of("page=0","size=101","categoryId=0","status=READY","keyword="+"a".repeat(101)))
+            demandCall("GET","/api/items/mine?"+query,owner,null,400);
+        demandCall("GET","/api/items/mine",null,null,401);
+        demandCall("GET","/api/items/mine/"+ids.get(5),null,null,401);
+        demandCall("GET","/api/items/mine/999999999",owner,null,404);
+        demandCall("GET","/api/items/mine/"+ids.get(5),adminToken,null,403);
+        // Public visibility remains the existing three-state contract.
+        for(int i=0;i<states.size();i++) demandCall("GET","/api/items/"+ids.get(i),null,null,
+            Set.of("AVAILABLE","RESERVED","EXCHANGED").contains(states.get(i))?200:404);
+    }
+
+    @Test void ownItemEditReadsBackAllFieldsAndRejectsOtherOwnersAndStaleVersions() throws Exception {
+        String owner=demandUser(),other=demandUser();long id=demandItem(owner);
+        Map<String,Object> before=itemRow(id),body=itemEdit(0,"  更新后标题  ");
+        body.put("description","  更新后的说明  ");body.put("categoryId",3);body.put("wantedCategoryId",6);
+        body.put("conditionLevel",2);body.put("tags",List.of(" Green ","green","运动"));body.put("wantedTags",List.of(" Small "));
+        for(String token:List.of(other,adminToken)) {
+            demandCall("PUT","/api/items/"+id,token,body,403);
+            demandCall("POST","/api/items/"+id+"/withdraw",token,Map.of("version",0),403);
+        }
+        demandCall("PUT","/api/items/"+id,null,body,401);
+        demandCall("POST","/api/items/"+id+"/withdraw",null,Map.of("version",0),401);
+        demandCall("PUT","/api/items/999999999",owner,body,404);
+        demandCall("POST","/api/items/999999999/withdraw",owner,Map.of("version",0),404);
+        assertEquals(before,itemRow(id));
+        JsonNode edited=demandCall("PUT","/api/items/"+id,owner,body,200);
+        assertEquals("更新后标题",edited.path("title").asText());assertEquals("更新后的说明",edited.path("description").asText());
+        assertEquals(List.of("green","运动"),json.convertValue(edited.path("tags"),List.class));
+        assertEquals(List.of("small"),json.convertValue(edited.path("wantedTags"),List.class));
+        assertEquals(1,edited.path("version").asInt());assertEquals(3,edited.path("categoryId").asInt());
+        assertEquals(6,edited.path("wantedCategoryId").asInt());assertEquals(2,edited.path("conditionLevel").asInt());
+        Map<String,Object> stored=itemRow(id);
+        assertEquals("更新后标题",stored.get("title"));assertEquals("更新后的说明",stored.get("description"));
+        assertEquals(3,((Number)stored.get("category_id")).intValue());assertEquals(6,((Number)stored.get("wanted_category_id")).intValue());
+        assertEquals(2,stored.get("condition_level"));assertEquals(1,stored.get("version"));
+        assertEquals(edited.path("tags"),json.readTree((String)stored.get("tags_json")));
+        assertEquals(edited.path("wantedTags"),json.readTree((String)stored.get("wanted_tags_json")));
+        assertEquals(before.get("owner_id"),stored.get("owner_id"));assertEquals(before.get("created_at"),stored.get("created_at"));
+        assertEquals(edited,demandCall("GET","/api/items/mine/"+id,owner,null,200));
+        assertEquals(edited,demandCall("GET","/api/items/"+id,null,null,200));
+        demandCall("PUT","/api/items/"+id,owner,body,409);
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0),409);
+        assertEquals(stored,itemRow(id));
+    }
+
+    @Test void ownItemWritesValidateWhitelistTypesAndPublishConstraintsAtomically() throws Exception {
+        String owner=demandUser();long id=demandItem(owner);Map<String,Object> before=itemRow(id);
+        for(String protectedField:List.of("id","ownerId","owner","role","status","createdAt","fields","unknown")) {
+            Map<String,Object> body=itemEdit(0,"禁止部分写入");body.put(protectedField,1);
+            demandCall("PUT","/api/items/"+id,owner,body,400);
+            demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0,protectedField,1),400);
+        }
+        for(String required:List.of("version","title","description","categoryId","conditionLevel","tags","wantedCategoryId","wantedTags")) {
+            Map<String,Object> body=itemEdit(0,"缺少字段");body.remove(required);
+            demandCall("PUT","/api/items/"+id,owner,body,400);
+            body.put(required,null);demandCall("PUT","/api/items/"+id,owner,body,400);
+        }
+        Map<String,List<Object>> invalid=new LinkedHashMap<>();
+        invalid.put("version",List.of(-1,"0",0.5,2147483648L));
+        invalid.put("title",List.of(" ","x".repeat(101),42));
+        invalid.put("description",List.of(" ","x".repeat(2001),false));
+        invalid.put("categoryId",List.of(0,999999999,"1",1.5));
+        invalid.put("wantedCategoryId",List.of(0,999999999,"2"));
+        invalid.put("conditionLevel",List.of(0,6,1.5,"4"));
+        invalid.put("tags",List.of("标签",List.of(1),List.of(" "),List.of("x".repeat(21)),Collections.nCopies(9,"标签")));
+        invalid.put("wantedTags",List.of(List.of(" "),List.of("x".repeat(21)),Collections.nCopies(9,"偏好")));
+        invalid.put("imageUrl",List.of(12,"x".repeat(256)));
+        for(var entry:invalid.entrySet()) for(Object value:entry.getValue()) {
+            Map<String,Object> body=itemEdit(0,"校验失败不应写入");body.put(entry.getKey(),value);
+            demandCall("PUT","/api/items/"+id,owner,body,400);
+            if(entry.getKey().equals("version")) demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",value),400);
+        }
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of(),400);
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Collections.singletonMap("version",null),400);
+        assertEquals(before,itemRow(id));
+        jdbc.update("UPDATE cl_item SET version=? WHERE id=?",Integer.MAX_VALUE,id);
+        demandCall("PUT","/api/items/"+id,owner,itemEdit(Integer.MAX_VALUE,"不可溢出"),409);
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",Integer.MAX_VALUE),409);
+        assertEquals(Integer.MAX_VALUE,itemRow(id).get("version"));
+    }
+
+    @Test void ownItemImageEditsReuseUploadOwnershipAndOnlyRemoveReferences() throws Exception {
+        String owner=demandUser(),other=demandUser();long id=demandItem(owner);
+        String mine=itemUpload(owner),foreign=itemUpload(other);Map<String,Object> body=itemEdit(0,"图片替换");
+        body.put("imageUrl",mine);demandCall("PUT","/api/items/"+id,owner,body,200);
+        Map<String,Object> before=itemRow(id);
+        for(String image:List.of(foreign,"/etc/passwd","/uploads/../file.png","https://untrusted.invalid/a.png","/uploads/"+UUID.randomUUID()+".png")) {
+            body=itemEdit(1,"非法图片不得部分写入");body.put("imageUrl",image);
+            demandCall("PUT","/api/items/"+id,owner,body,400);assertEquals(before,itemRow(id));
+        }
+        int version=1;
+        for(String clear:List.of("null","omitted","blank")) {
+            body=itemEdit(version,"清除图片引用");
+            if(clear.equals("null")) body.put("imageUrl",null);
+            if(clear.equals("blank")) body.put("imageUrl","  ");
+            JsonNode cleared=demandCall("PUT","/api/items/"+id,owner,body,200);version++;
+            assertTrue(cleared.path("imageUrl").isNull());assertNull(itemRow(id).get("image_url"));
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_upload WHERE url=?",Integer.class,mine));
+            assertTrue(Files.exists(UPLOADS.resolve(mine.substring("/uploads/".length()))));
+            body=itemEdit(version,"恢复本人图引用");body.put("imageUrl",mine);
+            demandCall("PUT","/api/items/"+id,owner,body,200);version++;
+        }
+    }
+
+    @Test void ownItemWritesRejectEveryUnavailableStateAndActiveExchangeReference() throws Exception {
+        String owner=demandUser();long id=demandItem(owner);
+        for(String state:List.of("DRAFT","PENDING_REVIEW","RESERVED","EXCHANGED","HIDDEN")) {
+            jdbc.update("UPDATE cl_item SET status=? WHERE id=?",state,id);assertItemWritesBlocked(owner,id);
+        }
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE' WHERE id=?",id);
+        long exchange=itemExchange(id);
+        try {
+            // A stale AVAILABLE flag cannot bypass an outstanding hold, even after expiry.
+            for(int offset:List.of(-1,1)) {
+                jdbc.update("INSERT INTO cl_item_hold(item_id,exchange_id,expires_at) VALUES (?,?,?)",id,exchange,LocalDateTime.now(ZoneOffset.UTC).plusHours(offset));
+                assertItemWritesBlocked(owner,id);
+                assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE item_id=?",Integer.class,id));
+                jdbc.update("DELETE FROM cl_item_hold WHERE item_id=?",id);
+            }
+            long ownerId=((Number)itemRow(id).get("owner_id")).longValue();
+            jdbc.update("INSERT INTO cl_exchange_participant(exchange_id,user_id,offered_item_id,recipient_user_id,handed_off_at) VALUES (?,?,?,?,?)",
+                exchange,ownerId,id,memberId,LocalDateTime.now(ZoneOffset.UTC));
+            for(String state:List.of("AWAITING_CONFIRMATION","READY","DISPUTED")) {
+                jdbc.update("UPDATE cl_exchange SET status=? WHERE id=?",state,exchange);assertItemWritesBlocked(owner,id);
+            }
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_participant WHERE exchange_id=?",Integer.class,exchange));
+            jdbc.update("UPDATE cl_exchange SET status='COMPLETED' WHERE id=?",exchange);
+            demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0),200);
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_participant WHERE exchange_id=?",Integer.class,exchange));
+        } finally {cleanItemExchange(exchange);}
+    }
+
+    @Test void withdrawalPreservesHistoryAndDemandLinksAndExitsPublicReadsAndMatching() throws Exception {
+        String owner=demandUser(),other=demandUser();long id=demandItem(owner),partner=demandItem(other);
+        jdbc.update("UPDATE cl_item SET category_id=2,wanted_category_id=1 WHERE id=?",partner);
+        long demand=demandCall("POST","/api/demands",owner,demandBody(2,"下架保留需求",List.of(),List.of(id)),200).path("id").asLong();
+        long ownerId=((Number)itemRow(id).get("owner_id")).longValue();
+        jdbc.update("INSERT INTO cl_item_history(item_id,event_type,description,evidence_level,source_user_id,occurred_at) VALUES (?,'STATEMENT','虚构隔离履历','SELF_REPORTED',?,?)",
+            id,ownerId,LocalDateTime.now(ZoneOffset.UTC));
+        assertTrue(matchesContainItem(id));Map<String,Object> before=itemRow(id);
+        JsonNode hidden=demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0),200);
+        assertEquals("HIDDEN",hidden.path("status").asText());assertEquals(1,hidden.path("version").asInt());
+        Map<String,Object> expected=new HashMap<>(before);expected.put("status","HIDDEN");expected.put("version",1);
+        assertEquals(expected,itemRow(id));assertEquals(hidden,demandCall("GET","/api/items/mine/"+id,owner,null,200));
+        assertEquals(1,demandCall("GET","/api/items/mine?status=HIDDEN",owner,null,200).path("total").asInt());
+        demandCall("GET","/api/items/"+id,null,null,404);
+        assertEquals(0,demandCall("GET","/api/items?keyword="+java.net.URLEncoder.encode(hidden.path("title").asText(),java.nio.charset.StandardCharsets.UTF_8),null,null,200).path("total").asInt());
+        assertFalse(matchesContainItem(id));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE item_id=?",Integer.class,id));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=? AND demand_id=?",Integer.class,id,demand));
+        assertFalse(demandCall("GET","/api/demands/"+demand,owner,null,200).at("/offeredItems/0/offerable").asBoolean());
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",1),409);
+        demandCall("PUT","/api/items/"+id,owner,itemEdit(1,"不支持重新上架"),409);
+        assertEquals(expected,itemRow(id));
+    }
+
+    @Test void concurrentItemEditsAndWithdrawalsHaveExactlyOneWinner() throws Exception {
+        String owner=demandUser();
+        for(List<String> actions:List.of(List.of("PUT","PUT"),List.of("PUT","POST"),List.of("POST","POST"))) {
+            long id=demandItem(owner);ExecutorService pool=Executors.newFixedThreadPool(2);
+            CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+            try {
+                List<Future<MvcResult>> futures=new ArrayList<>();
+                for(int i=0;i<2;i++) {
+                    String method=actions.get(i),path="/api/items/"+id+(method.equals("POST")?"/withdraw":"");
+                    Object body=method.equals("POST")?Map.of("version",0):itemEdit(0,"并发编辑 "+i);
+                    futures.add(pool.submit(()->{ready.countDown();assertTrue(start.await(5,TimeUnit.SECONDS));
+                        return mvc.perform(request(HttpMethod.valueOf(method),path).header("Authorization","Bearer "+owner)
+                            .contentType("application/json").content(json.writeValueAsString(body))).andReturn();}));
+                }
+                assertTrue(ready.await(5,TimeUnit.SECONDS));start.countDown();
+                List<Integer> codes=new ArrayList<>();JsonNode winner=null;
+                for(Future<MvcResult> future:futures) {
+                    MvcResult result=future.get(15,TimeUnit.SECONDS);codes.add(result.getResponse().getStatus());
+                    JsonNode response=json.readTree(result.getResponse().getContentAsString());
+                    assertEquals(result.getResponse().getStatus(),response.path("code").asInt());
+                    if(result.getResponse().getStatus()==200) winner=response.path("data");
+                }
+                codes.sort(Integer::compareTo);assertEquals(List.of(200,409),codes);assertNotNull(winner);
+                assertEquals(1,itemRow(id).get("version"));assertEquals(winner.path("title").asText(),itemRow(id).get("title"));
+                assertEquals(winner.path("status").asText(),itemRow(id).get("status"));
+                assertEquals(winner,demandCall("GET","/api/items/mine/"+id,owner,null,200));
+            } finally {start.countDown();pool.shutdownNow();}
+        }
+    }
+
+    @Autowired org.springframework.transaction.PlatformTransactionManager itemTransactions;
+    @Test void waitingItemWritesRecheckCommittedHoldStateAndOwnership() throws Exception {
+        String owner=demandUser();
+        for(String change:List.of("hold","state","owner","participant")) for(String method:List.of("PUT","POST")) {
+            long id=demandItem(owner),exchange=itemExchange(id);ExecutorService pool=Executors.newSingleThreadExecutor();
+            String path="/api/items/"+id+(method.equals("POST")?"/withdraw":"");
+            Object body=method.equals("POST")?Map.of("version",0):itemEdit(0,"等待锁的写入");
+            try {
+                Future<MvcResult> pending=new org.springframework.transaction.support.TransactionTemplate(itemTransactions).execute(tx->{
+                    jdbc.queryForObject("SELECT id FROM cl_item WHERE id=? FOR UPDATE",Long.class,id);
+                    CountDownLatch attempting=new CountDownLatch(1);
+                    Future<MvcResult> future=pool.submit(()->{attempting.countDown();return mvc.perform(request(HttpMethod.valueOf(method),path)
+                        .header("Authorization","Bearer "+owner).contentType("application/json").content(json.writeValueAsString(body))).andReturn();});
+                    try {
+                        assertTrue(attempting.await(5,TimeUnit.SECONDS));
+                        assertThrows(TimeoutException.class,()->future.get(250,TimeUnit.MILLISECONDS));
+                    } catch(InterruptedException e){Thread.currentThread().interrupt();throw new IllegalStateException(e);}
+                    if(change.equals("hold")) jdbc.update("INSERT INTO cl_item_hold(item_id,exchange_id,expires_at) VALUES (?,?,?)",id,exchange,LocalDateTime.now(ZoneOffset.UTC).plusHours(1));
+                    if(change.equals("state")) jdbc.update("UPDATE cl_item SET status='RESERVED' WHERE id=?",id);
+                    if(change.equals("owner")) jdbc.update("UPDATE cl_item SET owner_id=? WHERE id=?",adminId,id);
+                    if(change.equals("participant")) jdbc.update("INSERT INTO cl_exchange_participant(exchange_id,user_id,offered_item_id,recipient_user_id,handed_off_at) VALUES (?,?,?,?,?)",
+                        exchange,((Number)itemRow(id).get("owner_id")).longValue(),id,memberId,LocalDateTime.now(ZoneOffset.UTC));
+                    return future;
+                });
+                MvcResult result=Objects.requireNonNull(pending).get(15,TimeUnit.SECONDS);
+                assertEquals(change.equals("owner")?403:409,result.getResponse().getStatus());
+                assertEquals(0,itemRow(id).get("version"));assertNotEquals("等待锁的写入",itemRow(id).get("title"));
+                assertNotEquals("HIDDEN",itemRow(id).get("status"));
+            } finally {pool.shutdownNow();cleanItemExchange(exchange);}
+        }
+    }
+
+    private Map<String,Object> itemEdit(int version,String title) {
+        return new HashMap<>(Map.of("version",version,"title",title,"description","隔离数据库物品编辑",
+            "categoryId",1,"conditionLevel",4,"tags",List.of("教材"),"wantedCategoryId",2,"wantedTags",List.of("便携")));
+    }
+    private Map<String,Object> itemRow(long id) {return jdbc.queryForMap("SELECT * FROM cl_item WHERE id=?",id);}
+    private void assertItemWritesBlocked(String owner,long id) throws Exception {
+        Map<String,Object> before=itemRow(id);
+        demandCall("PUT","/api/items/"+id,owner,itemEdit(0,"状态保护"),409);
+        demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",0),409);
+        assertEquals(before,itemRow(id));
+    }
+    private String itemUpload(String token) throws Exception {
+        ByteArrayOutputStream out=new ByteArrayOutputStream();ImageIO.write(new BufferedImage(2,2,BufferedImage.TYPE_INT_RGB),"png",out);
+        MvcResult result=mvc.perform(multipart("/api/uploads").file(new MockMultipartFile("file","sample.png","image/png",out.toByteArray()))
+            .header("Authorization","Bearer "+token)).andReturn();
+        assertEquals(200,result.getResponse().getStatus());return json.readTree(result.getResponse().getContentAsString()).at("/data/url").asText();
+    }
+    private boolean matchesContainItem(long id) throws Exception {
+        for(JsonNode match:demandCall("GET","/api/matches",null,null,200)) for(JsonNode participant:match.path("participants"))
+            if(participant.path("itemId").asLong()==id) return true;
+        return false;
+    }
+    private long itemExchange(long id) {
+        long ownerId=((Number)itemRow(id).get("owner_id")).longValue();String key=UUID.randomUUID().toString();
+        jdbc.update("INSERT INTO cl_exchange(initiator_id,status,version,idempotency_key,expires_at) VALUES (?,'READY',0,?,?)",
+            ownerId,key,LocalDateTime.now(ZoneOffset.UTC).plusHours(1));
+        return jdbc.queryForObject("SELECT id FROM cl_exchange WHERE initiator_id=? AND idempotency_key=?",Long.class,ownerId,key);
+    }
+    private void cleanItemExchange(long exchange) {
+        jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchange);
+        jdbc.update("DELETE FROM cl_exchange_participant WHERE exchange_id=?",exchange);
+        jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchange);
+    }
+
     private String demandUser() throws Exception {
         String username="test_"+UUID.randomUUID().toString().substring(0,12),password=UUID.randomUUID().toString();
         account(username,password,"USER");return login(username,password);
