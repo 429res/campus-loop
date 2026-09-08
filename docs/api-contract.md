@@ -227,7 +227,7 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
 | POST /exchanges/{id}/handoff | B-04已实现，见下述契约 |
-| GET/POST /items/{id}/history | B-05.1已实现，见自述/查询契约；确认/核验未实现 |
+| GET/POST /items/{id}/history | B-05.1已实现，参与者确认见B-05.2；管理员核验未实现 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
 交接已由B-04接入；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
@@ -257,3 +257,9 @@ POST `/items/{id}/history`严格接收`{eventType,statement,occurredAt,timeUnkno
 POST `/uploads/evidence`复用现有图片校验/重编码与本地存储，返回`{uploadId}`；证据存公开目录之外。只允许本人PRIVATE_EVIDENCE引用，旧PUBLIC上传不能转成私有证据，也不能把私有证据作为公开物品图片。GET `/history-evidence/{uploadId}`须登录，仅上传者预览或其已关联事件授权者（作者/该件交换的交出与接收双方/ADMIN）可读，其余404。三方环的另一人不自动授权；ADMIN不预览他人未引用上传。返回image/png、private/no-store、nosniff，无静态私有路径。公开POST /uploads仍返回原{url}且现有图片语义不变。
 
 HistoryView为`id,itemId,eventType,statement,evidenceLevel,authorDisplayName,occurredAt,timeUnknown,recordedAt,correctsEventId,correctedByEventId,confirmedAt,verifiedAt,authorId,relatedExchangeId,evidence,canCorrect`。无私有授权时authorId/relatedExchangeId/evidence均null，不泄露证据数量；有权限时evidence为`[{uploadId,url,mediaType}]`。来源保留SELF_REPORTED/BOTH_CONFIRMED/ADMIN_VERIFIED；本片仅提交前者，B-04仍由原始事务生成中者。JSON读取不缓存，响应按Authorization区分。不同来源、权限矩阵和C/D恢复样例见[B-05.1](b05-self-reported-history.md)。
+
+### B-05.2 参与者确认（已实现）
+
+范围、严格请求字段、隐私扩展、来源转换与冲突恢复见[B-05.2](b05-participant-confirmation.md)。本片自动化及隔离MySQL证据见该说明。
+
+HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保留；仅实际N/N确认时evidenceLevel展示BOTH_CONFIRMED，confirmedAt取全部完成时间。confirmation包含mode/status/confirmedCount/requiredCount/currentContent/requestedAt/completedAt/withdrawnAt；仅作者、明确授权成员及ADMIN返回snapshotHash/snapshot/participants/withdrawalReason。公开不返回参与者或证据标识。修正依据recordedEvidenceLevel=SELF_REPORTED；显示来源已获参与者确认的自述仍可由原作者追加新修正，旧确认不继承。

@@ -81,7 +81,7 @@ class ItemReviewMigrationCheck {
         jdbc.update("INSERT INTO cl_upload(id,owner_id,url) VALUES ('11111111-1111-1111-1111-111111111111',91001,'/uploads/11111111-1111-1111-1111-111111111111.png')");
         var beforeHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
         var beforeUploads=jdbc.queryForList("SELECT * FROM cl_upload ORDER BY id");
-        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        Flyway.configure().dataSource(dataSource).target("12").cleanDisabled(true).load().migrate();
         var afterHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
         for(int i=0;i<afterHistory.size();i++) {
             for(String field:List.of("corrects_event_id","ownership_started_at","ownership_ended_at")) assertNull(afterHistory.get(i).remove(field));
@@ -90,6 +90,16 @@ class ItemReviewMigrationCheck {
         var afterUploads=jdbc.queryForList("SELECT * FROM cl_upload ORDER BY id");
         for(int i=0;i<afterUploads.size();i++) {assertEquals("PUBLIC",afterUploads.get(i).remove("visibility"));assertEquals(beforeUploads.get(i),afterUploads.get(i));}
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_evidence",Integer.class));
+        jdbc.update("INSERT INTO cl_item_history(id,item_id,event_type,description,evidence_level,source_user_id,occurred_at,ownership_ended_at) VALUES (94001,92001,'REPAIR','明确标记的V12自述升级夹具','SELF_REPORTED',91001,NULL,CURRENT_TIMESTAMP)");
+        jdbc.update("INSERT INTO cl_history_evidence(history_id,upload_id) VALUES(94001,'11111111-1111-1111-1111-111111111111')");
+        var beforeConfirmationHistory=jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id");
+        var beforeConfirmationEvidence=jdbc.queryForList("SELECT * FROM cl_history_evidence ORDER BY history_id,upload_id");
+        Flyway.configure().dataSource(dataSource).cleanDisabled(true).load().migrate();
+        assertEquals(beforeConfirmationHistory,jdbc.queryForList("SELECT * FROM cl_item_history ORDER BY id"),"V13 must not upgrade or overwrite any legacy source or timestamp");
+        assertEquals(beforeConfirmationEvidence,jdbc.queryForList("SELECT * FROM cl_history_evidence ORDER BY history_id,upload_id"));
+        for(String table:List.of("cl_history_confirmation_request","cl_history_confirmation_member","cl_history_confirmation","cl_history_confirmation_withdrawal"))
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM "+table,Integer.class),"V13 must not fabricate consent, a roster or confirmation");
+
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));

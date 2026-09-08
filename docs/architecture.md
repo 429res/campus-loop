@@ -37,7 +37,7 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 需求候选关联 | 当前（B-01已合入） | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
 | 交换及参与者 | A-03创建，B-03参与者读取/确认/取消 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | A-03 | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
-| 履历事件与证据 | B-05.1自述/证据/查询已实现，追加确认/核验后续 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
+| 履历事件与证据 | B-05.1自述/证据/查询及B-05.2参与者确认已实现，管理员核验后续 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
 | 举报/争议/履历审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
 | 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
@@ -173,4 +173,12 @@ V12追加窗口、单链修正及证据引用。修正通过新行指向原行�
 
 LocalUploadService抽取并复用原图片解码/再编码逻辑；UploadReferenceService共用本人归属与用途检查。V12旧上传保持PUBLIC；新PRIVATE_EVIDENCE在公开uploads的同级目录，不注册静态访问。证据引用只接本人私有有效PNG，读取按作者/事件关联物品交出接收双方/ADMIN授权，未引用上传仅本人预览。所有新JSON与证据读取private/no-store，证据不在公开时间线中暴露（无地址/数量）。新当前owner和三方环第三人都不自动继承私人材料。
 
-读事务REPEATABLE_READ，SQL按item和当前权限过滤分页记录与total，公开字段与私有字段逐事件投影；非公开物品的无关人404。修正窗口仅是当次声明可涵盖范围，当前持有的上界为提交时间，不宣称该时刻结束持有。既有B-04事实不重写，参与者补充确认/ADMIN_VERIFIED生成及争议裁决留后续。模型、错误、不同来源样例见[B-05.1](b05-self-reported-history.md)。
+读事务REPEATABLE_READ，SQL按item和当前权限过滤分页记录与total，公开字段与私有字段逐事件投影；非公开物品的无关人404。修正窗口仅是当次声明可涵盖范围，当前持有的上界为提交时间，不宣称该时刻结束持有。既有B-04事实不重写；参与者补充确认见B-05.2，ADMIN_VERIFIED生成及争议裁决留后续。模型、错误、不同来源样例见[B-05.1](b05-self-reported-history.md)。
+
+### B-05.2 不可变快照与参与者来源链
+
+V13追加请求、真实参与者集合、每人确认和撤回四张表，原履历/证据引用不改写，不回填任何授权或确认。作者显式授权后，固定从完整B-04完成环取全体2/3人，作者也不自动确认；集合外成员及ADMIN无代办权。SHA-256绑定规则版本history-confirmation-v1、原B-04事实ID、原自述内容、证据文件摘要及全员ID。快照与集合一起提交；每事件/成员唯一确认，外键同时绑定真实交换参与者和快照哈希。
+
+复用ExchangeTransactionExecutor、ExchangeDatabaseClock和exchange→全体用户升序→item锁；随后HistoryMapper.findCurrent使用独立FOR UPDATE语句，避免加锁前find结果被MyBatis一级缓存复用。修正与确认共享exchange/item锁：修正先提交则拒绝旧确认；最后确认先提交则旧事件保留N/N事实，新修正从0开始。撤回同序串行、追加原因/时间，不擦除已提交的独立声明或历史证据授权。
+
+原始recordedEvidenceLevel不变；响应evidenceLevel依据完整持久确认集合对该事件展示BOTH_CONFIRMED，状态同时标记PENDING/COMPLETE/SUPERSEDED/WITHDRAWN。B-04确认直接复用原参与者交出/接收时间，不再次写确认表。三方必须3/3，不能按BOTH名称误用2人门槛。所有新写入都不能产生ADMIN_VERIFIED。完整权限和D/C来源链样例见[B-05.2](b05-participant-confirmation.md)。
