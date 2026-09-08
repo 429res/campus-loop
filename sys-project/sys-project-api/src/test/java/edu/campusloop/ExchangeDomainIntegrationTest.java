@@ -56,6 +56,7 @@ class ExchangeDomainIntegrationTest {
         for(long user:users) exchanges.addAll(jdbc.queryForList("SELECT id FROM cl_exchange WHERE initiator_id=?",Long.class,user));
         for(long exchange:new LinkedHashSet<>(exchanges)) {
             jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchange);
+            jdbc.update("DELETE FROM cl_exchange_event WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange_demand WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange_participant WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchange);
@@ -135,7 +136,7 @@ class ExchangeDomainIntegrationTest {
             var forged=new LinkedHashMap<>(body);forged.put(field,"forged");call("POST","/api/exchanges",a.token(),forged,400);
         }
         var old=new LinkedHashMap<>(body);old.put("ruleVersion","legacy-v1");call("POST","/api/exchanges",a.token(),old,409);
-        for(String action:List.of("confirm","cancel","handoff")) call("POST","/api/exchanges/1/"+action,admin.token(),Map.of("version",0),501);
+        for(String action:List.of("handoff")) call("POST","/api/exchanges/1/"+action,admin.token(),Map.of("version",0),501);
         assertEquals(before,businessRows());
     }
     @Test void databaseOwnerDemandAndVersionSnapshotsValidateBothRingLengthsWithoutWriting() {
@@ -414,6 +415,186 @@ class ExchangeDomainIntegrationTest {
         }
     }
 
+    @Autowired ExchangeLifecycleService lifecycle;
+    @Autowired ExchangeDatabaseClock exchangeClock;
+
+    @Test void realTwoAndThreePartyInvitationsReachReadyOnlyAfterAllParticipantsConfirm() throws Exception {
+        for(int length:List.of(2,3)) {
+            long id=call("POST","/api/exchanges",a.token(),ring(length,"invitation-"+length),200).path("id").asLong();
+            for(int i=0;i<length;i++) {
+                Account actor=List.of(a,b,c).get(i);
+                var before=call("GET","/api/exchanges/"+id,actor.token(),null,200);
+                assertEquals(json.readTree("[\"CONFIRM\",\"CANCEL\"]"),before.path("allowedActions"));
+                var result=call("POST","/api/exchanges/"+id+"/confirm",actor.token(),Map.of("version",i),200);
+                assertEquals(i+1,result.path("version").asInt());
+                assertEquals(i==length-1?"READY":"AWAITING_CONFIRMATION",result.path("status").asText());
+                assertEquals(json.readTree("[\"CANCEL\"]"),result.path("allowedActions"));
+                var rows=businessRows();
+                assertEquals(result,call("POST","/api/exchanges/"+id+"/confirm",actor.token(),Map.of("version",i),200));
+                assertEquals(rows,businessRows());
+            }
+            assertEquals(length,eventCount(id));
+            assertEquals(length,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_participant WHERE exchange_id=? AND confirmed_at IS NOT NULL",Integer.class,id));
+            assertEquals(length,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            assertEquals(1,call("GET","/api/exchanges/mine?status=READY",a.token(),null,200).path("records").findValues("id").stream().filter(n->n.asLong()==id).count());
+        }
+    }
+
+    @Test void waitingAndReadyCancellationRecordsActorAndReleasesOnlyItsOwnItems() throws Exception {
+        for(boolean ready:List.of(false,true)) {
+            var command=ring(2,"cancel-state-"+ready);long id=creation.create(a.id(),command);int version=0;
+            if(ready) {lifecycle.confirm(a.id(),id,0);lifecycle.confirm(b.id(),id,1);version=2;}
+            var cancelled=call("POST","/api/exchanges/"+id+"/cancel",b.token(),Map.of("version",version,"reason","  课程时间冲突  "),200);
+            assertEquals("CANCELLED",cancelled.path("status").asText());assertEquals(b.id(),cancelled.path("cancelledBy").asLong());
+            assertEquals("课程时间冲突",cancelled.path("cancellationReason").asText());assertTrue(cancelled.path("cancelledAt").asText().endsWith("Z"));
+            assertTrue(cancelled.path("allowedActions").isEmpty());assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+            assertEquals(version+1,eventCount(id));
+            for(var flow:command.flows()) {
+                var item=jdbc.queryForMap("SELECT owner_id,status,version,review_basis FROM cl_item WHERE id=?",flow.itemId());
+                assertEquals("AVAILABLE",item.get("status"));assertEquals(2,((Number)item.get("version")).intValue());assertEquals("LEGACY_DIRECT",item.get("review_basis"));
+            }
+            assertEquals(a.id(),jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,command.flows().get(0).itemId()));
+            var oldExpiry=jdbc.queryForObject("SELECT expires_at FROM cl_exchange WHERE id=?",java.time.LocalDateTime.class,id);
+            jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now().minusSeconds(1),id);
+            var rows=businessRows();
+            call("POST","/api/exchanges/"+id+"/cancel",b.token(),Map.of("version",version,"reason","课程时间冲突"),200);
+            call("POST","/api/exchanges/"+id+"/cancel",a.token(),Map.of("version",version,"reason","课程时间冲突"),409);
+            call("POST","/api/exchanges/"+id+"/cancel",b.token(),Map.of("version",version,"reason","不同原因"),409);
+            assertEquals(rows,businessRows());
+            jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",oldExpiry,id);
+            call("PATCH","/api/demands/"+command.flows().get(0).demandId(),b.token(),Map.of("version",0,"description","取消后可以编辑"),200);
+        }
+    }
+
+    @Test void invitationEndpointsRejectImpersonationMalformedCommandsAndStaleVersions() throws Exception {
+        long id=creation.create(a.id(),ring(2,"action-auth"));var rows=businessRows();
+        for(String action:List.of("confirm","cancel")) {
+            Object body=action.equals("confirm")?Map.of("version",0):Map.of("version",0,"reason","原因");
+            call("POST","/api/exchanges/"+id+"/"+action,null,body,401);
+            for(var stranger:List.of(outsider,admin)) call("POST","/api/exchanges/"+id+"/"+action,stranger.token(),body,404);
+            call("POST","/api/exchanges/"+id+"/"+action+"?actorId="+b.id(),a.token(),body,400);
+            call("POST","/api/exchanges/0/"+action,a.token(),body,400);
+        }
+        for(String body:List.of("{}","{\"version\":null}","{\"version\":\"0\"}","{\"version\":0.0}","{\"version\":-1}","{\"version\":2147483648}","{\"version\":0,\"actorId\":1}"))
+            call("POST","/api/exchanges/"+id+"/confirm",a.token(),json.readTree(body),400);
+        for(Object body:List.of(Map.of("version",0),Map.of("version",0,"reason"," "),Map.of("version",0,"reason",10),Map.of("version",0,"reason","a".repeat(1001)),Map.of("version",0,"reason","原因","status","CANCELLED")))
+            call("POST","/api/exchanges/"+id+"/cancel",a.token(),body,400);
+        assertEquals(rows,businessRows());
+        lifecycle.confirm(a.id(),id,0);rows=businessRows();
+        call("POST","/api/exchanges/"+id+"/confirm",b.token(),Map.of("version",0),409);
+        call("POST","/api/exchanges/"+id+"/confirm",a.token(),Map.of("version",2),409);
+        call("POST","/api/exchanges/"+id+"/cancel",a.token(),Map.of("version",0,"reason","原因"),409);
+        assertEquals(rows,businessRows());
+    }
+
+    @Test void terminalLegacyAndHandoverRecordsCannotBeMutatedOrReleased() throws Exception {
+        for(String state:List.of("COMPLETED","CANCELLED","EXPIRED","DISPUTED")) {
+            long id=creation.create(a.id(),ring(2,"terminal-"+state.toLowerCase(java.util.Locale.ROOT)));jdbc.update("UPDATE cl_exchange SET status=? WHERE id=?",state,id);
+            var rows=businessRows();rejected(409,()->lifecycle.confirm(a.id(),id,0));rejected(409,()->lifecycle.cancel(a.id(),id,0,"原因"));
+            assertFalse(lifecycle.expire(id));assertTrue(call("GET","/api/exchanges/"+id,a.token(),null,200).path("allowedActions").isEmpty());assertEquals(rows,businessRows());
+        }
+        long id=creation.create(a.id(),ring(2,"handover-protect"));lifecycle.confirm(a.id(),id,0);lifecycle.confirm(b.id(),id,1);
+        jdbc.update("UPDATE cl_exchange_participant SET handed_off_at=CURRENT_TIMESTAMP WHERE exchange_id=? AND user_id=?",id,a.id());
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now().minusSeconds(1),id);
+        var rows=businessRows();rejected(409,()->lifecycle.cancel(a.id(),id,2,"原因"));rejected(409,()->lifecycle.confirm(b.id(),id,2));assertFalse(lifecycle.expire(id));
+        assertTrue(call("GET","/api/exchanges/"+id,a.token(),null,200).path("allowedActions").isEmpty());assertEquals(rows,businessRows());
+        long legacy=seedStoredExchange(List.of(a,b),List.of(item(a,1),item(b,2)),"AWAITING_CONFIRMATION");
+        rejected(409,()->lifecycle.confirm(a.id(),legacy,0));rejected(409,()->lifecycle.cancel(a.id(),legacy,0,"原因"));
+        assertTrue(call("GET","/api/exchanges/"+legacy,a.token(),null,200).path("allowedActions").isEmpty());
+    }
+
+    @Test void databaseDeadlineAndCommonExpiryEntryNeverWriteOnReadOrRepeatRelease() throws Exception {
+        long id=creation.create(a.id(),ring(2,"common-expiry"));assertFalse(lifecycle.expire(id));
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now(),id);
+        var rows=businessRows();
+        assertTrue(call("GET","/api/exchanges/"+id,a.token(),null,200).path("allowedActions").isEmpty());
+        call("POST","/api/exchanges/"+id+"/confirm",a.token(),Map.of("version",0),409);
+        call("POST","/api/exchanges/"+id+"/cancel",a.token(),Map.of("version",0,"reason","原因"),409);
+        assertEquals(rows,businessRows());assertTrue(lifecycle.expire(id));rows=businessRows();assertFalse(lifecycle.expire(id));assertEquals(rows,businessRows());
+        assertEquals("EXPIRED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));assertEquals(1,eventCount(id));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+        assertNull(jdbc.queryForObject("SELECT actor_id FROM cl_exchange_event WHERE exchange_id=?",Long.class,id));
+    }
+
+    @Test void foreignHoldsAndChangedOfferFactsFailWithoutPartialWrites() {
+        for(String problem:List.of("hold","version","owner","status")) {
+            var command=ring(2,"protect-"+problem);long id=creation.create(a.id(),command);
+            long other=creation.create(a.id(),ring(2,"other-"+problem));long item=command.flows().get(1).itemId();
+            switch(problem) {
+                case "hold" -> jdbc.update("UPDATE cl_item_hold SET exchange_id=? WHERE item_id=?",other,item);
+                case "version" -> jdbc.update("UPDATE cl_item SET version=version+1 WHERE id=?",item);
+                case "owner" -> jdbc.update("UPDATE cl_item SET owner_id=? WHERE id=?",c.id(),item);
+                case "status" -> jdbc.update("UPDATE cl_item SET status='HIDDEN' WHERE id=?",item);
+            }
+            var rows=businessRows();rejected(409,()->lifecycle.cancel(a.id(),id,0,"原因"));rejected(409,()->lifecycle.confirm(a.id(),id,0));assertEquals(rows,businessRows());
+        }
+    }
+
+    @Test void lifecycleConstraintFailuresAfterEachWriteRollBackTheWholeTransaction() {
+        for(String stage:List.of("confirm","transition","event","release","restore")) {
+            long id=creation.create(a.id(),ring(3,"lifecycle-failure-"+stage));var rows=businessRows();
+            var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(statement -> {
+                if(statement.endsWith("ExchangeLifecycleMapper."+stage) && once.compareAndSet(false,true))
+                    jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",id);
+            });
+            try { rejected(409,()-> {if(stage.equals("confirm")) lifecycle.confirm(a.id(),id,0);else lifecycle.cancel(b.id(),id,0,"原因");}); }
+            finally {SqlProbe.after.remove();}
+            assertTrue(once.get());assertEquals(rows,businessRows(),"Participant/state/audit/release/restore must all roll back");
+            lifecycle.cancel(b.id(),id,0,"原因");assertEquals(1,eventCount(id));
+        }
+    }
+
+    @Test void mysqlConfirmCancelAndDuplicateCancelSerializeOnTheSameExchangeLock() throws Exception {
+        mysqlOnly();
+        long first=creation.create(a.id(),ring(2,"confirm-cancel-race"));
+        var result=race(()->lifecycle.confirm(a.id(),first,0),()->lifecycle.cancel(b.id(),first,0,"原因"),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(first,-409L),result);assertEquals(1,eventCount(first));lifecycle.cancel(b.id(),first,1,"原因");
+        long second=creation.create(a.id(),ring(2,"cancel-confirm-race"));
+        result=race(()->lifecycle.cancel(a.id(),second,0,"原因"),()->lifecycle.confirm(b.id(),second,0),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(second,-409L),result);assertEquals(1,eventCount(second));
+        long retry=creation.create(a.id(),ring(2,"cancel-retry-race"));
+        result=race(()->lifecycle.cancel(b.id(),retry,0,"原因"),()->lifecycle.cancel(b.id(),retry,0," 原因 "),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(retry,retry),result);assertEquals(1,eventCount(retry));
+    }
+
+    @Test void mysqlLockWaitPastDeadlineRejectsBothActionsUsingTimeAfterAllLocks() throws Exception {
+        mysqlOnly();
+        for(boolean cancel:List.of(false,true)) {
+            var command=ring(2,"deadline-lock-"+cancel);long id=creation.create(a.id(),command);
+            long item=command.flows().get(0).itemId();
+            var deadline=exchangeClock.now().plusSeconds(2);jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",deadline,id);
+            var rows=businessRows();var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+            var reached=new java.util.concurrent.CountDownLatch(1);
+            var observed=new java.util.concurrent.atomic.AtomicBoolean();
+            var tx=new org.springframework.transaction.support.TransactionTemplate(transactions);
+            var future=new java.util.concurrent.atomic.AtomicReference<java.util.concurrent.Future<Long>>();
+            try {
+                tx.executeWithoutResult(status -> {
+                    jdbc.queryForList("SELECT id FROM cl_item WHERE id=? FOR UPDATE",item);
+                    future.set(pool.submit(()-> {
+                        SqlProbe.before.set(statement -> {if(statement.endsWith("ItemMapper.selectForUpdate") && observed.compareAndSet(false,true)){assertTrue(exchangeClock.now().isBefore(deadline));reached.countDown();}});
+                        try{return result(()->cancel?lifecycle.cancel(a.id(),id,0,"原因"):lifecycle.confirm(a.id(),id,0));}finally{SqlProbe.before.remove();}
+                    }));
+                    await(reached);assertThrows(java.util.concurrent.TimeoutException.class,()->future.get().get(250,java.util.concurrent.TimeUnit.MILLISECONDS));
+                    jdbc.queryForObject("SELECT SLEEP(2.1)",Integer.class);
+                });
+                assertEquals(-409L,future.get().get(10,java.util.concurrent.TimeUnit.SECONDS));assertEquals(rows,businessRows());
+            } finally {pool.shutdownNow();}
+        }
+    }
+
+    @Test void mysqlCancellationAndExpiryCannotReleaseTwiceOrResurrectState() throws Exception {
+        mysqlOnly();long cancelled=creation.create(a.id(),ring(2,"cancel-expiry-race"));
+        var result=race(()->lifecycle.cancel(a.id(),cancelled,0,"原因"),()->lifecycle.expire(cancelled)?1L:0L,"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(cancelled,0L),result);assertEquals(1,eventCount(cancelled));
+        long expired=creation.create(a.id(),ring(2,"expiry-cancel-race"));jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",exchangeClock.now(),expired);
+        result=race(()->lifecycle.expire(expired)?1L:0L,()->lifecycle.cancel(b.id(),expired,0,"原因"),"ExchangeLifecycleMapper.transition","ExchangeLifecycleMapper.lock");
+        assertEquals(List.of(1L,-409L),result);assertEquals(1,eventCount(expired));
+    }
+
+    private int eventCount(long id) { return jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_event WHERE exchange_id=?",Integer.class,id); }
+
     private ExchangeCreationCommand ring(int length,String key) {
         List<Account> people=List.of(a,b,c).subList(0,length);List<Long> items=new ArrayList<>(),demands=new ArrayList<>();
         for(int i=0;i<length;i++) items.add(item(people.get(i),i+1));
@@ -435,17 +616,20 @@ class ExchangeDomainIntegrationTest {
     }
     /** Pause the real first transaction after all locks/validation, then prove the rival blocks in user FOR UPDATE. */
     private List<Long> race(java.util.concurrent.Callable<Long> first,java.util.concurrent.Callable<Long> second) throws Exception {
+        return race(first,second,"ExchangeCreationMapper.insert","UserMapper.selectByIdForUpdate");
+    }
+    private List<Long> race(java.util.concurrent.Callable<Long> first,java.util.concurrent.Callable<Long> second,String pauseStatement,String waitStatement) throws Exception {
         var pool=java.util.concurrent.Executors.newFixedThreadPool(2);
         var locked=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
         var waiting=new java.util.concurrent.CountDownLatch(1);
         try {
             var one=pool.submit(()-> {
-                SqlProbe.before.set(id -> {if(id.endsWith("ExchangeCreationMapper.insert")){locked.countDown();await(release);}});
+                SqlProbe.before.set(id -> {if(id.endsWith(pauseStatement)){locked.countDown();await(release);}});
                 try{return result(first);}finally{SqlProbe.before.remove();}
             });
             await(locked);
             var two=pool.submit(()-> {
-                SqlProbe.before.set(id -> {if(id.endsWith("UserMapper.selectByIdForUpdate"))waiting.countDown();});
+                SqlProbe.before.set(id -> {if(id.endsWith(waitStatement))waiting.countDown();});
                 try{return result(second);}finally{SqlProbe.before.remove();}
             });
             await(waiting);assertThrows(java.util.concurrent.TimeoutException.class,()->two.get(250,java.util.concurrent.TimeUnit.MILLISECONDS));
@@ -487,7 +671,7 @@ class ExchangeDomainIntegrationTest {
     }
     private Map<String,List<Map<String,Object>>> businessRows() {
         Map<String,List<Map<String,Object>>> values=new LinkedHashMap<>();
-        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
+        for(String table:List.of("cl_item","cl_demand","cl_exchange","cl_exchange_participant","cl_exchange_event")) values.put(table,jdbc.queryForList("SELECT * FROM "+table+" ORDER BY id"));
         values.put("cl_exchange_demand",jdbc.queryForList("SELECT * FROM cl_exchange_demand ORDER BY exchange_id,demand_id"));
         values.put("cl_demand_item",jdbc.queryForList("SELECT * FROM cl_demand_item ORDER BY demand_id,item_id"));
         values.put("cl_item_hold",jdbc.queryForList("SELECT * FROM cl_item_hold ORDER BY item_id"));return values;

@@ -3,6 +3,7 @@ package edu.campusloop.web.exchange.controller;
 import edu.campusloop.auth.AuthInterceptor;
 import edu.campusloop.common.*;
 import edu.campusloop.web.exchange.dto.CreateExchangeRequest;
+import edu.campusloop.web.exchange.dto.ExchangeActionRequest;
 import edu.campusloop.web.exchange.service.*;
 import edu.campusloop.web.exchange.vo.ExchangeView;
 import edu.campusloop.web.user.entity.User;
@@ -15,12 +16,25 @@ import java.util.Set;
 public class ExchangeController {
     private final ExchangeApplicationService commands;
     private final ExchangeQueryService queries;
-    public ExchangeController(ExchangeApplicationService commands,ExchangeQueryService queries) { this.commands=commands;this.queries=queries; }
+    private final ExchangeLifecycleService lifecycle;
+    public ExchangeController(ExchangeApplicationService commands,ExchangeQueryService queries,ExchangeLifecycleService lifecycle) { this.commands=commands;this.queries=queries;this.lifecycle=lifecycle; }
     @PostMapping
     public ResultVo<ExchangeView> create(@RequestAttribute(AuthInterceptor.USER) User user,
                                          @RequestBody CreateExchangeRequest body,@RequestParam MultiValueMap<String,String> params) {
         allow(params,Set.of());
         return ResultVo.success(commands.create(user.getId(),body.command()));
+    }
+    @PostMapping("/{id}/confirm")
+    public ResultVo<ExchangeView> confirm(@RequestAttribute(AuthInterceptor.USER) User user,@PathVariable long id,
+        @RequestBody ExchangeActionRequest.Confirm body,@RequestParam MultiValueMap<String,String> params) {
+        allow(params,Set.of());lifecycle.confirm(user.getId(),id,body.version());
+        return ResultVo.success(queries.detail(user.getId(),id));
+    }
+    @PostMapping("/{id}/cancel")
+    public ResultVo<ExchangeView> cancel(@RequestAttribute(AuthInterceptor.USER) User user,@PathVariable long id,
+        @RequestBody ExchangeActionRequest.Cancel body,@RequestParam MultiValueMap<String,String> params) {
+        allow(params,Set.of());lifecycle.cancel(user.getId(),id,body.version(),body.reason());
+        return ResultVo.success(queries.detail(user.getId(),id));
     }
     @GetMapping("/mine")
     public ResultVo<PageResult<ExchangeView>> mine(@RequestAttribute(AuthInterceptor.USER) User user,

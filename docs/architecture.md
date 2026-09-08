@@ -35,7 +35,7 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 物品附带需求 | 当前最小实现 | wantedCategoryId、wantedTags；每件物品一条需求，构成“我有/我想要”的可运行样例 |
 | 独立需求清单 | 当前（B-01已合入） | demand id、owner、category、description、preferredTags、ACTIVE/INACTIVE/DELETED、version、UTC 创建/更新时间；允许无物品 |
 | 需求候选关联 | 当前（B-01已合入） | unique(demand,item)，复用 cl_item；多对多、0–100项；本人 AVAILABLE 且无占用才能建立，不产生占用或所有权 |
-| 交换及参与者 | B-03提供V2持久读取；正式创建待A-03 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
+| 交换及参与者 | A-03创建，B-03参与者读取/确认/取消 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | A-03 | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
@@ -104,7 +104,7 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 
 资源保护均整次返回422：200件可交换物品、20000条有效需求关联、1000个返回方案、全响应流向的命中需求ID累计20000项，任一超出不返回部分结果。新增上限和多需求展示选择已在 [Issue #7](https://github.com/429res/campus-loop/issues/7) 同步，D消费复核仍待完成。分类硬匹配、标签软排序按本次明确范围保持；requiredTags/最低成色没有字段、规则或版本启用变更。详情与虚构样例见 [B-02说明](b02-independent-matching.md)。
 
-## 正式交换的事务和并发设计（A-03 待接入）
+## 正式交换的事务和并发设计（A-03与B-03共用）
 
 1. `POST /api/exchanges` 复用B的严格命令、ExchangeApplicationService和ExchangeCycleValidator，A提供唯一ExchangeCreationTransaction实现。身份来自会话；推荐是前置条件，不能作为可交换证明。
 2. 新事务READ_COMMITTED：先无锁发现当前owner作为锁线索，按用户ID升序锁定（含发起人），检查发起人ACTIVE并识别同键摘要重放；新请求重校验其他用户。再按所有有效关联需求及请求需求ID升序锁定，物品ID升序锁定并检查占用/进行中引用。锁后owner不在已锁集合则409，不追加乱序用户锁。需求新增/修改/启停/删除先锁owner用户，因此完整选择输入（含新需求、未选需求、关联）直到提交都稳定；B校验器重新选择流向与需求，版本、归属、状态、2/3环及流向任一失效整体拒绝。
@@ -114,7 +114,7 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 6. 确认截止前可取消；取消与超时任务使用相同 exchange 行锁与条件状态更新，仅释放属于该 exchange 的占用。重试任务幂等。交接开始后不能简单取消，进入争议流程，避免已交付物品被自动重新上架。
 7. 超时使用数据库 UTC 时间、批次扫描和可恢复任务，UI 倒计时只展示。version 乐观锁用于编辑与条件状态变更，唯一占用约束作为最终防线。数据库死锁按有限次数重试，外部通知在事务提交后 outbox 发送。
 
-状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；确认前可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED → COMPLETED/CANCELLED`。创建已接通持久事务；确认/取消/交接仍501，自动超时留待后续。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
+状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED → COMPLETED/CANCELLED`。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描留待A-04。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
 ## 履历可信度
 
@@ -126,6 +126,14 @@ Compose 只监听127.0.0.1，数据库端口3308，应用8088；上传目录在�
 
 ## B-03 第一切片：读取与A/B实现边界
 
-本人分页/详情使用同一REPEATABLE_READ只读快照，按持久参与者关系授权；发起人字段本身不替代参与者资格，ADMIN也不能绕过私有入口。以持久offered_item_id/recipient_user_id重建收到的物品，保留反向三环，不按当前owner改写历史。仅读取V2已有事实，不拼入物品后来变更的私有内容；无历史快照时不虚构需求ID/规则版本。当前allowedActions为空，到期读取不执行过期处理。C管理读取路径仅是独立草案。
+本人分页/详情使用同一REPEATABLE_READ只读快照，按持久参与者关系授权；发起人字段本身不替代参与者资格，ADMIN也不能绕过私有入口。以持久offered_item_id/recipient_user_id重建收到的物品，保留反向三环，不按当前owner改写历史。仅读取V2已有事实，不拼入物品后来变更的私有内容；无历史快照时不虚构需求ID/规则版本。allowedActions来自共用规则，到期读取不执行过期处理。C管理读取路径仅是独立草案。
 
 A-03基于已合入的B-03 PR #28实现唯一事务端口，复用其ExchangeDomainIntegrationTest增加真实创建、冻结、回滚及MySQL争抢测试。V8由A提供；B邀请规则分支未新增迁移或另一条创建路径。B-02新增物品/所选需求版本元数据，仍是independent-v2分类硬、标签软；纯校验器重用相同选中需求规则，过期命中不能自动替换。详见 [B-03说明](b03-exchange-domain.md) 和 [Issue #25](https://github.com/429res/campus-loop/issues/25)。
+
+## B-03.2 / A-04 共用生命周期
+
+单一ExchangeLifecycleService以ExchangeLifecycleRules决定确认、取消、到期，读取用相同参与事实和规则生成allowedActions。创建与生命周期共享ExchangeTransactionExecutor、ExchangeDatabaseClock，保留A-03的READ_COMMITTED/整事务有限重试。已有exchange先锁，再用户升序→需求升序→物品/占用升序；必要锁全部取得后再次读数据库UTC，严格小于原expiresAt才允许新用户动作。
+
+READY未交接且原24h截止前，任一参与者可取消；全员独立确认才READY。重复确认/精确取消重放不增加事件/版本或重复释放，新动作检查version。交换锁串行确认、取消、到期；V9审计事件按exchange/new_version唯一。释放核对持久流向、创建时版本、当前RESERVED/owner/version、占用集合与exchange归属及其他进行中引用，然后仅条件删除本交换占用、保留所有权恢复AVAILABLE/version+1；任何失败整笔回滚。
+
+旧无V8创建依据记录继续只读，V9不伪造历史取消信息。取消字段仅参与者详情可见，管理读契约不带代确认权。A-04后续扫描调用相同expire入口，尚无扫描/批次/重启恢复；交接/所有权转移留后续。完整矩阵、迁移与证据见[B-03.2](b03-invitation-rules.md)。
