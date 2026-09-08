@@ -195,6 +195,26 @@ V7 不重解释旧数据：现有 AVAILABLE 保持公开及推荐，现有 RESER
 | GET/POST /items/{id}/history | 事件、来源、发生/记录时间、证据；提交自述不能设置管理员级别 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
+### C-04 举报队列协作草案（未实现，不可调用）
+
+以下内容仅用于 C 管理端组件夹具以及 A/D 后续评审，不表示接口、枚举或数据库已落地。A 实现权限与持久化时须与 C/D 在同一 PR 固化最终 DTO；在此之前生产端不发送这些请求。
+
+| 草案路径 | 权限与预期语义 |
+| --- | --- |
+| POST /api/reports | 登录用户提交本人举报；服务端确定 reporter，只先考虑 ITEM 目标；原因、证据归属及目标有效性由服务端验证 |
+| GET /api/reports/mine、GET /api/reports/mine/{id} | 仅举报人读取本人分页/结果；目标失效返回安全摘要与不可用状态，不泄露他人数据 |
+| GET /api/admin/reports、GET /api/admin/reports/{id} | ADMIN 队列筛选/分页和授权详情；全文原因与证据只进入详情 |
+| POST /api/admin/reports/{id}/accept | ADMIN 受理；草案请求 `{version,reason}`，成功必须数据库回读 |
+| POST /api/admin/reports/{id}/decision | ADMIN 处理；草案请求 `{version,decision,reason}`，成功必须数据库回读 |
+| GET /api/admin/reports/{id}/audits | ADMIN 追加式审计分页；不提供修改或删除 |
+| GET /api/admin/reports/{reportId}/evidence/{evidenceId}/content | ADMIN 授权内容读取；不得返回服务端文件路径或接受客户端任意外链 |
+
+组件夹具暂用 `SUBMITTED → IN_REVIEW → RESOLVED`、决定 `UPHELD/DISMISSED`、目标 `ITEM` 作为候选枚举，均待 A 确认。列表/详情候选字段为 `id,targetType,targetId,targetAvailable,targetSummary,status,version,createdAt,acceptedBy,acceptedAt,decision,decisionReason,decidedBy,decidedAt`；证据只暴露不透明 `id,displayName,contentType,size,accessStatus` 和受控内容端点。失效或无权读取必须显式表示，不能回传磁盘路径、公开 `/uploads/**` 地址或任意 `http(s)` 内容。
+
+版本为非负整数。旧版本或非法状态迁移使用 HTTP 409 且不覆盖；C 收到后重新读取详情和列表，保留未提交理由，不自动换用新版本重放。401/403/404/409 必须保持 HTTP 语义。受理人、处理人及权限来自服务端会话，审计追加记录操作者显示名、理由、前后状态/版本和 UTC 时间。普通举报决定不修改交换状态、所有权或占用；交换争议后果仍由 B 的领域服务定义。
+
+D 本人结果只需要安全目标摘要、状态、决定、处理人显示名、处理理由与时间，以及本人有权访问的证据状态；不得返回内部审计快照、处理人用户 ID 或他人材料。真实验收须覆盖 D 提交 → C 队列 → 受理/处理 → D 本人回读，目前全部待 A/D 实现。
+
 后端已预留的exchange写操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
 
