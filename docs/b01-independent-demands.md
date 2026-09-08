@@ -1,6 +1,6 @@
 # B-01：独立需求与本人可提供物品关联
 
-状态：B-01 已通过 [PR #4](https://github.com/429res/campus-loop/pull/4) 合入 main，模型和迁移为后续切片的实际基础。历史协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。本切片仅后端；B-02功能分支的显式独立匹配入口见 [B-02说明](b02-independent-matching.md)，D-02页面和正式交换仍未接入。
+状态：B-01 已通过 [PR #4](https://github.com/429res/campus-loop/pull/4) 合入 main，模型和 V4 迁移为后续切片的实际基础。历史协作见 [Issue #3](https://github.com/429res/campus-loop/issues/3)。本切片仅后端；已合入的 B-02 独立匹配入口见 [B-02说明](b02-independent-matching.md)，本分支的 D-02 需求管理页面见 [接入状态](d02-demand-list-status.md)。该页面尚未消费独立匹配，正式交换仍未实现。
 
 ## 兼容与迁移
 

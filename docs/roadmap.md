@@ -15,15 +15,15 @@
 
 ## B-01：独立需求清单与本人可提供物品关联
 
-状态：已由 [PR #4](https://github.com/429res/campus-loop/pull/4) 合入main，历史协作见 [Issue #3](https://github.com/429res/campus-loop/issues/3)。范围为本人需求 CRUD、分页、停用/逻辑删除、version 冲突、现有物品候选关联和 D-02 接入契约。需求允许没有物品，候选关联不占用、不改变所有权。同步最新 main 后需求迁移顺延为 V4，保留 A-01 的 V3；A/D 候选基数复核仍待回复。原提交与合并修复的分层验证见 [B-01 接入说明](b01-independent-demands.md)。
+状态：已由 [PR #4](https://github.com/429res/campus-loop/pull/4) 合入 main，历史协作见 [Issue #3](https://github.com/429res/campus-loop/issues/3)。范围为本人需求 CRUD、分页、停用/逻辑删除、version 冲突、现有物品候选关联和 D-02 接入契约。需求允许没有物品，候选关联不占用、不改变所有权。需求迁移为 V4，保留 A-01 的 V3；A/D 候选基数复核仍待回复。分层验证见 [B-01 接入说明](b01-independent-demands.md)，本分支 D-02 用户端接入状态见 [需求清单说明](d02-demand-list-status.md)。
 
-B-02独立匹配进度见下一节；requiredTags/最低成色硬条件、正式交换和D-02页面仍未接入。旧演示发布/推荐继续只使用物品附带需求。
+B-02 独立匹配进度见下一节；本分支已提供 D-02 需求管理页面，但推荐页仍只使用物品附带需求。requiredTags/最低成色硬条件与正式交换仍未接入。
 
 ## B-02：独立需求与可解释匹配
 
-状态：`feature/b02-independent-matching` 已实现并完成本地验收（H2和一次性MySQL各64项通过），待PR审阅与CI，基于已合入B-01的main；协作 [Issue #7](https://github.com/429res/campus-loop/issues/7)。新显式登录入口只使用独立ACTIVE需求及有效本人物品关联，返回需求命中、流向、分类/标签与规则版本；旧入口保持旧来源。分类仍是硬条件，requiredTags/最低成色未启用。本轮只读，无正式交换或占用。
+状态：B-02 已通过 [PR #11](https://github.com/429res/campus-loop/pull/11) 合入 main，原切片验收记录见 B-02 说明；协作 [Issue #7](https://github.com/429res/campus-loop/issues/7)。新显式登录入口只使用独立ACTIVE需求及有效本人物品关联，返回需求命中、流向、分类/标签与规则版本；旧入口保持旧来源。分类仍是硬条件，requiredTags/最低成色未启用。本轮只读，无正式交换或占用。
 
-多需求确定性选择、D样例和限额已同步，D-02消费复核仍待完成；该页面不在本切片实现。实际后端与隔离MySQL证据见 [B-02说明](b02-independent-matching.md)。
+多需求确定性选择、D样例和限额已同步，D-02 推荐消费复核仍待完成；本分支的需求管理页面尚未消费独立匹配入口。实际后端与隔离MySQL证据见 [B-02说明](b02-independent-matching.md)。
 
 ## 下一迭代：闭合交换链路
 
@@ -58,7 +58,7 @@ B-02独立匹配进度见下一节；requiredTags/最低成色硬条件、正式
 
 ### A-02 第二批：收藏持久化
 
-本功能分支实现本人收藏添加/取消/分页，V5唯一关系及非级联外键，复用公开物品可见性；不可见物品返回无内容占位，total包含所有本人关系。重复和并发操作、隔离MySQL约束验证及D接入说明见 [a02-favorites.md](a02-favorites.md)，协作见 [Issue #17](https://github.com/429res/campus-loop/issues/17)。本批未修改推荐算法或用户页面，D-02接入/消费确认及浏览器/微信联调仍未完成；已同步主线的物品管理PR #16；审核及正式交换仍未实现。
+已通过 PR #19 合入 main 的收藏后端实现本人收藏添加/取消/分页，V5唯一关系及非级联外键，复用公开物品可见性；不可见物品返回无内容占位，total包含所有本人关系。重复和并发操作、隔离MySQL约束验证及D接入说明见 [a02-favorites.md](a02-favorites.md)，协作见 [Issue #17](https://github.com/429res/campus-loop/issues/17)。本批未修改推荐算法或用户页面，D-02 收藏页面接入/消费确认及浏览器/微信联调仍未完成；已同步主线的物品管理PR #16；审核及正式交换仍未实现。
 
 争议证据上传与管理员裁决、维修/流转事件、通知 outbox、统计口径、匹配候选索引/分页/缓存、风控及校园身份核验。外部 OSS 和微信登录由适配器接入，必须配置和验证后才开放入口。
 
