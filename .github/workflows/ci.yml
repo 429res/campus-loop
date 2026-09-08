@@ -25,6 +25,8 @@ jobs:
       - run: node scripts/repository-check.mjs
       - run: npm ci
         working-directory: project-self
+      - run: npm test
+        working-directory: project-self
       - run: npm run build
         working-directory: project-self
   user-build:
@@ -84,6 +86,7 @@ jobs:
         with:
           node-version-file: .nvmrc
       - run: node scripts/mysql-test.mjs
+      - run: node scripts/mysql-test.mjs --item-review-upgrade
   windows-smoke:
     name: windows-smoke
     runs-on: windows-latest

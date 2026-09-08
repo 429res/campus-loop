@@ -38,10 +38,11 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 交换及参与者 | 预留模型/后续实现 | exchange id、creator、state、expiresAt、version、idempotencyKey；participant unique(exchange,user)，offeredItem，receivedItem，confirmedAt，handoverAt |
 | 有效占用 | 后续 B | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | 预留模型/后续实现 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
-| 举报/争议/审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
+| 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
+| 举报/争议/履历审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
 | 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
 
-实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。当前初始化直接发布为 AVAILABLE，管理员可查看记录；审核状态机接入后新增物品转为 PENDING_REVIEW，迁移与两端需同步发布。
+实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。V7 新发布为 PENDING_REVIEW，旧公开记录保留 LEGACY_DIRECT；审核与两端兼容改动同批发布。
 
 ### 分类目录维护与引用锁
 
@@ -51,13 +52,17 @@ A-02 新增 V6，仅扩展一级分类。ACTIVE/INACTIVE控制后续物品与需
 
 ### A-02 本人物品写入边界
 
-本人分页和详情直接由服务端会话限定当前 owner，可查看现有六种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。编辑与下架仅限 AVAILABLE、无占用且无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 是保留记录的下架状态，本轮不恢复、不编辑；DRAFT/PENDING_REVIEW/RESERVED/EXCHANGED 也不可通过本人接口修改。审核与正式交换尚无写入实现，这些预留状态的防护通过隔离数据夹具验证。
+本人分页和详情直接由服务端会话限定当前 owner，可查看七种物品状态；公开读取仍只包含 AVAILABLE/RESERVED/EXCHANGED。完整编辑允许 AVAILABLE/PENDING_REVIEW/REJECTED，并进入待审；下架仅限 AVAILABLE。二者都必须无占用、无 AWAITING_CONFIRMATION/READY/DISPUTED 交换引用。HIDDEN 保留记录，本轮不恢复、不编辑；DRAFT/RESERVED/EXCHANGED 不可通过本人接口修改。正式交换尚无写入实现，预留状态的保护以隔离夹具验证。
 
-写事务使用 READ_COMMITTED，先锁 cl_item 行，再检查占用行及进行中的参与者引用，以免读取等待锁之前的旧快照；按 id/owner/status/version 条件更新并数据库回读，version 每次成功加1。过期占用不能由此清除。未来交换写入必须先按物品ID升序锁定相关物品，再写占用/参与者及物品状态；其他所有权、审核或交换物品变更必须同步推进物品 version。本人接口不锁 exchange 行，避免反向嵌套交换锁；不更新/删除需求关联、参与者、占用或履历。已有 V1/V2 的 version、HIDDEN、占用和参与者表足够，本批无迁移。详见 [A-02](a02-own-items.md)。
+写事务使用 READ_COMMITTED，先锁 cl_item 行，再检查占用行及进行中的参与者引用，以免读取等待锁之前的旧快照；按 id/owner/status/version 条件更新并数据库回读，version 每次成功加1。过期占用不能由此清除。未来交换写入必须先按物品ID升序锁定相关物品，再写占用/参与者及物品状态；其他所有权、审核或交换物品变更必须同步推进物品 version。本人接口不锁 exchange 行，避免反向嵌套交换锁；不更新/删除需求关联、参与者、占用或履历。第一批使用 V1/V2；第四批 V7 在同事务追加 SUBMIT/WITHDRAW 审计，不硬删记录。详见 [A-02](a02-own-items.md)。
 
-### 后续物品审核接入边界
+### 物品审核与迁移（V7）
 
-物品审核接入前，现有 `AVAILABLE` 记录视为“审核上线前直发”，前端不得回写或暗示已经人工审核。A/D 必须共同确定新发布切换到 `PENDING_REVIEW` 的时间点，A/B/C/D 必须确认旧数据迁移策略；只有服务端状态为 `AVAILABLE` 的物品可进入 B 的推荐候选。审核决定须锁定物品并核对 `version`，从待审状态条件迁移，追加处理人、理由、决定和 UTC 时间审计；并发旧版本返回409且不覆盖。
+用户已确认：新发布待审；未占用 AVAILABLE/PENDING_REVIEW/REJECTED 完整编辑后复审；仅 PENDING_REVIEW 可批准或驳回。审批事务锁定物品、校验 version、复用 ItemMutationGuard 检查所有占用行与进行中交换引用，再条件更新 status/review_basis/version；成功数据库回读。审批不修改交换、履历、需求、占用和 owner；不能恢复下架物品。
+
+V7 保留旧 AVAILABLE 的公开/推荐及 RESERVED/EXCHANGED 的状态，标记 LEGACY_DIRECT，不等于人工批准；其他旧状态 UNREVIEWED，全部旧版本不变。新演示夹具同样明确为历史直发。第一次编辑将旧内容快照记入审计再提交待审，不静默洗掉原始记录。
+
+cl_item_review_audit 记录 SUBMIT/APPROVE/REJECT/WITHDRAW，内容前后快照、前后状态/版本、操作者及当时显示名、理由、UTC时间；unique(item_id,new_version) 和 RESTRICT 外键约束。只提供 ADMIN 分页读，不提供覆盖或删除接口；本人只读最近一次决定字段（带被审核版本），其他公开/收藏/推荐读取不披露私人审核理由。具体字段、迁移顺序和C/D/B影响见 [审核接入说明](a02-item-review.md)。
 
 ## A-02 收藏持久化
 

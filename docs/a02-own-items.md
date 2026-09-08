@@ -1,3 +1,5 @@
+> 第四批审核变更：编辑范围扩为未占用 AVAILABLE/PENDING_REVIEW/REJECTED，成功进入待审；本人列表新增 REJECTED。下架仍仅 AVAILABLE，HIDDEN不恢复。当前契约见 [a02-item-review.md](a02-item-review.md)，下文的“仅AVAILABLE编辑/审核未实现”描述是第一批历史范围。
+
 # A-02 第一批：本人物品列表、编辑与下架
 
 本批后端和 D 接入契约随功能分支交付，协作见 [Issue #15](https://github.com/429res/campus-loop/issues/15)。已同步 main 的 `442dcb9`，包含已合入的 B-01 独立需求、B-02 推荐 PR #11 和 C 审核 PR #14；C 审核只提供前端只读页面和开发夹具，本批未启用审核。
