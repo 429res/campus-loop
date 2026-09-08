@@ -79,3 +79,7 @@ V12允许occurred_at为NULL，不改B-04已有时间/来源；追加修正关系
 关联交换的counterparty仅表示该件物品流向另一方和证据授权范围，不表示对方见证维修或确认了自述；SELF_REPORTED的confirmedAt/verifiedAt均为空。
 
 无页面改动；本轮未执行浏览器、微信真机或C/D页面联调。来源确认与管理员核验明确待后续，不标记整个B-05完成。仓库检查和文档链接检查见PR证据。
+
+## 后续切片衔接
+
+[B-05.2](b05-participant-confirmation.md)增加显式请求后全体参与者的快照授权与独立确认；本文件的“确认待后续”描述第一切片原交付范围。未请求的事件仍保持原隐私边界。修正校验原存储来源SELF_REPORTED（响应recordedEvidenceLevel），显示来源已获参与者确认的自述也允许原作者追加修正，确认仍仅属于旧事件；B-04原始BOTH_CONFIRMED不能修正。

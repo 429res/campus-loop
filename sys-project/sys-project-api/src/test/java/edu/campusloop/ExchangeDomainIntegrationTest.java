@@ -65,6 +65,7 @@ class ExchangeDomainIntegrationTest {
         List<Long> histories=new ArrayList<>();
         for(long user:users) histories.addAll(jdbc.queryForList("SELECT id FROM cl_item_history WHERE source_user_id=?",Long.class,user));
         for(long id:histories.stream().distinct().sorted(Comparator.reverseOrder()).toList()) {
+            for(String table:List.of("cl_history_confirmation_withdrawal","cl_history_confirmation","cl_history_confirmation_member","cl_history_confirmation_request")) jdbc.update("DELETE FROM "+table+" WHERE history_id=?",id);
             jdbc.update("DELETE FROM cl_history_evidence WHERE history_id=?",id);
             jdbc.update("DELETE FROM cl_item_history WHERE id=?",id);
         }
@@ -1162,6 +1163,141 @@ class ExchangeDomainIntegrationTest {
         assertEquals(1,appendAttempts.get());assertEquals(1,expiryAttempts.get(),"Foreign-key locks must not create a retry-dependent cycle");
         assertEquals("COMPLETED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,exchange));
         assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=? AND event_type='EXCHANGED'",Integer.class,exchange));
+    }
+
+    @Autowired edu.campusloop.web.history.service.HistoryConfirmationService historyConfirmations;
+    private record HistoryFixture(long exchange,long item,long event,String evidence) {
+        String path() {return "/api/items/"+item+"/history/"+event;}
+    }
+    private HistoryFixture confirmationFixture(int length,boolean evidence) throws Exception {
+        long exchange=ready(length,"confirm-source-"+UUID.randomUUID());int version=almostComplete(exchange,length);
+        lifecycle.handoff(List.of(a,b,c).get(length-1).id(),exchange,version,RECEIVED,"已收到");
+        long item=jdbc.queryForObject("SELECT offered_item_id FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",Long.class,exchange,a.id());
+        String upload=evidence?evidenceUpload(a,true):null;
+        long event=call("POST","/api/items/"+item+"/history",a.token(),statement(length==2?"TRANSFER":"REPAIR","本人认可的自述，非管理员核验",exchange,null,upload==null?List.of():List.of(upload)),200).path("id").asLong();
+        return new HistoryFixture(exchange,item,event,upload);
+    }
+    private JsonNode requestConfirmation(HistoryFixture f) throws Exception {return call("POST",f.path()+"/confirmation-request",a.token(),Map.of("shareEvidenceWithAllParticipants",true),200);}
+    private Map<String,Object> confirmationBody(String hash) {return Map.of("snapshotHash",hash,"acknowledged",true);}
+    private long confirmHistory(Account actor,HistoryFixture f,String hash) {
+        historyConfirmations.act(actor.id(),f.item(),f.event(),"confirm",new edu.campusloop.web.history.dto.HistoryConfirmationCommand(hash,null));return f.event();
+    }
+    @Test void historyConfirmationTwoAndThreeRequireEveryIndependentParticipantAndPreserveSelfSource() throws Exception {
+        for(int length:List.of(2,3)) {
+            var f=confirmationFixture(length,true);var original=jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",f.event());
+            long b04=jdbc.queryForObject("SELECT id FROM cl_item_history WHERE exchange_id=? AND item_id=? AND event_type='EXCHANGED'",Long.class,f.exchange(),f.item());
+            var fact=call("GET","/api/items/"+f.item()+"/history/"+b04,a.token(),null,200);
+            assertEquals("B04_HANDOFF",fact.at("/confirmation/mode").asText());assertEquals(length,fact.at("/confirmation/confirmedCount").asInt());assertEquals(length,fact.at("/confirmation/requiredCount").asInt());
+            for(var person:fact.at("/confirmation/participants")) {assertFalse(person.path("handedOffAt").isNull());assertFalse(person.path("receivedAt").isNull());assertTrue(person.path("offeredItemId").asLong()>0);assertTrue(person.path("receivedItemId").asLong()>0);}
+            assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_confirmation_request WHERE history_id=?",Integer.class,b04));
+            var start=requestConfirmation(f);String hash=start.at("/confirmation/snapshotHash").asText();
+            assertEquals(b04,start.at("/confirmation/snapshot/exchangeHistoryEventId").asLong());assertEquals("history-confirmation-v1",start.at("/confirmation/snapshot/ruleVersion").asText());
+            assertEquals(length,start.at("/confirmation/requiredCount").asInt());assertEquals(0,start.at("/confirmation/confirmedCount").asInt());assertEquals("SELF_REPORTED",start.path("evidenceLevel").asText());
+            var rows=businessRows();assertEquals(start,requestConfirmation(f));assertEquals(rows,businessRows());
+            for(int i=0;i<length;i++) {
+                var actor=List.of(a,b,c).get(i);var view=call("POST",f.path()+"/confirm",actor.token(),confirmationBody(hash),200);
+                assertEquals(i+1,view.at("/confirmation/confirmedCount").asInt());assertEquals(i==length-1?"BOTH_CONFIRMED":"SELF_REPORTED",view.path("evidenceLevel").asText());
+                assertEquals("SELF_REPORTED",view.path("recordedEvidenceLevel").asText());assertEquals(i==length-1,!view.path("confirmedAt").isNull());
+                rows=businessRows();assertEquals(view,call("POST",f.path()+"/confirm",actor.token(),confirmationBody(hash),200));assertEquals(rows,businessRows());
+            }
+            var publicView=call("GET",f.path(),null,null,200);assertEquals(length,publicView.at("/confirmation/confirmedCount").asInt());assertTrue(publicView.at("/confirmation/snapshot").isNull());assertTrue(publicView.at("/confirmation/participants").isNull());assertTrue(publicView.at("/confirmation/snapshotHash").isNull());assertFalse(publicView.toString().contains(f.evidence()));
+            assertEquals(original,jdbc.queryForMap("SELECT * FROM cl_item_history WHERE id=?",f.event()));assertEquals(length,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_confirmation WHERE history_id=?",Integer.class,f.event()));
+            assertEquals("BOTH_CONFIRMED",call("GET",f.path(),admin.token(),null,200).path("evidenceLevel").asText());
+        }
+    }
+    @Test void historyConfirmationRejectsForgedRostersAndHashesAndRequiresExplicitEvidenceConsent() throws Exception {
+        var f=confirmationFixture(3,true);evidenceRead(f.evidence(),c,404);
+        var rows=businessRows();
+        for(var actor:List.of(b,c,outsider,admin)) call("POST",f.path()+"/confirmation-request",actor.token(),Map.of("shareEvidenceWithAllParticipants",true),403);
+        for(Object invalid:List.of(Map.of(),Map.of("shareEvidenceWithAllParticipants",false),Map.of("shareEvidenceWithAllParticipants",true,"participantIds",List.of(a.id(),b.id())),Map.of("shareEvidenceWithAllParticipants",true,"exchangeId",f.exchange())))
+            call("POST",f.path()+"/confirmation-request",a.token(),invalid,400);
+        call("POST",f.path()+"/confirmation-request",null,Map.of("shareEvidenceWithAllParticipants",true),401);assertEquals(rows,businessRows());
+        String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();evidenceRead(f.evidence(),c,200);evidenceRead(f.evidence(),outsider,404);
+        jdbc.update("UPDATE cl_item SET status='HIDDEN' WHERE id=?",f.item());
+        var page=call("GET","/api/items/"+f.item()+"/history",c.token(),null,200);assertEquals(1,page.path("total").asInt());assertEquals(f.event(),page.at("/records/0/id").asLong());
+        rows=businessRows();
+        for(var actor:List.of(outsider,admin)) call("POST",f.path()+"/confirm",actor.token(),confirmationBody(hash),403);
+        call("POST",f.path()+"/confirm",b.token(),confirmationBody("0".repeat(64)),409);
+        for(String field:List.of("evidenceLevel","sourceLevel","userId","exchangeId","participantIds")) {
+            var body=new HashMap<>(confirmationBody(hash));body.put(field,"ADMIN_VERIFIED");call("POST",f.path()+"/confirm",b.token(),body,400);
+        }
+        call("POST",f.path()+"/confirm",b.token(),Map.of("snapshotHash",hash,"acknowledged",false),400);
+        assertEquals(rows,businessRows());
+        var path=TEST_UPLOADS.resolveSibling(TEST_UPLOADS.getFileName()+"-evidence").resolve(f.evidence()+".png");var bytes=java.nio.file.Files.readAllBytes(path);
+        try {java.nio.file.Files.write(path,new byte[]{1,2,3});call("POST",f.path()+"/confirm",b.token(),confirmationBody(hash),409);} finally {java.nio.file.Files.write(path,bytes);}
+        assertEquals(rows,businessRows());
+        long unlinked=item(a,1);long event=call("POST","/api/items/"+unlinked+"/history",a.token(),statement("TRANSFER","未关联",null,null,List.of()),200).path("id").asLong();
+        call("POST","/api/items/"+unlinked+"/history/"+event+"/confirmation-request",a.token(),Map.of("shareEvidenceWithAllParticipants",true),409);
+    }
+    @Test void historyConfirmationCorrectionsAndWithdrawalKeepOldSnapshotsWithoutInheritance() throws Exception {
+        var f=confirmationFixture(3,true);String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();
+        for(var actor:List.of(a,b,c)) confirmHistory(actor,f,hash);
+        var original=jdbc.queryForMap("SELECT * FROM cl_history_confirmation_request WHERE history_id=?",f.event());
+        String newEvidence=evidenceUpload(a,true);
+        long next=call("POST","/api/items/"+f.item()+"/history",a.token(),statement("REPAIR","修正后必须重新确认",f.exchange(),f.event(),List.of(newEvidence)),200).path("id").asLong();
+        var corrected=call("GET","/api/items/"+f.item()+"/history/"+next,a.token(),null,200);
+        assertEquals("SELF_REPORTED",corrected.path("evidenceLevel").asText());assertEquals(0,corrected.at("/confirmation/confirmedCount").asInt());evidenceRead(newEvidence,c,404);
+        var old=call("GET",f.path(),a.token(),null,200);assertEquals("SUPERSEDED",old.at("/confirmation/status").asText());assertEquals("BOTH_CONFIRMED",old.path("evidenceLevel").asText());assertEquals(3,old.at("/confirmation/confirmedCount").asInt());
+        call("POST",f.path()+"/confirm",a.token(),confirmationBody(hash),409);assertEquals(original,jdbc.queryForMap("SELECT * FROM cl_history_confirmation_request WHERE history_id=?",f.event()));
+        var nf=new HistoryFixture(f.exchange(),f.item(),next,newEvidence);String newHash=requestConfirmation(nf).at("/confirmation/snapshotHash").asText();assertNotEquals(hash,newHash);evidenceRead(newEvidence,c,200);
+        call("POST",nf.path()+"/confirm",b.token(),confirmationBody(hash),409);confirmHistory(a,nf,newHash);
+        var withdraw=Map.of("snapshotHash",newHash,"reason","声明需重新核对");
+        call("POST",nf.path()+"/withdraw-confirmation",b.token(),withdraw,403);
+        var view=call("POST",nf.path()+"/withdraw-confirmation",a.token(),withdraw,200);assertEquals("WITHDRAWN",view.at("/confirmation/status").asText());assertEquals(1,view.at("/confirmation/confirmedCount").asInt());assertEquals("SELF_REPORTED",view.path("evidenceLevel").asText());
+        var rows=businessRows();assertEquals(view,call("POST",nf.path()+"/withdraw-confirmation",a.token(),withdraw,200));assertEquals(rows,businessRows());
+        call("POST",nf.path()+"/withdraw-confirmation",a.token(),Map.of("snapshotHash",newHash,"reason","不同原因"),409);
+        call("POST",nf.path()+"/confirm",b.token(),confirmationBody(newHash),409);call("POST",nf.path()+"/confirmation-request",a.token(),Map.of("shareEvidenceWithAllParticipants",true),409);
+        evidenceRead(newEvidence,c,200);assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_confirmation WHERE history_id=?",Integer.class,f.event()));
+    }
+    @Test void historyConfirmationAtomicAppendFailureAndDatabaseReferencesPreserveSourceChain() throws Exception {
+        var f=confirmationFixture(2,false);
+        for(String phase:List.of("appendRequest","appendMember","appendConfirmation","appendWithdrawal")) {
+            if(phase.equals("appendConfirmation")) requestConfirmation(f);
+            var req=context.getBean(edu.campusloop.web.history.mapper.HistoryConfirmationMapper.class).request(f.event());String hash=req==null?null:req.snapshotHash();
+            String action=phase.equals("appendConfirmation")?"confirm":phase.equals("appendWithdrawal")?"withdraw":"request";
+            var rows=businessRows();var once=new java.util.concurrent.atomic.AtomicBoolean();
+            SqlProbe.after.set(id->{if(id.endsWith("HistoryConfirmationMapper."+phase) && once.compareAndSet(false,true)) jdbc.update("INSERT INTO cl_exchange(initiator_id,status,idempotency_key,expires_at) SELECT initiator_id,status,idempotency_key,expires_at FROM cl_exchange WHERE id=?",f.exchange());});
+            try {rejected(409,()->historyConfirmations.act(a.id(),f.item(),f.event(),action,new edu.campusloop.web.history.dto.HistoryConfirmationCommand(hash,"核对")));}finally{SqlProbe.after.remove();}
+            assertTrue(once.get());assertEquals(rows,businessRows());
+        }
+        String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);var rows=businessRows();
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_history_confirmation(history_id,user_id,snapshot_hash,confirmed_at) VALUES(?,?,?,CURRENT_TIMESTAMP)",f.event(),outsider.id(),hash));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_history_confirmation(history_id,user_id,snapshot_hash,confirmed_at) VALUES(?,?,?,CURRENT_TIMESTAMP)",f.event(),b.id(),"0".repeat(64)));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("INSERT INTO cl_history_confirmation_member(history_id,exchange_id,user_id) VALUES(?,?,?)",f.event(),f.exchange(),outsider.id()));
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class,()->jdbc.update("DELETE FROM cl_history_confirmation_request WHERE history_id=?",f.event()));assertEquals(rows,businessRows());
+    }
+    @Test void mysqlHistoryFinalConfirmationsAndDuplicateRequestAreSerializedExactlyOnce() throws Exception {
+        mysqlOnly();var f=confirmationFixture(3,false);String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);
+        assertEquals(List.of(f.event(),f.event()),race(()->confirmHistory(b,f,hash),()->confirmHistory(c,f,hash),"HistoryConfirmationMapper.appendConfirmation","ExchangeLifecycleMapper.lock"));
+        assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_confirmation WHERE history_id=?",Integer.class,f.event()));
+        var rows=businessRows();confirmHistory(c,f,hash);assertEquals(rows,businessRows());assertEquals("BOTH_CONFIRMED",call("GET",f.path(),null,null,200).path("evidenceLevel").asText());
+        var second=confirmationFixture(2,false);
+        java.util.concurrent.Callable<Long> start=()->{historyConfirmations.act(a.id(),second.item(),second.event(),"request",new edu.campusloop.web.history.dto.HistoryConfirmationCommand(null,null));return second.event();};
+        assertEquals(List.of(second.event(),second.event()),race(start,start,"HistoryConfirmationMapper.appendRequest","ExchangeLifecycleMapper.lock"));
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_history_confirmation_member WHERE history_id=?",Integer.class,second.event()));
+    }
+    @Test void mysqlHistoryCorrectionAndConfirmationRespectBothCommitOrders() throws Exception {
+        mysqlOnly();
+        for(boolean correctionFirst:List.of(true,false)) {
+            var f=confirmationFixture(2,false);String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);
+            var body=json.convertValue(statement("REPAIR","新修正",f.exchange(),f.event(),List.of()),edu.campusloop.web.history.dto.HistoryRequest.class);
+            var outcome=correctionFirst?race(()->histories.create(a.id(),f.item(),body),()->confirmHistory(b,f,hash),"HistoryMapper.append","ExchangeLifecycleMapper.lock"):
+                race(()->confirmHistory(b,f,hash),()->histories.create(a.id(),f.item(),body),"HistoryConfirmationMapper.appendConfirmation","ExchangeLifecycleMapper.lock");
+            assertTrue(outcome.get(0)>0);if(correctionFirst) assertEquals(-409L,outcome.get(1));else assertTrue(outcome.get(1)>0);
+            var old=call("GET",f.path(),a.token(),null,200);assertEquals("SUPERSEDED",old.at("/confirmation/status").asText());assertEquals(correctionFirst?1:2,old.at("/confirmation/confirmedCount").asInt());
+            long next=old.path("correctedByEventId").asLong();assertEquals("SELF_REPORTED",call("GET","/api/items/"+f.item()+"/history/"+next,a.token(),null,200).path("evidenceLevel").asText());
+        }
+    }
+    @Test void mysqlHistoryWithdrawalAndLastConfirmationKeepExactHistoricalOutcome() throws Exception {
+        mysqlOnly();
+        for(boolean withdrawFirst:List.of(true,false)) {
+            var f=confirmationFixture(2,false);String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);
+            java.util.concurrent.Callable<Long> withdraw=()->{historyConfirmations.act(a.id(),f.item(),f.event(),"withdraw",new edu.campusloop.web.history.dto.HistoryConfirmationCommand(hash,"待核对"));return f.event();};
+            var result=withdrawFirst?race(withdraw,()->confirmHistory(b,f,hash),"HistoryConfirmationMapper.appendWithdrawal","ExchangeLifecycleMapper.lock"):
+                race(()->confirmHistory(b,f,hash),withdraw,"HistoryConfirmationMapper.appendConfirmation","ExchangeLifecycleMapper.lock");
+            assertEquals(List.of(f.event(),withdrawFirst?-409L:f.event()),result);
+            var view=call("GET",f.path(),a.token(),null,200);assertEquals("WITHDRAWN",view.at("/confirmation/status").asText());assertEquals(withdrawFirst?"SELF_REPORTED":"BOTH_CONFIRMED",view.path("evidenceLevel").asText());
+        }
     }
 
     private Map<String,List<Map<String,Object>>> businessRows() {

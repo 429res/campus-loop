@@ -7,12 +7,12 @@ import java.time.ZoneOffset;
 import java.util.*;
 
 /** Adapts persisted participant facts for both command authorization and read-side action projection. */
-final class ExchangeLifecycleFacts {
+public final class ExchangeLifecycleFacts {
     private ExchangeLifecycleFacts() {}
-    static boolean supported(ExchangeRecord row) {
+    public static boolean supported(ExchangeRecord row) {
         return "independent-v2".equals(row.getRuleVersion()) && row.getRequestDigest()!=null && row.getCreationSnapshot()!=null;
     }
-    static Snapshot snapshot(ExchangeRecord row,List<ExchangeParticipantRecord> people) {
+    public static Snapshot snapshot(ExchangeRecord row,List<ExchangeParticipantRecord> people) {
         Set<Long> participants=new HashSet<>(),recipients=new HashSet<>(),confirmed=new HashSet<>(),items=new HashSet<>();
         boolean handover=false;
         for(var p:people) {
