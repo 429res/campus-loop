@@ -65,13 +65,13 @@ class CampusIntegrationTest {
     }
     @Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired UserMapper users;
     @Autowired PasswordService passwords;@Autowired JdbcTemplate jdbc;@Autowired DataSource ds;
-    String memberToken,adminToken; long memberId; String memberName,memberPassword;
+    String memberToken,adminToken; long memberId,adminId; String memberName,memberPassword,adminName;
     @BeforeAll void setup() throws Exception {
         new ResourceDatabasePopulator(new ClassPathResource("db/demo-data.sql")).execute(ds);
         memberName="test_"+UUID.randomUUID().toString().substring(0,12);memberPassword=UUID.randomUUID().toString();
         memberId=account(memberName,memberPassword,"USER");
-        String adminName="test_"+UUID.randomUUID().toString().substring(0,12), adminPassword=UUID.randomUUID().toString();
-        account(adminName,adminPassword,"ADMIN");memberToken=login(memberName,memberPassword);adminToken=login(adminName,adminPassword);
+        adminName="test_"+UUID.randomUUID().toString().substring(0,12);String adminPassword=UUID.randomUUID().toString();
+        adminId=account(adminName,adminPassword,"ADMIN");memberToken=login(memberName,memberPassword);adminToken=login(adminName,adminPassword);
     }
     long account(String username,String password,String role){
         User user=new User();user.setUsername(username);user.setPasswordHash(passwords.encode(password));user.setDisplayName("集成测试同学");
@@ -99,6 +99,141 @@ class CampusIntegrationTest {
         mvc.perform(get("/api/items").param("size","101")).andExpect(status().isBadRequest());
         mvc.perform(get("/api/items/999999999")).andExpect(status().isNotFound());
         mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username","demo_leaf","password",UUID.randomUUID().toString())))).andExpect(status().isUnauthorized());
+    }
+    @Test void adminUserQueryIsProtectedFilteredAndSafe() throws Exception {
+        String username="filter_"+UUID.randomUUID().toString().substring(0,10);
+        long userId=account(username,UUID.randomUUID().toString(),"USER");
+        mvc.perform(get("/api/admin/users")).andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value(401));
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+memberToken))
+            .andExpect(status().isForbidden()).andExpect(jsonPath("$.code").value(403));
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("keyword",username)
+            .param("role","USER").param("status","ACTIVE").param("page","1").param("size","1"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(1))
+            .andExpect(jsonPath("$.data.records[0].id").value(userId)).andExpect(jsonPath("$.data.records[0].username").value(username))
+            .andExpect(jsonPath("$.data.records[0].role").value("USER")).andExpect(jsonPath("$.data.records[0].status").value("ACTIVE"))
+            .andExpect(jsonPath("$.data.records[0].version").value(0)).andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.records[0].token").doesNotExist());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("role","OWNER"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("status","LOCKED"))
+            .andExpect(status().isBadRequest());
+        mvc.perform(get("/api/admin/users").header("Authorization","Bearer "+adminToken).param("size","101"))
+            .andExpect(status().isBadRequest());
+    }
+    @Test void adminDisableRevokesSessionsAuditsAndRequiresFreshLoginAfterEnable() throws Exception {
+        String username="status_"+UUID.randomUUID().toString().substring(0,10),password=UUID.randomUUID().toString();
+        long userId=account(username,password,"USER");String first=login(username,password),second=login(username,password);
+        String itemTitle="停用保留历史物品 "+UUID.randomUUID();
+        String itemBody=json.writeValueAsString(Map.of("title",itemTitle,"description","状态测试物品","categoryId",1,"conditionLevel",4,
+            "tags",List.of("测试"),"wantedCategoryId",2,"wantedTags",List.of()));
+        long itemId=json.readTree(mvc.perform(post("/api/items").header("Authorization","Bearer "+first).contentType("application/json").content(itemBody))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString()).at("/data/id").asLong();
+
+        String disable=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","  账号状态验收  "));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(json.writeValueAsString(Map.of("status","DISABLED","version",0,
+                "reason","不应执行","role","ADMIN","passwordHash","not-a-hash"))))
+            .andExpect(status().isBadRequest());
+        assertEquals("ACTIVE",users.selectById(userId).getStatus());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+memberToken)
+            .contentType("application/json").content(disable)).andExpect(status().isForbidden());
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(disable)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("DISABLED")).andExpect(jsonPath("$.data.version").value(1))
+            .andExpect(jsonPath("$.data.passwordHash").doesNotExist());
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        assertEquals("DISABLED",jdbc.queryForObject("SELECT status FROM cl_user WHERE id=?",String.class,userId));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        assertEquals("账号状态验收",jdbc.queryForObject("SELECT reason FROM cl_user_status_audit WHERE target_user_id=?",String.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+second)).andExpect(status().isUnauthorized());
+        mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",password))))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/items/"+itemId)).andExpect(status().isOk()).andExpect(jsonPath("$.data.title").value(itemTitle));
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item WHERE id=?",Integer.class,itemId));
+
+        String enable=json.writeValueAsString(Map.of("status","ACTIVE","version",1,"reason","确认恢复使用"));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(enable)).andExpect(status().isOk())
+            .andExpect(jsonPath("$.data.status").value("ACTIVE")).andExpect(jsonPath("$.data.version").value(2));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+first)).andExpect(status().isUnauthorized());
+        assertFalse(login(username,password).isBlank());
+        mvc.perform(get("/api/admin/users/"+userId+"/status-audits").header("Authorization","Bearer "+adminToken))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.data.total").value(2))
+            .andExpect(jsonPath("$.data.records[0].operatorUsername").value(adminName))
+            .andExpect(jsonPath("$.data.records[0].reason").value("确认恢复使用"))
+            .andExpect(jsonPath("$.data.records[0].passwordHash").doesNotExist())
+            .andExpect(jsonPath("$.data.records[0].token").doesNotExist());
+    }
+    @Test void staleAndConcurrentStatusWritesDoNotOverwrite() throws Exception {
+        String username="conflict_"+UUID.randomUUID().toString().substring(0,8);
+        long userId=account(username,UUID.randomUUID().toString(),"USER");
+        String secondAdminName="admin_"+UUID.randomUUID().toString().substring(0,8),secondAdminPassword=UUID.randomUUID().toString();
+        account(secondAdminName,secondAdminPassword,"ADMIN");String secondAdminToken=login(secondAdminName,secondAdminPassword);
+        String body=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","并发停用测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> first=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+adminToken).contentType("application/json").content(body)).andReturn();});
+            Future<MvcResult> second=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+secondAdminToken).contentType("application/json").content(body)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            Set<Integer> statuses=Set.of(first.get(30,TimeUnit.SECONDS).getResponse().getStatus(),second.get(30,TimeUnit.SECONDS).getResponse().getStatus());
+            assertEquals(Set.of(200,409),statuses);
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals("DISABLED",users.selectById(userId).getStatus());assertEquals(1,users.selectById(userId).getVersion());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+userId+"/status").header("Authorization","Bearer "+adminToken)
+            .contentType("application/json").content(body)).andExpect(status().isConflict());
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user_status_audit WHERE target_user_id=?",Integer.class,userId));
+    }
+    @Test void concurrentLoginCannotSurviveDisableAndAdminCannotDisableSelf() throws Exception {
+        String username="race_"+UUID.randomUUID().toString().substring(0,10),password=UUID.randomUUID().toString();
+        long userId=account(username,password,"USER");String body=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","并发登录停用测试"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> loginResult=executor.submit(()->{ready.countDown();start.await();return mvc.perform(post("/api/auth/login").contentType("application/json")
+                .content(json.writeValueAsString(Map.of("username",username,"password",password)))).andReturn();});
+            Future<MvcResult> disableResult=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+userId+"/status")
+                .header("Authorization","Bearer "+adminToken).contentType("application/json").content(body)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            MvcResult loginResponse=loginResult.get(30,TimeUnit.SECONDS),disableResponse=disableResult.get(30,TimeUnit.SECONDS);
+            assertEquals(200,disableResponse.getResponse().getStatus());assertTrue(Set.of(200,401).contains(loginResponse.getResponse().getStatus()));
+            if(loginResponse.getResponse().getStatus()==200) {
+                String racedToken=json.readTree(loginResponse.getResponse().getContentAsString()).at("/data/token").asText();
+                mvc.perform(get("/api/auth/me").header("Authorization","Bearer "+racedToken)).andExpect(status().isUnauthorized());
+            }
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_auth_session WHERE user_id=?",Integer.class,userId));
+        mvc.perform(patch("/api/admin/users/"+adminId+"/status").header("Authorization","Bearer "+adminToken).contentType("application/json")
+            .content(json.writeValueAsString(Map.of("status","DISABLED","version",users.selectById(adminId).getVersion(),"reason","不允许自我停用"))))
+            .andExpect(status().isConflict());
+        assertEquals("ACTIVE",users.selectById(adminId).getStatus());
+    }
+    @Test void concurrentAdminsCannotDisableEachOtherAndRemoveEveryEntry() throws Exception {
+        String firstName="guard_"+UUID.randomUUID().toString().substring(0,8),firstPassword=UUID.randomUUID().toString();
+        String secondName="guard_"+UUID.randomUUID().toString().substring(0,8),secondPassword=UUID.randomUUID().toString();
+        long firstId=account(firstName,firstPassword,"ADMIN"),secondId=account(secondName,secondPassword,"ADMIN");
+        String firstToken=login(firstName,firstPassword),secondToken=login(secondName,secondPassword);
+        String disableFirst=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","交叉停用保护"));
+        String disableSecond=json.writeValueAsString(Map.of("status","DISABLED","version",0,"reason","交叉停用保护"));
+        ExecutorService executor=Executors.newFixedThreadPool(2);CountDownLatch ready=new CountDownLatch(2),start=new CountDownLatch(1);
+        try {
+            Future<MvcResult> byFirst=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+secondId+"/status")
+                .header("Authorization","Bearer "+firstToken).contentType("application/json").content(disableSecond)).andReturn();});
+            Future<MvcResult> bySecond=executor.submit(()->{ready.countDown();start.await();return mvc.perform(patch("/api/admin/users/"+firstId+"/status")
+                .header("Authorization","Bearer "+secondToken).contentType("application/json").content(disableFirst)).andReturn();});
+            assertTrue(ready.await(10,TimeUnit.SECONDS));start.countDown();
+            int firstStatus=byFirst.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            int secondStatus=bySecond.get(30,TimeUnit.SECONDS).getResponse().getStatus();
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==200).count());
+            assertEquals(1,List.of(firstStatus,secondStatus).stream().filter(code->code==401).count());
+        } finally {start.countDown();executor.shutdownNow();assertTrue(executor.awaitTermination(10,TimeUnit.SECONDS));}
+        assertEquals(1,List.of(users.selectById(firstId),users.selectById(secondId)).stream().filter(user->"ACTIVE".equals(user.getStatus())).count());
+        assertTrue(jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE role='ADMIN' AND status='ACTIVE' AND password_hash IS NOT NULL",Integer.class)>0);
     }
     @Test void logoutActuallyRevokesAndExpiredSessionIsRejected() throws Exception {
         String token=login(memberName,memberPassword);

@@ -38,7 +38,7 @@
 
 ### B-01 本次切片状态
 
-B 已完成实现与本地验收（H2、一次性MySQL各26项通过，V2→V3旧物品保留检查通过），`feature/b01-independent-demands` 待审核/协调确认/CI，尚未合入main，协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。仅后端独立 CRUD、候选关联与 D-02 契约；A 的 V3 序号与 A/D 基数复核待回复。新旧需求不双写，旧推荐继续可用；B-02 匹配语义和 D-02 用户界面均未完成。PR 通过该 Issue 关联；具体接口和隔离测试证据见 [B-01 接入说明](b01-independent-demands.md)。
+B 已完成实现，`feature/b01-independent-demands` 待审核/协调确认/CI，尚未合入main，协作 [Issue #3](https://github.com/429res/campus-loop/issues/3)。仅后端独立 CRUD、候选关联与 D-02 契约；同步 main 后需求迁移顺延为 V4，保留 A-01 的 V3，A/D 基数复核仍待回复。新旧需求不双写，旧推荐继续可用；B-02 匹配语义和 D-02 用户界面均未完成。PR 通过该 Issue 关联；原提交及合并修复的隔离测试证据见 [B-01 接入说明](b01-independent-demands.md)。
 
 ## 阶段 2：完成一次真实的双方与三方交换
 
