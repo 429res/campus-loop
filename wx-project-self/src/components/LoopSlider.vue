@@ -16,4 +16,4 @@ const keyboard = event => {
 }
 useKeyboard(control,keyboard)
 </script>
-<template><slider ref="control" :value="modelValue" role="slider" tabindex="0" :aria-valuenow="modelValue" aria-valuemin="0" aria-valuemax="100" activeColor="#d63f78" show-value @change="change"/></template>
+<template><slider ref="control" :value="modelValue" role="slider" tabindex="0" :aria-valuenow="modelValue" aria-valuemin="0" aria-valuemax="100" activeColor="#ca376f" show-value @change="change"/></template>

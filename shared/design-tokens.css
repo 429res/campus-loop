@@ -13,6 +13,10 @@
   --cl-success: #21805b;
   --cl-warning: #97600b;
   --cl-danger: #c13748;
+  --cl-focus: #2774c7;
+  --cl-focus-soft: rgba(39,116,199,.2);
+  --cl-overlay: rgba(13,23,38,.36);
+  --cl-disabled-opacity: .48;
   --cl-glass: rgba(255,255,255,.86);
   --cl-highlight: rgba(255,255,255,.75);
   --cl-shadow: 0 8px 28px rgba(30,45,75,.07);
@@ -45,6 +49,9 @@
   --cl-success: #73d3ad;
   --cl-warning: #f2c879;
   --cl-danger: #ff9b9f;
+  --cl-focus: #80baff;
+  --cl-focus-soft: rgba(128,186,255,.24);
+  --cl-overlay: rgba(0,0,0,.62);
   --cl-glass: rgba(27,35,49,.93);
   --cl-highlight: rgba(255,255,255,.12);
   --cl-shadow: 0 8px 28px rgba(0,0,0,.2);

@@ -13,5 +13,5 @@ const change = event => emit('change',{detail:{value:event.target.value}})
   <!-- #endif -->
 </template>
 <style scoped>
-.native-picker{box-sizing:border-box;width:100%;min-width:0;min-height:46px;padding:12px 14px;border:1px solid var(--cl-border);border-radius:12px;color:var(--cl-text);background:var(--cl-surface-soft);font:inherit;font-size:14px;color-scheme:inherit}.native-picker:focus-visible{outline:3px solid var(--cl-blue);outline-offset:3px}.native-picker[disabled]{opacity:.48}
+.native-picker{box-sizing:border-box;width:100%;min-width:0;min-height:46px;padding:12px 14px;border:1px solid var(--cl-border);border-radius:12px;color:var(--cl-text);background:var(--cl-surface-soft);font:inherit;font-size:14px;color-scheme:inherit}.native-picker:focus-visible{outline:3px solid var(--cl-focus);outline-offset:3px}.native-picker[disabled]{opacity:var(--cl-disabled-opacity)}
 </style>

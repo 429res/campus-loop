@@ -138,6 +138,9 @@ async function confirm() {
           busy ? "处理中" : "体验加载"
         }}</el-button
         ><el-button disabled>禁用状态</el-button
+        ><el-button
+          @click="ElMessage.error('本地失败反馈演示：输入和选择保持不变，没有业务请求')"
+          >失败反馈</el-button
         ><el-button type="danger" plain @click="confirm">确认演示</el-button>
       </div>
     </section>

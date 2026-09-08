@@ -1,13 +1,13 @@
 // Interruptible transitions adapt the original material/motion separation; no delayed actions.
-.cl-btn,.cl-icon-btn,.cl-card,.cl-input,.cl-picker,.cl-textarea { transition:transform 180ms var(--cl-ease),box-shadow 180ms ease,border-color 180ms ease; }
+.cl-btn,.cl-icon-btn,.cl-card,.cl-input,.cl-picker,.cl-textarea { transition:transform var(--cl-motion-fast) var(--cl-ease),box-shadow var(--cl-motion-fast) ease,border-color var(--cl-motion-fast) ease; }
 .cl-btn:active,.cl-icon-btn:active,.cl-press { transform:scale(.975); }
 /* #ifdef H5 */
 @media (hover:hover) { .cl-btn:not([disabled]):hover,.cl-icon-btn:not([disabled]):hover { border-color:var(--cl-primary); box-shadow:0 4px 12px rgba(25,35,51,.065); } .cl-card:hover { transform:translateY(-3px); box-shadow:0 9px 25px rgba(25,35,51,.075); } }
-uni-modal.uni-fade-enter-active,uni-modal.uni-fade-leave-active { transition:opacity 220ms ease; }
+uni-modal.uni-fade-enter-active,uni-modal.uni-fade-leave-active { transition:opacity var(--cl-motion-normal) ease; }
 uni-modal.uni-fade-leave-active { pointer-events:none; }
-uni-modal.uni-fade-enter-active .uni-modal,uni-modal.uni-fade-leave-active .uni-modal { transition:translate 240ms var(--cl-ease),opacity 180ms ease; }
+uni-modal.uni-fade-enter-active .uni-modal,uni-modal.uni-fade-leave-active .uni-modal { transition:translate var(--cl-motion-normal) var(--cl-ease),opacity var(--cl-motion-fast) ease; }
 uni-modal.uni-fade-enter-from .uni-modal,uni-modal.uni-fade-leave-to .uni-modal { opacity:0; translate:0 6px; }
-uni-actionsheet .uni-actionsheet { transition:transform 260ms var(--cl-ease),opacity 260ms ease,visibility 260ms; }
+uni-actionsheet .uni-actionsheet { transition:transform var(--cl-motion-normal) var(--cl-ease),opacity var(--cl-motion-normal) ease,visibility var(--cl-motion-normal); }
 /* #endif */
 @mixin reduce-motion {
   *,*::before,*::after { animation:none !important; transition:none !important; scroll-behavior:auto !important; }
