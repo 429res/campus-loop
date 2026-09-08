@@ -23,9 +23,9 @@ import java.util.*;
 @Service
 public class HistoryService {
     private final HistoryMapper history;private final ItemMapper items;private final UserMapper users;private final UploadMapper uploads;
-    private final ExchangeDatabaseClock clock;private final ExchangeTransactionExecutor transactions;private final LocalUploadService files;private final UploadReferenceService references;private final ExchangeLifecycleMapper exchanges;private final HistoryConfirmationService confirmations;
-    public HistoryService(HistoryMapper history,ItemMapper items,UserMapper users,UploadMapper uploads,ExchangeDatabaseClock clock,ExchangeTransactionExecutor transactions,LocalUploadService files,UploadReferenceService references,ExchangeLifecycleMapper exchanges,HistoryConfirmationService confirmations) {
-        this.history=history;this.items=items;this.users=users;this.uploads=uploads;this.clock=clock;this.transactions=transactions;this.files=files;this.references=references;this.exchanges=exchanges;this.confirmations=confirmations;
+    private final ExchangeDatabaseClock clock;private final ExchangeTransactionExecutor transactions;private final LocalUploadService files;private final UploadReferenceService references;private final ExchangeLifecycleMapper exchanges;private final HistoryConfirmationService confirmations;private final HistoryVerificationService verifications;
+    public HistoryService(HistoryMapper history,ItemMapper items,UserMapper users,UploadMapper uploads,ExchangeDatabaseClock clock,ExchangeTransactionExecutor transactions,LocalUploadService files,UploadReferenceService references,ExchangeLifecycleMapper exchanges,HistoryConfirmationService confirmations,HistoryVerificationService verifications) {
+        this.history=history;this.items=items;this.users=users;this.uploads=uploads;this.clock=clock;this.transactions=transactions;this.files=files;this.references=references;this.exchanges=exchanges;this.confirmations=confirmations;this.verifications=verifications;
     }
     public long create(long actor,long itemId,HistoryRequest request) {
         if(itemId<1) throw new ApiException(400,"物品ID须为正整数");
@@ -119,9 +119,11 @@ public class HistoryService {
             && row.getCorrectedByEventId()==null && row.getOwnershipEndedAt()!=null;
         var confirmation=confirmations.view(user,row);
         String level="SELF_REPORTED".equals(row.getEvidenceLevel()) && confirmation.completedAt()!=null?"BOTH_CONFIRMED":row.getEvidenceLevel();
+        var verification=verifications.view(user,row);
+        if("APPROVED".equals(verification.path("decision").asText())) level="ADMIN_VERIFIED";
         return new HistoryView(row.getId(),row.getItemId(),row.getEventType(),row.getDescription(),level,row.getAuthorDisplayName(),
-            utc(row.getOccurredAt()),row.getOccurredAt()==null,utc(row.getRecordedAt()),row.getCorrectsEventId(),row.getCorrectedByEventId(),confirmation.completedAt()!=null?confirmation.completedAt():utc(row.getConfirmedAt()),utc(row.getVerifiedAt()),
-            privileged?row.getSourceUserId():null,privileged?row.getExchangeId():null,evidence,correct,row.getEvidenceLevel(),confirmation);
+            utc(row.getOccurredAt()),row.getOccurredAt()==null,utc(row.getRecordedAt()),row.getCorrectsEventId(),row.getCorrectedByEventId(),confirmation.completedAt()!=null?confirmation.completedAt():utc(row.getConfirmedAt()),verification.path("decidedAt").isTextual() && "APPROVED".equals(verification.path("decision").asText())?Instant.parse(verification.path("decidedAt").asText()):utc(row.getVerifiedAt()),
+            privileged?row.getSourceUserId():null,privileged?row.getExchangeId():null,evidence,correct,row.getEvidenceLevel(),confirmation,verification);
     }
     private Item item(long id) {if(id<1) throw new ApiException(400,"物品ID须为正整数");var item=items.selectById(id);if(item==null) throw invisible();return item;}
     private boolean allBasic(User user,Item item) {return Set.of("AVAILABLE","RESERVED","EXCHANGED").contains(item.getStatus()) || actor(user)==item.getOwnerId() || admin(user);}
