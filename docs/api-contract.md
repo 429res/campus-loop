@@ -78,7 +78,11 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
-管理概览统计：推荐规模正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无推荐为0）。仅候选或推荐规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示“— / 推荐规模超限，暂不统计”，不得显示为0。其他接口或数据库错误仍按正常错误链路处理。
+管理概览统计当前无 query 参数、时间范围或 `asOf`，各字段是顺序查询的当前全量读数，不承诺同一时点强一致快照。`users` 是 `cl_user` 全部账号行数，包含 ADMIN/USER 和 ACTIVE/DISABLED；`items` 是 `cl_item` 全状态行数；`availableItems` 只按 `status=AVAILABLE` 计数，不代表排除停用 owner、占用后的精确匹配候选。三者单位分别为 user id、item id、item id；空集合返回0。
+
+`recommendations` 是与公开 legacy-v1 `GET /matches` 同源的当前 2/3 人候选环方案数，按规范化物品 ID 环去重；它不是 independent-v2 推荐数、持久交换数、参与者数或完成交换数，读取不写占用或交换。正常时 `recommendationsStatus="AVAILABLE"`、`recommendations` 为非负整数（无方案为0）。仅候选或方案规模超限时，`GET /admin/stats` 仍返回200及三项基础计数，`recommendationsStatus="LIMIT_EXCEEDED"`、`recommendations=null`；前端显示不可用及超限原因，不得显示为0。其他数据库/API错误走非200错误链路，消费端显示读取失败，不得转换为0。
+
+当前看板另以 `GET /admin/items?page=1&size=1&status=PENDING_REVIEW` 的服务端 `PageResult.total` 显示待审核物品量；这是独立请求和当前状态计数，不从 `records` 当前页推算，也不与 `/admin/stats` 组成原子快照。生产看板没有日期筛选或趋势数据。完成交换、交换状态分布及期间统计尚无管理员接口，均为待开发，不得由推荐数、参与者私有 `/exchanges/mine` 或分页当前页替代。若后续增加期间完成量，按唯一 exchange id 去重，以 UTC `cl_exchange_event.new_status=COMPLETED` 的 `occurred_at` 使用左闭右开 `[from,to)`；旧 COMPLETED 记录缺少该事件时必须明确排除/时间不可知，不得用 `created_at` 猜测。
 
 ## A-02 第三批：管理员分类维护
 
