@@ -210,6 +210,10 @@ ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,particip
 
 用户已明确确认：发起人也不自动确认，创建后全员PENDING、AWAITING_CONFIRMATION/version=0；expiresAt为DB UTC创建时间+24h；进行中（AWAITING_CONFIRMATION/READY/DISPUTED）所引用需求禁止编辑/启停/删除。V8 cl_exchange_demand保存精确需求引用与历史快照；需求创建/修改先锁所属用户，编辑/启停/删除在需求锁内检查进行中引用，存在引用则409且版本不变。未选中需求不冻结；终态后允许按原需求契约修改，快照保留不变。
 
+阶段二审查补齐创建边界：每条所选需求最多参与一个进行中交换，即使另一方案使用不同物品，也在需求锁内返回409；同键同摘要的原交换重放仍先成功返回。取消/超时后可重新选用该需求，完成后需求已INACTIVE，遵循原启用规则。创建时物品version最多为2147483645（预留占用、释放或流转两次递增），所选需求version最多为2147483646（预留完成关闭一次递增）；超过业务余量返回409且无写入，请求类型范围仍为非负int32。
+
+独立推荐与创建共用的需求输入排除进行中已选需求；同一物品关联的其他可用需求仍参与原分类匹配及标签排序。取消/超时提交后，原需求恢复候选资格。推荐读取保持只读，不建立需求或物品占用；并发变化仍由创建锁内复核拒绝，不能自动替换提交的需求。
+
 唯一调用链为B的ExchangeApplicationService → A主责ExchangeCreationTransaction → B纯ExchangeCycleValidator。端口唯一实现 DefaultExchangeCreationTransaction 在同一个READ_COMMITTED事务内检查幂等、锁定及重读数据库、调用验证器、持久化交换/参与者/占用/需求快照、将物品置RESERVED且version+1，提交后返回详情。ExchangeCandidateReader是无锁领域核查适配器，无公开预检端点，其结果不能授权写入。
 
 幂等作用域`(服务端initiatorId,idempotencyKey)`；摘要含ruleVersion和整条绑定流向的itemId/itemVersion/demandId/demandVersion。按最小物品ID旋转、保留方向，旋转起点不同视为同请求，反向三环不同。同键同摘要应先返回原交换，不以首次创建造成的RESERVED/版本递增拒绝重放，不刷新截止时间；同键不同摘要409。状态/物品版本/需求版本或B-02所选需求变化409，不能悄悄替换新需求；越权发起403、非法重复用户/物品或环形状400、有效需求规模超限422。任何校验/唯一约束失败整体回滚，无部分占用/参与者。死锁等数据库瞬态冲突最多重试三次，每次新事务；耗尽返回409，客户端保持同一逻辑提交的键。V2历史行缺摘要时同键拒绝409，不推断成可重放请求。

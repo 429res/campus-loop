@@ -11,7 +11,10 @@ public interface ExchangeCreationMapper {
 
     @Select("<script>SELECT DISTINCT d.id FROM cl_demand d JOIN cl_demand_item di ON di.demand_id=d.id " +
         "JOIN cl_item i ON i.id=di.item_id AND i.owner_id=d.owner_id " +
-        "WHERE d.status='ACTIVE' AND di.item_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
+        "WHERE d.status='ACTIVE' AND NOT EXISTS (" +
+        "SELECT 1 FROM cl_exchange_demand ed JOIN cl_exchange e ON e.id=ed.exchange_id " +
+        "WHERE ed.demand_id=d.id AND e.status IN ('AWAITING_CONFIRMATION','READY','DISPUTED')) " +
+        "AND di.item_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
         "ORDER BY d.id LIMIT 20001</script>")
     List<Long> associatedDemandIds(@Param("ids") List<Long> ids);
 

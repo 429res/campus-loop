@@ -47,10 +47,13 @@ async function load() {
     ruleVersion.value = data.ruleVersion
     recommendations.value = data.recommendations
   } catch (cause) {
-    if (!requestGuard.isCurrent(ticket) || isAbortError(cause)) return
+    // The HTTP wrapper clears this session before rejecting its 401 response.
+    // Still accept that failure, but never one superseded by another request/account.
+    const clearedSession = cause.status === 401 && !uni.getStorageSync(TOKEN_KEY) && requestGuard.isLatest(ticket)
+    if ((!requestGuard.isCurrent(ticket) && !clearedSession) || isAbortError(cause)) return
     error.value = cause.message
     errorStatus.value = cause.status || 0
-    if (cause.status === 401) { authenticated.value = false; authNotice.value = '登录已过期，请重新登录后读取推荐。' }
+    if (cause.status === 401) { authenticated.value = false; loading.value = false; authNotice.value = '登录已过期，请重新登录后读取推荐。' }
   } finally {
     if (requestGuard.isCurrent(ticket)) loading.value = false
   }
@@ -94,8 +97,8 @@ onUnload(() => { preview.value = null; requestGuard.invalidate(); activeRequest?
         <view class="preview-participants"><view v-for="participant in preview.participants" :key="participant.userId" class="preview-person"><text class="cl-avatar">{{ participant.displayName.slice(0,1) }}</text><view><text class="cl-field-title">{{ participant.displayName }}</text><text class="cl-hint">提供：{{ participant.itemTitle }}</text></view></view></view>
         <view class="cl-divider"/>
         <view class="preview-flows"><view v-for="flow in preview.flows" :key="`${flow.itemId}-${flow.toUserId}`" class="preview-flow"><text class="preview-direction">{{ flow.fromName }} → {{ flow.toName }}</text><text class="cl-field-title">{{ flow.itemTitle }}</text><text class="cl-hint">满足需求 #{{ flow.demandId }} · {{ flow.matchedCategoryName }}</text><text class="cl-hint">{{ flow.reason }}</text></view></view>
-        <view class="cl-notice"><text class="cl-field-title">提交能力待后端依赖</text><text class="cl-hint">B-03/A-03 尚未提供正式 DTO、详情回读、allowedActions 与幂等恢复查询。预览不会请求 501 接口、生成幂等键或写入占用。</text></view>
-        <LoopButton class="cl-btn cl-btn--primary cl-btn--wide" disabled>正式发起 · 待 B-03/A-03</LoopButton>
+        <view class="cl-notice"><text class="cl-field-title">正式发起暂未开放</text><text class="cl-hint">你可以先核对物品和流向。当前预览不会占用物品，也不会向其他同学发出邀请。</text></view>
+        <LoopButton class="cl-btn cl-btn--primary cl-btn--wide" disabled>正式发起 · 待开放</LoopButton>
         <LoopButton class="cl-btn cl-btn--wide" @click="closePreview">返回核对</LoopButton>
       </view>
     </LoopSheet>

@@ -724,9 +724,36 @@ class ExchangeDomainIntegrationTest {
                 try{return expiryScanner.scanBatch();}finally{SqlProbe.before.remove();}
             });
             await(locked);
-            var second=expiryScanner.scanBatch();assertEquals(1,second.skipped());assertEquals(0,second.expired());
+            var second=expiryScanner.scanBatch();assertEquals(0,second.selected());assertEquals(0,second.expired());
             release.countDown();assertEquals(1,first.get(10,java.util.concurrent.TimeUnit.SECONDS).expired());
             assertEquals(1,eventCount(id));assertEquals(0,expiryScanner.scanBatch().selected());
+        } finally {release.countDown();pool.shutdownNow();}
+    }
+
+    @Test void mysqlExpiryBatchSkipsOldestBusyExchangeAndProcessesTheNextDueRow() throws Exception {
+        mysqlOnly();
+        long busy=creation.create(a.id(),ring(2,"expiry-busy-first"));
+        long available=creation.create(a.id(),ring(2,"expiry-available-next"));
+        var now=exchangeClock.now();
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",now.minusSeconds(2),busy);
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",now.minusSeconds(1),available);
+        var single=new ExchangeExpiryScanner(expiryQueue,lifecycle,exchangeClock,exchangeTransactions,1);
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        var locked=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactions);
+        try {
+            var blocker=pool.submit(()->tx.executeWithoutResult(status -> {
+                jdbc.queryForList("SELECT id FROM cl_exchange WHERE id=? FOR UPDATE",busy);
+                locked.countDown();await(release);
+            }));
+            await(locked);
+            var first=single.scanBatch();
+            assertEquals(1,first.selected());assertEquals(1,first.expired());
+            assertEquals("EXPIRED",state(available));assertEquals("AWAITING_CONFIRMATION",state(busy));
+            assertEquals(1,eventCount(available));assertEquals(0,eventCount(busy));
+            release.countDown();blocker.get(10,java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(1,single.scanBatch().expired());assertEquals(1,eventCount(busy));
+            assertEquals(0,single.scanBatch().selected());
         } finally {release.countDown();pool.shutdownNow();}
     }
 

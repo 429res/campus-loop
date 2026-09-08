@@ -23,10 +23,14 @@ public final class ExchangeCycleValidator {
             throw new ApiException(400, "交换环的用户必须唯一且每人提供一件物品");
         for (var expected : command.flows()) {
             var offer = offers.stream().filter(o -> o.id() == expected.itemId()).findFirst().orElseThrow(ExchangeCycleValidator::stale);
-            if (offer.version() != expected.itemVersion() || offer.version() == Integer.MAX_VALUE) throw stale();
+            // Reserving and later cancelling, expiring or completing each advance the item version.
+            // Refuse an exchange whose reservation would consume the final available increment.
+            if (offer.version() != expected.itemVersion() || offer.version() >= Integer.MAX_VALUE - 1) throw stale();
             List<IndependentMatchingInput.Demand> demands = database.demands().stream()
                 .filter(d -> d.id() == expected.demandId()).toList();
-            if (demands.size() != 1 || demands.get(0).version() != expected.demandVersion()) throw stale();
+            // Completion fulfills the selected demand and advances its version once.
+            if (demands.size() != 1 || demands.get(0).version() != expected.demandVersion()
+                || demands.get(0).version() == Integer.MAX_VALUE) throw stale();
         }
         String id = IndependentDemandMatcher.RULE_VERSION + ":cycle-" + String.join("-",
             command.flows().stream().map(f -> Long.toString(f.itemId())).toList());
