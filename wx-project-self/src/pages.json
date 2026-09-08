@@ -5,6 +5,7 @@
     { "path": "pages/publish/publish", "style": { "navigationBarTitleText": "发布闲置" } },
     { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的循环" } },
     { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/register/register", "style": { "navigationBarTitleText": "开发注册" } },
     { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情", "enablePullDownRefresh": true } },
     { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
   ],
