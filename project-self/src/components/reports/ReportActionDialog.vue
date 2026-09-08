@@ -117,8 +117,8 @@ async function refreshVersion() {
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="submit">
         <el-form-item v-if="isDecision()" label="处理决定">
           <el-radio-group v-model="form.decision" :disabled="submitting">
-            <el-radio-button label="UPHELD">举报成立</el-radio-button>
-            <el-radio-button label="DISMISSED">举报不成立</el-radio-button>
+            <el-radio-button value="UPHELD">举报成立</el-radio-button>
+            <el-radio-button value="DISMISSED">举报不成立</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item :label="isDecision() ? '处理理由' : '受理说明'" prop="reason">
