@@ -8,7 +8,7 @@ const win = process.platform === 'win32'
 const backend = resolve(root,'sys-project')
 const wrapper = win ? 'mvnw.cmd' : './mvnw'
 let env
-try { env = localEnv(!['install','build','test','mysql-test','doctor','wechat'].includes(action)) } catch (e) { console.error(e.message); process.exit(1) }
+try { env = localEnv(!['install','build','test','mysql-test','backup-restore-test','doctor','wechat'].includes(action)) } catch (e) { console.error(e.message); process.exit(1) }
 // Prefer the required JDK on macOS when the shell's Java default is newer.
 if (process.platform === 'darwin' && !process.env.JAVA_HOME) {
   try { env.JAVA_HOME = execFileSync('/usr/libexec/java_home',['-v','17'],{encoding:'utf8'}).trim() } catch {}
@@ -60,6 +60,9 @@ try {
       if (!env.TEST_DB_URL || !env.TEST_DB_URL.includes('_test')) throw new Error('mysql-test 只允许显式 TEST_DB_URL 指向 _test 数据库。')
       await run(wrapper,['-B','-ntp','-Dcampus.mysql-test=true','test'],backend)
       break
+    case 'backup-restore-test':
+      await run('node',['scripts/backup-restore-test.mjs'])
+      break
     case 'build':
       await run('npm',['test'],resolve(root,'wx-project-self'))
       await run('npm',['run','build'],resolve(root,'project-self'))
@@ -74,6 +77,6 @@ try {
       await run('java',['-version'])
       await run(wrapper,['--version'],backend)
       break
-    default: throw new Error('用法: node scripts/run.mjs install|db|db-stop|init|backend|admin|h5|wechat|test|mysql-test|build|doctor')
+    default: throw new Error('用法: node scripts/run.mjs install|db|db-stop|init|backend|admin|h5|wechat|test|mysql-test|backup-restore-test|build|doctor')
   }
 } catch(error) { console.error(error.message); process.exitCode = 1 }
