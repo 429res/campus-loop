@@ -79,9 +79,30 @@ Demand 字段：`id,ownerId,categoryId,categoryName,description,preferredTags,st
 
 停用保留详情与关联并可恢复 ACTIVE，`GET /demands?status=ACTIVE` 不包含 INACTIVE。删除置 DELETED 并保留原需求内容、关联和ID作为墓碑，普通读写不可再访问，不提供物理删除接口；关联外键禁止物理删除被引用的需求/物品，后续持久化消费者必须采用同样的非级联外键，历史引用不会被接口删除破坏。正式交换引用下的额外编辑/停用限制由 B-03 与 A 协商，本轮没有此写入能力。
 
-旧字段策略：cl_item.wantedCategoryId/wantedTags 仍是旧发布与 GET /matches 的唯一来源；独立需求是上述 CRUD 的唯一来源。不回填、不双写、不自动同步或关闭旧字段，B-01 的停用/删除只影响独立需求，不改变旧推荐结果。B-02 再经 A/D 确认需求选择、旧链路退出及规则版本；requiredTags/最低成色本轮既不接收也不隐式启用。
+旧字段策略：cl_item.wantedCategoryId/wantedTags 仍是旧发布与 GET /matches 的唯一来源；独立需求是上述 CRUD 的唯一来源。不回填、不双写、不自动同步或关闭旧字段，B-01 的停用/删除只影响独立需求，不改变旧推荐结果。B-02的显式独立入口、需求选择与规则版本见下节；本轮不退出旧链路，消费确认仍单独跟踪。requiredTags/最低成色既不接收也不隐式启用。
 
 需求迁移使用 V4，保留 main 已合入的 V3 用户状态管理迁移及 V1/V2 原文。A/D 的候选基数复核仍待团队回复；不把未收到的确认写成已完成。接入样例和状态见 [b01-independent-demands.md](b01-independent-demands.md)。
+
+## B-02 独立需求推荐（本功能分支）
+
+B-01已合入main，当前迁移为V4；本节为B-02可评审实现契约，不代表已合入main或完成D-02页面。兼容和多需求策略已在 [Issue #7](https://github.com/429res/campus-loop/issues/7) 同步，消费端复核状态见 [B-02说明](b02-independent-matching.md)。
+
+| 方法和路径 | 权限与结果 |
+| --- | --- |
+| GET /matches | 旧公开入口；仍只使用物品wanted字段，返回原推荐数组。可省略ruleVersion或传legacy-v1，其他值400 |
+| GET /matches/independent | 登录；仅返回含当前用户的2/3人环。可省略ruleVersion或传independent-v2，其他值400；成功data为`{ruleVersion:"independent-v2",recommendations:[...]}` |
+
+独立入口仅接受单个ruleVersion查询参数，其他参数（包括ownerId、requiredTags、minimumConditionLevel）或重复参数400；不接受客户端身份、不混入或回退旧wanted字段；未登录/无效会话401。无需求、无候选关联或无闭环返回200及`{ruleVersion:"independent-v2",recommendations:[]}`，不能通过尝试其他版本伪造成功。旧入口作为legacy-v1继续用于现有演示，空数组语义不变，独立需求启停只影响新入口。
+
+每个新推荐包含 `id,ruleVersion,length,score,participants,flows,explanation`。participants沿用旧字段；flows保留fromUserId/fromName/toUserId/toName/itemId/itemTitle/reason，并新增 `demandId,matchedDemandIds,matchedCategoryId,matchedCategoryName,matchedTags`。demandId是接收者被选中的独立需求；matchedDemandIds包含同一流向全部分类命中的有效需求ID（含选中，升序）；matchedTags只展示被选中需求与提供物品的标签交集。不会返回私人需求description或未命中的偏好标签，也不返回不含当前用户的环。
+
+有效边A→B：A物品分类满足B的某条ACTIVE需求，且该需求关联B在本环提供的那件物品。物品AVAILABLE、用户ACTIVE、无cl_item_hold行、关联物品当前owner与需求owner一致；INACTIVE/DELETED/无关联不参与。每环2/3人，每人一件，用户/物品唯一，失效关联不会让新owner继承旧需求。
+
+同流向多需求不展开成多个物品环：按`min(标签交集数,4)`降序、需求ID升序选择一条用于计分与理由，其他命中ID只作解释。不得把多需求标签并集加分；有不同物品选择时仍可形成不同方案。评分继续`60 + round(10 × 各流向计分标签数之和 / 环长)`，60–100；先分数降序、环长升序、规范ID字典序。新ID形如`independent-v2:cycle-1-2-3`，环旋转至最小物品ID，保留方向，反向三环是另一方案。ID及version是规则结果标识，不能作为物品预约或交换创建凭据。
+
+新旧入口统一排除存在占用行的物品。候选保留200件上限：先检查全体AVAILABLE+有效用户+无占用物品，再筛独立需求；超出422。独立入口额外设显式资源保护：最多20000条有效需求关联、1000个推荐、全响应flows的matchedDemandIds累计最多20000项；任何一项超出均整次422，不返回截断或部分结果。D应显示服务端msg并提示缩小候选/等待后续分区，不能把422展示为无结果。
+
+只读多表快照使用REPEATABLE_READ，无FOR UPDATE、交换创建、状态更新或占用。分类仍为唯一硬需求条件，标签仅排序，requiredTags/最低成色未启用，也没有新增数据库字段。两方、三方、无结果及超限虚构样例见[B-02说明](b02-independent-matching.md)。
 
 ## 后续接口设计（未实现）
 
