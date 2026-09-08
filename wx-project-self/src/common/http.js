@@ -49,10 +49,11 @@ const request = (method, url, data = {}, options = {}) => {
 }
 const upload = (filePath, options = {}) => {
   const token = uni.getStorageSync(TOKEN_KEY)
+  const endpoint = options.endpoint || '/api/uploads'
   let task
   const promise = new Promise((resolve, reject) => {
     task = uni.uploadFile({
-      url: `${baseUrl}/api/uploads`, filePath, name: 'file', timeout: 30000,
+      url: `${baseUrl}${endpoint}`, filePath, name: 'file', timeout: 30000,
       header: token ? { Authorization: `Bearer ${token}` } : {},
       success(response) { try { resolve(unpack(response, token)) } catch (error) { if (!options.silent) showError(error.message); reject(error) } },
       fail(result) {
@@ -81,5 +82,6 @@ export default {
   patch: (url, data, options) => request('PATCH', url, data, options),
   delete: (url, data, options) => request('DELETE', url, data, options),
   upload,
+  uploadEvidence: (filePath, options = {}) => upload(filePath,{...options,endpoint:'/api/uploads/evidence'}),
   baseUrl,
 }
