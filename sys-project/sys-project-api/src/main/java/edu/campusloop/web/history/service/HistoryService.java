@@ -12,6 +12,7 @@ import edu.campusloop.web.upload.mapper.UploadMapper;
 import edu.campusloop.web.upload.service.LocalUploadService;
 import edu.campusloop.web.upload.service.UploadReferenceService;
 import edu.campusloop.web.exchange.service.ExchangeDatabaseClock;
+import edu.campusloop.web.exchange.mapper.ExchangeLifecycleMapper;
 import edu.campusloop.web.exchange.service.ExchangeTransactionExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
@@ -22,15 +23,30 @@ import java.util.*;
 @Service
 public class HistoryService {
     private final HistoryMapper history;private final ItemMapper items;private final UserMapper users;private final UploadMapper uploads;
-    private final ExchangeDatabaseClock clock;private final ExchangeTransactionExecutor transactions;private final LocalUploadService files;private final UploadReferenceService references;
-    public HistoryService(HistoryMapper history,ItemMapper items,UserMapper users,UploadMapper uploads,ExchangeDatabaseClock clock,ExchangeTransactionExecutor transactions,LocalUploadService files,UploadReferenceService references) {
-        this.history=history;this.items=items;this.users=users;this.uploads=uploads;this.clock=clock;this.transactions=transactions;this.files=files;this.references=references;
+    private final ExchangeDatabaseClock clock;private final ExchangeTransactionExecutor transactions;private final LocalUploadService files;private final UploadReferenceService references;private final ExchangeLifecycleMapper exchanges;
+    public HistoryService(HistoryMapper history,ItemMapper items,UserMapper users,UploadMapper uploads,ExchangeDatabaseClock clock,ExchangeTransactionExecutor transactions,LocalUploadService files,UploadReferenceService references,ExchangeLifecycleMapper exchanges) {
+        this.history=history;this.items=items;this.users=users;this.uploads=uploads;this.clock=clock;this.transactions=transactions;this.files=files;this.references=references;this.exchanges=exchanges;
     }
     public long create(long actor,long itemId,HistoryRequest request) {
         if(itemId<1) throw new ApiException(400,"物品ID须为正整数");
         return transactions.execute("履历提交",()-> {
-            var user=users.selectByIdForUpdate(actor);
-            if(user==null || !"ACTIVE".equals(user.getStatus())) throw new ApiException(403,"作者账号不可用");
+            // Linked exchange/user foreign keys also acquire locks. Take them explicitly in A/B order,
+            // before the item lock, so stale expiry work cannot hold exchange while waiting for our user.
+            Set<Long> userIds=new TreeSet<>();userIds.add(actor);
+            if(request.relatedExchangeId()!=null) {
+                if(items.selectById(itemId)==null) throw invisible();
+                var proof=history.transfer(itemId,request.relatedExchangeId());
+                if(proof==null) throw new ApiException(409,"须关联该物品已完成的真实交换");
+                if(proof.getSourceUserId()!=actor && proof.getCounterpartyUserId()!=actor) throw new ApiException(403,"不能声明他人的持有经历");
+                var exchange=exchanges.lock(request.relatedExchangeId());
+                if(exchange==null || !"COMPLETED".equals(exchange.getStatus())) throw conflict();
+                userIds.add(proof.getSourceUserId());userIds.add(proof.getCounterpartyUserId());
+            }
+            for(long userId:userIds) {
+                var user=users.selectByIdForUpdate(userId);
+                if(user==null) throw conflict();
+                if(userId==actor && !"ACTIVE".equals(user.getStatus())) throw new ApiException(403,"作者账号不可用");
+            }
             Item item=items.selectForUpdate(itemId);if(item==null) throw invisible();
             var now=clock.now();var row=new HistoryEvent();
             row.setItemId(itemId);row.setSourceUserId(actor);row.setExchangeId(request.relatedExchangeId());

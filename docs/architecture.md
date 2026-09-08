@@ -169,7 +169,7 @@ stateDiagram-v2
 
 复用cl_item_history及B-04原始EXCHANGED入口；新增自述只允许REPAIR/TRANSFER、SELF_REPORTED，作者来自会话，记录时间来自共用数据库UTC。已知发生时间在声明授权窗口内；未知用occurred_at NULL表达，不借记录时间冒充。B-04完成记录证明曾经持有及该件物品流向；没有初始持有起点时窗口下界未知，不以物品创建日期伪造。
 
-V12追加窗口、单链修正及证据引用。修正通过新行指向原行，复合外键绑定相同item/sourceUser/evidenceLevel，CHECK限制SELF_REPORTED，唯一边阻止并发分叉；历史DAO只有INSERT/SELECT，HTTP无覆盖能力。写入复用READ_COMMITTED事务与用户→物品锁，取得锁后重读owner/真实交换及链尾，时间线和证据关联一起提交；不改物品、需求或交换状态。
+V12追加窗口、单链修正及证据引用。修正通过新行指向原行，复合外键绑定相同item/sourceUser/evidenceLevel，CHECK限制SELF_REPORTED，唯一边阻止并发分叉；历史DAO只有INSERT/SELECT，HTTP无覆盖能力。写入复用READ_COMMITTED事务与关联exchange（若有）→涉及用户升序→物品锁，取得锁后重读owner/真实交换及链尾，时间线和证据关联一起提交；不改物品、需求或交换状态。
 
 LocalUploadService抽取并复用原图片解码/再编码逻辑；UploadReferenceService共用本人归属与用途检查。V12旧上传保持PUBLIC；新PRIVATE_EVIDENCE在公开uploads的同级目录，不注册静态访问。证据引用只接本人私有有效PNG，读取按作者/事件关联物品交出接收双方/ADMIN授权，未引用上传仅本人预览。所有新JSON与证据读取private/no-store，证据不在公开时间线中暴露（无地址/数量）。新当前owner和三方环第三人都不自动继承私人材料。
 
