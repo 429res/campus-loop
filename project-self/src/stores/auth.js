@@ -18,7 +18,9 @@ export const useAuth = defineStore("auth", {
       sessionStorage.setItem(SESSION_KEY, data.token);
     },
     async refresh() {
+      const token = this.token;
       const { data } = await http.get("/api/auth/me");
+      if (this.token !== token) return;
       this.user = data;
       if (data.role !== "ADMIN") {
         this.clear();

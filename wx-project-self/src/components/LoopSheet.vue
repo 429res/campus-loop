@@ -2,6 +2,7 @@
 import LoopButton from './LoopButton.vue'
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useOverlayLock } from '../composables/useOverlayLock'
+import { isAppModalOpen } from '../common/modal'
 const props = defineProps({modelValue:Boolean,title:{type:String,default:'详情'}})
 const emit = defineEmits(['update:modelValue'])
 const panel = ref(null)
@@ -11,7 +12,7 @@ useOverlayLock(() => props.modelValue)
 let previousFocus = null
 let focusTimer = null
 const keydown = event => {
-  if (!props.modelValue) return
+  if (!props.modelValue || isAppModalOpen()) return
   if (event.key === 'Escape') { event.preventDefault();close();return }
   if (event.key !== 'Tab') return
   const element = panel.value?.$el || panel.value
@@ -34,7 +35,7 @@ watch(() => props.modelValue, async open => {
     await nextTick()
     const element = panel.value?.$el || panel.value
     focusTimer = setTimeout(() => {
-      if(!props.modelValue) return
+      if(!props.modelValue || isAppModalOpen()) return
       ;(element?.querySelector('input:not([disabled]),textarea:not([disabled]),select:not([disabled])') || element)?.focus?.()
     }, 0)
   } else {

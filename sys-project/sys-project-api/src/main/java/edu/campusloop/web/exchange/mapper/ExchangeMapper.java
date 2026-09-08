@@ -11,4 +11,9 @@ public interface ExchangeMapper extends BaseMapper<ExchangeRecord> {
         "WHERE p.exchange_id IN <foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach> " +
         "ORDER BY p.exchange_id,p.offered_item_id</script>")
     List<ExchangeParticipantRecord> participants(@Param("ids") List<Long> ids);
+
+    @Select("SELECT e.id,e.event_type,e.actor_id,u.display_name AS actor_display_name,e.previous_status,e.new_status," +
+        "e.previous_version,e.new_version,e.reason,e.occurred_at FROM cl_exchange_event e " +
+        "LEFT JOIN cl_user u ON u.id=e.actor_id WHERE e.exchange_id=#{id} ORDER BY e.new_version,e.id")
+    List<ExchangeEventRecord> events(@Param("id") long id);
 }

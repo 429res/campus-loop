@@ -74,6 +74,11 @@ const router = createRouter({
       meta: { title: "举报队列" },
     },
     {
+      path: "/exchanges",
+      component: () => import("@/views/Exchanges.vue"),
+      meta: { title: "交换记录" },
+    },
+    {
       path: "/controls",
       component: () => import("@/views/Controls.vue"),
       meta: { public: true, title: "控件实验室" },
@@ -93,9 +98,12 @@ router.beforeEach(async (to) => {
   const auth = useAuth();
   if (!auth.token) return { path: "/login", query: { redirect: to.fullPath } };
   if (!auth.user) {
+    const token = auth.token;
     try {
       await auth.refresh();
+      if (auth.token !== token) return false;
     } catch {
+      if (auth.token !== token) return false;
       auth.clear();
       return { path: "/login", query: { redirect: to.fullPath } };
     }

@@ -218,7 +218,18 @@ ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,particip
 
 幂等作用域`(服务端initiatorId,idempotencyKey)`；摘要含ruleVersion和整条绑定流向的itemId/itemVersion/demandId/demandVersion。按最小物品ID旋转、保留方向，旋转起点不同视为同请求，反向三环不同。同键同摘要应先返回原交换，不以首次创建造成的RESERVED/版本递增拒绝重放，不刷新截止时间；同键不同摘要409。状态/物品版本/需求版本或B-02所选需求变化409，不能悄悄替换新需求；越权发起403、非法重复用户/物品或环形状400、有效需求规模超限422。任何校验/唯一约束失败整体回滚，无部分占用/参与者。死锁等数据库瞬态冲突最多重试三次，每次新事务；耗尽返回409，客户端保持同一逻辑提交的键。V2历史行缺摘要时同键拒绝409，不推断成可重放请求。
 
-C-03的管理读取需求：后续单独提供ADMIN的`GET /admin/exchanges?page=1&size=12&status=`与`GET /admin/exchanges/{id}`，基础字段沿用ExchangeView、增加已持久化的审计时间线/快照，限制用户私人说明和凭据披露。**这两个路径尚未注册（404），不能接成现有API**。管理读权限不映射为代确认/代交接权限；无写动作就展示待开发。D-03页面尚未接入本次POST；接入时保持同一逻辑提交的幂等键，并在409保留选择、刷新推荐后让用户重新决定。确认/取消按下述B-03.2契约可用；交接与争议登记按B-04契约。
+C-03管理读取由本分支新增下述独立ADMIN接口；管理读权限不映射为代确认/代交接权限。D-03按已有参与者接口接入创建及后续操作，保持同一逻辑提交的幂等键，409保留选择/理由与原version，回读后由本人重新决定。确认/取消按B-03.2契约；交接与争议登记按B-04契约。
+
+### C-03 管理交换读取契约
+
+| 方法/路径 | 权限、参数与返回 |
+| --- | --- |
+| GET /admin/exchanges | 仅ADMIN；page默认1、size默认12且1–100，可选status为六种交换状态，省略表示全部，空串/未知/重复或额外查询参数400；返回PageResult<ExchangeView>，createdAt/id降序、超页空records且total保留 |
+| GET /admin/exchanges/{id} | 仅ADMIN；正整数id、无查询参数；返回AdminExchangeDetail，不存在404、非法参数400 |
+
+AdminExchangeDetail为`{exchange,events,creation}`。exchange沿用ExchangeView，但allowedActions固定为空；参与关系和流向来自持久记录，不用当前owner重建。events按newVersion/id升序，字段`id,eventType,actorId,actorDisplayName,previousStatus,newStatus,previousVersion,newVersion,reason,occurredAt`，actorDisplayName为当前公开名称，系统到期actorId/name为null；无历史事件返回空数组，不补造确认。creation为创建时安全快照或null，字段`ruleVersion,flows:[{itemId,itemTitle,fromUserId,toUserId,demandId,matchedCategoryName,reason}]`；来源仅原creation_snapshot，不用当前需求或物品私有数据补齐。旧记录无快照时返回null，由页面说明历史数据不完整。不可返回原始creation_snapshot、requestDigest、idempotencyKey、需求私人description、账户凭据或技术退避字段。
+
+未登录/失效会话401，非ADMIN403，数据完整性异常409。两个接口只读且使用同一数据库快照，不锁业务行、不触发到期、不写状态或审计；原参与者GET/写入口继续维持非参与者404，不因管理员有读取权限放开写动作。无新迁移。
 
 ## B-03.2：参与者确认与取消
 

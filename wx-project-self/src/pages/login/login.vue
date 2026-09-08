@@ -5,9 +5,10 @@ import { onLoad } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
 const username = ref(''), password = ref(''), busy = ref(false), error = ref(''), notice = ref('')
-let redirect = 'profile'
+let redirect = 'profile', exchangeId = ''
 onLoad(options => {
   if (['publish','demands','matches','favorites','exchanges'].includes(options.redirect)) redirect = options.redirect
+  if (/^[1-9][0-9]*$/.test(options.exchangeId || '') && Number.isSafeInteger(Number(options.exchangeId))) exchangeId = options.exchangeId
   if (options.reason === 'password-changed') notice.value = '密码已修改，所有旧会话已退出。请使用新密码重新登录。'
   if (options.reason === 'password-unknown') notice.value = '改密请求结果无法确认。请先尝试新密码登录；若未生效，再使用旧密码。'
   if (options.reason === 'session-expired') notice.value = '登录已过期，请重新登录。'
@@ -20,7 +21,7 @@ async function login() {
   try {
     const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true})
     uni.setStorageSync(TOKEN_KEY,result.token); uni.setStorageSync(USER_KEY,result.user); password.value = ''
-    if (['demands','favorites','exchanges'].includes(redirect)) uni.redirectTo({url:`/pages/${redirect}/${redirect}`})
+    if (['demands','favorites','exchanges'].includes(redirect)) uni.redirectTo({url:`/pages/${redirect}/${redirect}${redirect==='exchanges' && exchangeId ? `?id=${exchangeId}` : ''}`})
     else uni.switchTab({url:`/pages/${redirect}/${redirect}`})
   } catch(e) { error.value = e.message } finally { busy.value = false }
 }

@@ -1,101 +1,214 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { onShow, onUnload } from '@dcloudio/uni-app'
+import { onLoad, onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import LoopButton from '../../components/LoopButton.vue'
 import LoopLayout from '../../components/LoopLayout.vue'
+import LoopPicker from '../../components/LoopPicker.vue'
 import LoopSheet from '../../components/LoopSheet.vue'
+import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
 import { showAppModal } from '../../common/modal'
-import http, { isAbortError, TOKEN_KEY, USER_KEY } from '../../common/http'
+import { createLatestRequestGuard } from '../../common/latest-request.mjs'
+import { EXCHANGE_STATUSES, STATUS_LABELS, ACTION_LABELS, createExchangeJournal, actionRequest, expiryText } from '../../common/exchange-workflow.mjs'
 
-const records = ref([]), total = ref(0), page = ref(1), size = 8
-const loading = ref(false), error = ref(''), detail = ref(null), detailOpen = ref(false), detailLoading = ref(false), detailError = ref('')
-const disputeReason = ref(''), disputeBusy = ref(false), disputeError = ref(''), disputeUncertain = ref(false)
-const sessionToken = ref(''), sessionUserId = ref(0)
-let listSequence = 0, detailSequence = 0, listRequest, detailRequest
-const loggedIn = computed(() => !!sessionToken.value)
-const currentUserId = computed(() => sessionUserId.value)
-const pages = computed(() => Math.max(1,Math.ceil(total.value / size)))
-const statusLabel = value => ({PENDING_CONFIRMATION:'等待邀请确认',READY:'准备交接',COMPLETED:'已完成',CANCELLED:'已取消',EXPIRED:'已过期',DISPUTED:'争议处理中'}[value] || value)
-const participantName = id => detail.value?.participants?.find(value => value.userId === id)?.displayName || `用户 #${id}`
-const canDispute = computed(() => detail.value?.allowedActions?.includes('DISPUTE'))
-
-async function load(nextPage = page.value) {
-  if (!loggedIn.value) { records.value=[];total.value=0;return }
-  const current = ++listSequence
-  listRequest?.abort?.();loading.value=true;error.value=''
+const authenticated=ref(false), records=ref([]), page=ref(1), total=ref(0), filter=ref(0)
+const loading=ref(false), listError=ref(''), detail=ref(null), detailLoading=ref(false), detailError=ref('')
+const itemTitles=ref({}), targetId=ref(null), now=ref(Date.now()), notice=ref('')
+const editorOpen=ref(false), actionBusy=ref(false), actionError=ref(''), pending=ref(null), reason=ref(''), acknowledged=ref(false)
+const PAGE_SIZE=6
+const pages=computed(()=>Math.max(1,Math.ceil(total.value/PAGE_SIZE)))
+const currentPerson=computed(()=>detail.value?.participants.find(p=>p.userId===Number(uni.getStorageSync(USER_KEY)?.id)))
+const isHandoff=computed(()=>['HANDED_OFF','RECEIVED'].includes(pending.value?.action))
+const frozen=computed(()=>pending.value && pending.value.phase!=='draft')
+const actionTitle=computed(()=>ACTION_LABELS[pending.value?.action] || '核对交换操作')
+const journal=()=>createExchangeJournal(uni,Number(uni.getStorageSync(USER_KEY)?.id))
+const token=()=>uni.getStorageSync(TOKEN_KEY)
+const listGuard=createLatestRequestGuard(token), detailGuard=createLatestRequestGuard(token), actionGuard=createLatestRequestGuard(token)
+let active=true, timer, lastIdentity=''
+const statusLabel=value=>STATUS_LABELS[EXCHANGE_STATUSES.indexOf(value)] || value
+const formatTime=value=>value ? new Date(value).toLocaleString() : '尚未提交'
+const itemTitle=id=>itemTitles.value[id] || `物品 #${id}`
+const personName=id=>detail.value?.participants.find(p=>p.userId===id)?.displayName || `同学 #${id}`
+const recommendations=()=>uni.switchTab({url:'/pages/matches/matches'})
+const login=()=>uni.navigateTo({url:`/pages/login/login?redirect=exchanges${targetId.value?`&exchangeId=${targetId.value}`:''}${notice.value?'&reason=session-expired':''}`})
+function authFailure(cause,ticket,guard) {
+  if(cause.status===401 && active && guard.isLatest(ticket) && !token()) {
+    authenticated.value=false;records.value=[];detail.value=null;itemTitles.value={};pending.value=null;editorOpen.value=false
+    loading.value=false;detailLoading.value=false;notice.value='登录已过期，请重新登录后继续核对交换。'
+    return true
+  }
+  return false
+}
+async function loadList(next=page.value) {
+  if(!token()) return
+  const ticket=listGuard.begin();loading.value=true;listError.value=''
   try {
-    listRequest = http.get('/api/exchanges/mine',{page:nextPage,size},{silent:true})
-    const data = await listRequest
-    if (current !== listSequence) return
-    records.value = Array.isArray(data?.records) ? data.records : [];total.value=Number(data?.total || 0);page.value=Number(data?.page || nextPage)
-    if (!records.value.length && nextPage>1) return load(nextPage-1)
-  } catch(e) {
-    if (current === listSequence && !isAbortError(e)) {error.value=e.message;if(e.status===401)sessionToken.value=''}
-  } finally {if(current===listSequence) loading.value=false}
+    const data=await http.get('/api/exchanges/mine',{page:next,size:PAGE_SIZE,...(filter.value?{status:EXCHANGE_STATUSES[filter.value]}:{})},{silent:true})
+    if(!active || !listGuard.isCurrent(ticket)) return
+    const lastPage=Math.max(1,Math.ceil(data.total/PAGE_SIZE))
+    if(data.page>lastPage) {await loadList(lastPage);return}
+    records.value=data.records;page.value=data.page;total.value=data.total
+  } catch(cause) {if(!authFailure(cause,ticket,listGuard) && active && listGuard.isCurrent(ticket)) {records.value=[];total.value=0;listError.value=cause.message}}
+  finally {if(listGuard.isCurrent(ticket)) loading.value=false}
 }
-async function openDetail(id) {
-  const current=++detailSequence
-  detailRequest?.abort?.();detail.value=null;detailError.value='';disputeError.value='';disputeReason.value='';disputeUncertain.value=false;detailOpen.value=true;detailLoading.value=true
+function changeFilter(event) {filter.value=Number(event.detail.value);page.value=1;records.value=[];loadList(1)}
+async function loadDetail(id=targetId.value) {
+  if(!id || !token()) return
+  targetId.value=id
+  const ticket=detailGuard.begin();detailLoading.value=true;detailError.value=''
   try {
-    detailRequest=http.get(`/api/exchanges/${id}`,{}, {silent:true});const value=await detailRequest
-    if(current===detailSequence) detail.value=value
-  } catch(e){if(current===detailSequence&&!isAbortError(e)){detailError.value=e.message;if(e.status===401)sessionToken.value=''}}
-  finally{if(current===detailSequence) detailLoading.value=false}
+    const data=await http.get(`/api/exchanges/${id}`,{},{silent:true})
+    if(!active || !detailGuard.isCurrent(ticket)) return
+    detail.value=data
+    if(!(pending.value?.phase==='draft' && pending.value.exchangeId===id)) {
+      try {pending.value=journal().action(id)} catch {pending.value=null}
+    }
+    const listed=records.value.find(record=>record.id===data.id)
+    if(listed && (listed.version!==data.version || listed.status!==data.status)) {
+      // Reapply the server's status filter and total instead of patching a row that may no longer belong here.
+      await loadList(page.value)
+      if(!active || !detailGuard.isCurrent(ticket))return
+    }
+    const titles=await Promise.all(data.flows.map(async flow=>{
+      try {const item=await http.get(`/api/items/${flow.itemId}`,{},{silent:true});return [flow.itemId,item.title]} catch {return [flow.itemId,`物品 #${flow.itemId}`]}
+    }))
+    if(active && detailGuard.isCurrent(ticket)) itemTitles.value={...itemTitles.value,...Object.fromEntries(titles)}
+  } catch(cause) {if(!authFailure(cause,ticket,detailGuard) && active && detailGuard.isCurrent(ticket)) {detail.value=null;detailError.value=cause.message}}
+  finally {if(detailGuard.isCurrent(ticket)) detailLoading.value=false}
 }
-async function refreshDetail({ recovery = false } = {}) {
-  if (!detail.value?.id) return
-  const id=detail.value.id,current=++detailSequence
-  detailRequest?.abort?.();detailLoading.value=true;detailError.value=''
+function openDetail(id) {if(actionBusy.value)return;detail.value=null;pending.value=null;editorOpen.value=false;loadDetail(id)}
+function restoreEditor() {
+  if(!pending.value)return
+  reason.value=pending.value.request.body.reason || pending.value.request.body.note || ''
+  acknowledged.value=pending.value.request.body.acknowledged===true
+  actionError.value='';editorOpen.value=true
+}
+function beginAction(action) {
+  if(actionBusy.value || !detail.value?.allowedActions.includes(action))return
+  if(pending.value) {restoreEditor();return}
+  pending.value={action,exchangeId:detail.value.id,phase:'draft',request:{body:{version:detail.value.version}}}
+  reason.value='';acknowledged.value=false;actionError.value='';editorOpen.value=true
+}
+function restoreChangedAction(id,cause) {
+  pending.value=journal().action(id);editorOpen.value=editorOpen.value && !!pending.value
+  reason.value=pending.value?.request.body.reason || pending.value?.request.body.note || ''
+  acknowledged.value=pending.value?.request.body.acknowledged===true
+  actionError.value=cause.message;notice.value=cause.message
+}
+function retainDraft() {
+  if(pending.value?.phase!=='draft' || !token())return
+  const body={...pending.value.request.body,...(isHandoff.value?{note:reason.value,acknowledged:acknowledged.value}:{reason:reason.value})}
+  pending.value={...pending.value,request:{...pending.value.request,body}}
+  try {pending.value=journal().saveAction(pending.value.exchangeId,pending.value)}
+  catch(cause) {if(cause.code==='JOURNAL_CHANGED')restoreChangedAction(pending.value.exchangeId,cause)}
+}
+function dismissDraft() {
+  if(actionBusy.value || pending.value?.phase!=='draft')return
+  try {journal().clearAction(pending.value.exchangeId,pending.value.journalRevision);pending.value=null;reason.value='';acknowledged.value=false;editorOpen.value=false}
+  catch(cause) {restoreChangedAction(targetId.value,cause)}
+}
+function closeEditor() {if(!actionBusy.value) {retainDraft();editorOpen.value=false}}
+async function refreshActionDetail() {retainDraft();await loadDetail()}
+async function submitAction() {
+  if(actionBusy.value || !pending.value || !detail.value)return
+  actionError.value=''
+  const id=detail.value.id, ticket=actionGuard.begin(), savedJournal=journal()
+  let saved=pending.value
   try {
-    detailRequest=http.get(`/api/exchanges/${id}`,{}, {silent:true});const value=await detailRequest
-    if(current!==detailSequence)return
-    detail.value=value
-    if(recovery){disputeUncertain.value=false;disputeError.value=value.status==='DISPUTED'?'服务器已记录争议，请勿重复提交。':'服务器仍未显示争议；请核对网络与当前状态后再决定。'}
-  }catch(e){if(current===detailSequence&&!isAbortError(e)){detailError.value=e.message;if(e.status===401)sessionToken.value=''}}
-  finally{if(current===detailSequence)detailLoading.value=false}
+    if(saved.phase==='draft') saved={...saved,exchangeId:id,request:actionRequest(saved.action,saved.request.body.version,{reason:reason.value,acknowledged:acknowledged.value})}
+  } catch(cause) {actionError.value=cause.message;return}
+  actionBusy.value=true
+  try {
+    const choice=await showAppModal({title:ACTION_LABELS[saved.action],content:saved.action==='CONFIRM'?'确认愿意按上方流向参与交换；这一步不表示已经交出或收到实物。':saved.action==='CANCEL'?'确认取消整个交换？成功后将释放本次交换的物品。':saved.action==='DISPUTE'?'登记后交换停止推进并保留物品占用，等待后续处理。':`请确认你已实际${saved.action==='HANDED_OFF'?'交出本人提供的':'收到约定的'}物品；声明提交后不能直接改写。`,confirmText:'确认提交',danger:['CANCEL','DISPUTE'].includes(saved.action)})
+    if(!choice.confirm || !active || !actionGuard.isCurrent(ticket))return
+    saved=savedJournal.saveAction(id,{...saved,phase:'uncertain'});pending.value=saved
+    const result=await http.post(`/api/exchanges/${id}/${saved.request.path}`,saved.request.body,{silent:true,uncertainOnFailure:true})
+    if(!active || !actionGuard.isCurrent(ticket))return
+    savedJournal.clearAction(id,saved.journalRevision);pending.value=null;detail.value=result;editorOpen.value=false
+    notice.value='服务器已确认操作结果。';await loadList();await loadDetail(id)
+  } catch(cause) {
+    if(authFailure(cause,ticket,actionGuard))return
+    if(!active || !actionGuard.isCurrent(ticket))return
+    if(cause.code==='JOURNAL_CHANGED') {restoreChangedAction(id,cause);return}
+    actionError.value=cause.message
+    if([400,403,404,409,422].includes(cause.status)) {
+      try {pending.value=savedJournal.saveAction(id,{...saved,phase:'conflict'})}
+      catch(changed) {restoreChangedAction(id,changed);return}
+      await loadDetail(id)
+    }
+  } finally {if(active && actionGuard.isLatest(ticket))actionBusy.value=false}
 }
-async function submitDispute() {
-  if(disputeBusy.value||disputeUncertain.value||!detail.value)return
-  const reason=disputeReason.value.trim();disputeError.value=''
-  if(!reason||reason.length>1000){disputeError.value='争议原因须为 1–1000 个字符';return}
-  const answer=await showAppModal({title:'登记交接争议',content:'提交后交换进入争议状态，但不会自动退款、回滚实物或释放占用。',danger:true})
-  if(!answer.confirm)return
-  disputeBusy.value=true
-  try{
-    const value=await http.post(`/api/exchanges/${detail.value.id}/dispute`,{version:detail.value.version,reason},{silent:true,uncertainOnFailure:true})
-    detail.value=value;disputeReason.value='';await load(page.value)
-  }catch(e){
-    disputeUncertain.value=!!e.uncertain
-    disputeError.value=e.uncertain?'未收到服务器响应，争议登记结果未知。请先查询交换状态，不要更换版本重复提交。':e.status===409?'交换已被其他参与者推进或版本已变化，请刷新详情核对。':e.message
-    if(e.status===409)await refreshDetail()
-    if(e.status===401)uni.navigateTo({url:'/pages/login/login?redirect=exchanges'})
-  }finally{disputeBusy.value=false}
+function useCurrentVersion() {
+  if(actionBusy.value || pending.value?.phase!=='conflict' || !detail.value?.allowedActions.includes(pending.value.action))return
+  const saved={...pending.value,phase:'draft',request:{...pending.value.request,body:{...pending.value.request.body,version:detail.value.version}}}
+  try {pending.value=journal().saveAction(detail.value.id,saved);restoreEditor()}
+  catch(cause) {restoreChangedAction(detail.value.id,cause)}
 }
-const reportInfo = () => detail.value && uni.navigateTo({url:`/pages/governance/governance?type=EXCHANGE&id=${detail.value.id}`})
-const login = () => uni.navigateTo({url:'/pages/login/login?redirect=exchanges'})
-onShow(() => {sessionToken.value=uni.getStorageSync(TOKEN_KEY)||'';sessionUserId.value=Number(uni.getStorageSync(USER_KEY)?.id||0);load()})
-onUnload(()=>{listSequence++;detailSequence++;listRequest?.abort?.();detailRequest?.abort?.()})
+function dismissRejected() {
+  if(actionBusy.value || pending.value?.phase!=='conflict')return
+  try {journal().clearAction(targetId.value,pending.value.journalRevision);pending.value=null;editorOpen.value=false}
+  catch(cause) {restoreChangedAction(targetId.value,cause)}
+}
+async function init() {
+  active=true;actionBusy.value=false;authenticated.value=!!token()
+  const identity=`${token() || ''}:${uni.getStorageSync(USER_KEY)?.id || ''}`
+  if(identity!==lastIdentity) {listGuard.invalidate();detailGuard.invalidate();actionGuard.invalidate();records.value=[];detail.value=null;pending.value=null;itemTitles.value={};editorOpen.value=false;actionBusy.value=false;loading.value=false;detailLoading.value=false;lastIdentity=identity}
+  clearInterval(timer);now.value=Date.now()
+  if(!authenticated.value)return
+  notice.value='';timer=setInterval(()=>{now.value=Date.now()},30000)
+  await Promise.all([loadList(page.value),targetId.value?loadDetail(targetId.value):Promise.resolve()])
+}
+onLoad(options=>{if(/^[1-9][0-9]*$/.test(options.id || '') && Number.isSafeInteger(Number(options.id)))targetId.value=Number(options.id)})
+onShow(init)
+onHide(()=>{retainDraft();editorOpen.value=false;active=false;clearInterval(timer);listGuard.invalidate();detailGuard.invalidate();actionGuard.invalidate()})
+onUnload(()=>{retainDraft();active=false;clearInterval(timer);listGuard.invalidate();detailGuard.invalidate();actionGuard.invalidate()})
 </script>
 
 <template>
   <LoopLayout>
-    <view class="cl-page-heading"><text class="cl-title">我的交换</text><text class="cl-subtitle">列表、详情与可执行动作均从服务端读取。</text></view>
-    <view v-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>登录后查看本人参与的交换</text><LoopButton class="cl-btn cl-btn--primary" @click="login">登录</LoopButton></view>
-    <template v-else><view v-if="loading" class="cl-empty"><text>正在读取交换…</text></view><view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load(page)">重试</LoopButton></view><view v-else-if="!records.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">↻</text><text>暂无交换记录</text><text class="cl-hint">浏览推荐不会创建交换或占用物品。</text></view><view v-else class="exchange-list"><LoopButton v-for="exchange in records" :key="exchange.id" class="cl-panel exchange-card" @click="openDetail(exchange.id)"><view class="card-row"><text class="cl-section-title">交换 #{{ exchange.id }}</text><text class="cl-tag" :class="exchange.status==='DISPUTED'?'cl-tag--pink':'cl-tag--muted'">{{ statusLabel(exchange.status) }}</text></view><text class="cl-hint">{{ exchange.participants?.length || 0 }} 位参与者 · 版本 {{ exchange.version }}</text><view class="flow-summary"><text v-for="flow in exchange.flows" :key="flow.itemId" class="cl-hint">物品 #{{ flow.itemId }}：{{ exchange.participants.find(value=>value.userId===flow.fromUserId)?.displayName || flow.fromUserId }} → {{ exchange.participants.find(value=>value.userId===flow.toUserId)?.displayName || flow.toUserId }}</text></view></LoopButton></view><view v-if="total" class="pager"><LoopButton class="cl-btn" :disabled="page<=1" @click="load(page-1)">上一页</LoopButton><text class="cl-hint">第 {{ page }} / {{ pages }} 页</text><LoopButton class="cl-btn" :disabled="page>=pages" @click="load(page+1)">下一页</LoopButton></view></template>
-    <LoopSheet v-model="detailOpen" title="交换详情与争议">
-      <view v-if="detailLoading" class="cl-empty">正在读取最新状态…</view><view v-else-if="detailError" class="cl-empty" role="alert"><text class="cl-error">{{ detailError }}</text><LoopButton class="cl-btn" @click="refreshDetail()">重试</LoopButton></view><view v-else-if="detail" class="detail-body">
-        <view class="card-row"><text class="cl-section-title">交换 #{{ detail.id }}</text><text class="cl-tag cl-tag--pink">{{ statusLabel(detail.status) }}</text></view><text class="cl-hint">版本 {{ detail.version }} · 允许动作：{{ detail.allowedActions?.join(' / ') || '无' }}</text>
-        <view class="cl-divider"/><text class="cl-field-title">参与者与物品流向</text><view class="flow-list"><text v-for="flow in detail.flows" :key="flow.itemId">{{ participantName(flow.fromUserId) }} 提供物品 #{{ flow.itemId }} → {{ participantName(flow.toUserId) }}</text></view>
-        <view class="participant-list"><view v-for="person in detail.participants" :key="person.userId" class="participant"><text class="cl-field-title">{{ person.displayName }}{{ person.userId===currentUserId?'（我）':'' }}</text><text class="cl-hint">邀请：{{ person.confirmationStatus }} · 交出：{{ person.handedOffAt?'已声明':'未声明' }} · 收到：{{ person.receivedAt?'已声明':'未声明' }}</text></view></view>
-        <view v-if="detail.status==='DISPUTED'" class="cl-notice"><text>争议已登记：{{ detail.disputeReason }}</text><text class="cl-hint">登记时间 {{ new Date(detail.disputedAt).toLocaleString() }}。所有权、需求与占用保持服务端当前状态；管理员裁决尚未实现。</text></view>
-        <form v-else-if="canDispute" class="cl-form dispute-form" @submit="submitDispute"><text class="cl-section-title">登记实物交接争议</text><text class="cl-hint">仅 READY 且已经开始交接时由服务端允许。当前 B-04 契约没有争议附件。</text><textarea v-model="disputeReason" class="cl-textarea" maxlength="1000" placeholder="说明交接中发生的具体问题" :disabled="disputeBusy || disputeUncertain"/><text v-if="disputeError" class="cl-error" role="alert">{{ disputeError }}</text><view class="action-row"><LoopButton class="cl-btn cl-btn--danger" form-type="submit" :loading="disputeBusy" :disabled="disputeBusy || disputeUncertain">{{ disputeBusy?'提交中…':'登记争议' }}</LoopButton><LoopButton v-if="disputeUncertain" class="cl-btn" @click="refreshDetail({recovery:true})">查询最新状态</LoopButton></view></form>
-        <view v-else class="cl-notice">服务端当前未返回 DISPUTE 动作；前端不会自行推导或更改状态。</view>
-        <LoopButton class="cl-btn" @click="reportInfo">查看举报与争议说明</LoopButton>
+    <view class="cl-page-heading"><text class="cl-title">我的交换</text><text class="cl-subtitle">从确认参加到实物交接，每一步都由你亲自核对。</text></view>
+    <view v-if="!authenticated" class="cl-panel cl-empty"><text>{{ notice || '登录后查看你的交换与邀请' }}</text><LoopButton class="cl-btn cl-btn--primary" @click="login">登录并继续</LoopButton></view>
+    <template v-else>
+      <view class="exchange-toolbar"><view class="status-picker"><LoopPicker :range="STATUS_LABELS" :value="filter" aria-label="筛选交换状态" :disabled="loading" @change="changeFilter"><view class="cl-input">{{ STATUS_LABELS[filter] }}</view></LoopPicker></view><LoopButton class="cl-btn" :disabled="loading" @click="loadList()">刷新列表</LoopButton><LoopButton class="cl-btn" @click="recommendations">查看推荐</LoopButton></view>
+      <text v-if="notice" class="cl-notice" role="status">{{ notice }}</text>
+      <view v-if="loading" class="cl-empty">正在读取交换…</view>
+      <view v-else-if="listError" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ listError }}</text><LoopButton class="cl-btn" @click="loadList()">重试读取</LoopButton></view>
+      <view v-else-if="!records.length" class="cl-panel cl-empty">当前筛选下暂无交换。</view>
+      <view v-else class="exchange-list"><view v-for="exchange in records" :key="exchange.id" class="cl-panel exchange-card"><view class="cl-row"><text class="cl-section-title">交换 #{{ exchange.id }}</text><text class="cl-tag">{{ statusLabel(exchange.status) }}</text></view><text class="cl-hint">{{ exchange.participants.map(p=>p.displayName).join(' · ') }} · {{ exchange.participants.length }} 人</text><text class="cl-hint">发起于 {{ formatTime(exchange.createdAt) }}</text><text class="cl-hint">{{ expiryText(exchange,now) }}</text><LoopButton class="cl-btn cl-btn--primary" @click="openDetail(exchange.id)">查看交换 #{{ exchange.id }}</LoopButton></view></view>
+      <view class="exchange-pagination"><LoopButton class="cl-btn" :disabled="loading || page<=1" @click="loadList(page-1)">上一页</LoopButton><text class="cl-hint">第 {{ page }} / {{ pages }} 页 · 共 {{ total }} 条</text><LoopButton class="cl-btn" :disabled="loading || page>=pages" @click="loadList(page+1)">下一页</LoopButton></view>
+      <view v-if="targetId" class="cl-panel exchange-detail">
+        <view class="detail-heading"><text class="cl-section-title">交换 #{{ targetId }} 详情</text><LoopButton class="cl-btn" :disabled="detailLoading || actionBusy" @click="loadDetail()">刷新详情</LoopButton></view>
+        <text v-if="detailLoading" class="cl-hint">正在核对服务器记录…</text>
+        <text v-if="detailError" class="cl-error" role="alert">{{ detailError }}</text>
+        <template v-if="detail">
+          <view class="cl-row"><text class="cl-tag cl-tag--pink">{{ statusLabel(detail.status) }}</text><text class="cl-hint">记录版本 {{ detail.version }}</text></view>
+          <text class="cl-hint">原确认截止：{{ formatTime(detail.expiresAt) }}</text><text class="cl-notice">{{ expiryText(detail,now) || '请以下方已记录的结果为准。' }}</text>
+          <view class="detail-flows"><view v-for="flow in detail.flows" :key="flow.itemId" class="detail-flow"><text class="cl-field-title">{{ personName(flow.fromUserId) }} → {{ personName(flow.toUserId) }}</text><text>{{ itemTitle(flow.itemId) }}</text></view></view>
+          <view v-for="person in detail.participants" :key="person.userId" class="participant-progress"><text class="cl-field-title">{{ person.displayName }}{{ person.userId===currentPerson?.userId?'（你）':'' }}</text><text class="cl-hint">确认参加：{{ formatTime(person.confirmedAt) }}</text><text class="cl-hint">交出 {{ itemTitle(person.offeredItemId) }}：{{ formatTime(person.handedOffAt) }}</text><text v-if="person.handedOffNote" class="cl-hint">交出说明：{{ person.handedOffNote }}</text><text class="cl-hint">收到 {{ itemTitle(person.receivedItemId) }}：{{ formatTime(person.receivedAt) }}</text><text v-if="person.receivedNote" class="cl-hint">收到说明：{{ person.receivedNote }}</text></view>
+          <view v-if="detail.cancellationReason" class="cl-notice"><text>取消原因：{{ detail.cancellationReason }} · {{ formatTime(detail.cancelledAt) }}</text></view>
+          <view v-if="detail.disputeReason" class="cl-notice"><text>争议原因：{{ detail.disputeReason }} · {{ formatTime(detail.disputedAt) }}</text><text class="cl-hint">交换已停止推进，物品占用保留；目前不能在这里裁决或恢复。</text></view>
+          <view v-if="pending" class="cl-notice pending-action"><text class="cl-field-title">有一项 {{ ACTION_LABELS[pending.action] }} 需要核对</text><text class="cl-hint">原请求版本 {{ pending.request.body.version }}；{{ pending.phase==='uncertain'?'结果未知，可重试完全相同的请求。':'原说明和版本已保留，请结合最新详情决定。' }}</text><LoopButton class="cl-btn" :disabled="actionBusy" @click="restoreEditor">核对保留的操作</LoopButton></view>
+          <view class="exchange-actions"><LoopButton v-for="action in detail.allowedActions" :key="action" class="cl-btn" :class="{'cl-btn--primary':['CONFIRM','HANDED_OFF','RECEIVED'].includes(action)}" :disabled="actionBusy || detailLoading || !!pending" @click="beginAction(action)">{{ ACTION_LABELS[action] }}</LoopButton></view>
+          <text v-if="!detail.allowedActions.length" class="cl-hint">服务器当前没有可执行操作，可刷新核对进度。</text>
+        </template>
+      </view>
+    </template>
+    <LoopSheet :model-value="editorOpen" :title="actionTitle" @update:model-value="value=>{if(!value)closeEditor()}">
+      <view v-if="pending" class="action-form">
+        <text class="cl-hint">交换 #{{ targetId }} · 本次使用版本 {{ pending.request.body.version }}</text>
+        <text v-if="isHandoff" class="cl-notice">{{ pending.action==='HANDED_OFF'?'确认你已经交出：':'确认你已经收到：' }}{{ itemTitle(pending.action==='HANDED_OFF'?currentPerson?.offeredItemId:currentPerson?.receivedItemId) }}</text>
+        <view v-if="pending.action!=='CONFIRM'" class="cl-field"><text class="cl-field-title">{{ isHandoff?'交接说明（可选）':'原因（必填）' }}</text><textarea v-model="reason" class="cl-textarea" :aria-label="isHandoff?'交接说明':'操作原因'" :disabled="actionBusy || frozen" maxlength="1000" :placeholder="isHandoff?'可记录当面交接情况':'请说明原因，最多1000字'"/></view>
+        <LoopButton v-if="isHandoff" class="cl-btn acknowledge-button" :aria-pressed="acknowledged" :disabled="actionBusy || frozen" @click="acknowledged=!acknowledged">{{ acknowledged?'☑':'□' }} 我确认已实际{{ pending.action==='HANDED_OFF'?'交出':'收到' }}上述物品</LoopButton>
+        <text v-if="actionError" class="cl-error" role="alert">{{ actionError }}</text>
+        <text v-if="frozen" class="cl-hint">原请求内容已锁定。重试只提交相同的声明、说明和版本。</text>
+        <LoopButton class="cl-btn cl-btn--primary" :loading="actionBusy" :disabled="actionBusy || detailLoading || !detail" @click="submitAction">{{ frozen?'重试原请求':'核对并提交' }}</LoopButton>
+        <template v-if="pending.phase==='conflict'"><text class="cl-hint">服务器当前版本 {{ detail?.version ?? '读取失败' }}。确认最新状态后，可沿用原说明重新决定。</text><LoopButton v-if="detail?.allowedActions.includes(pending.action)" class="cl-btn" :disabled="actionBusy || detailLoading" @click="useCurrentVersion">已核对，使用当前版本重新填写</LoopButton><LoopButton class="cl-btn" :disabled="actionBusy" @click="dismissRejected">已核对，收起被拒绝的操作</LoopButton></template>
+        <LoopButton class="cl-btn" :disabled="actionBusy" @click="refreshActionDetail">重新读取服务器详情</LoopButton>
+        <LoopButton v-if="pending.phase==='draft'" class="cl-btn" :disabled="actionBusy" @click="dismissDraft">取消本次填写</LoopButton>
       </view>
     </LoopSheet>
   </LoopLayout>
 </template>
 
 <style scoped>
-.exchange-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}.exchange-card{display:flex;flex-direction:column;align-items:stretch;text-align:left;gap:12px;width:100%}.card-row,.pager,.action-row{display:flex;align-items:center;justify-content:space-between;gap:10px}.flow-summary,.flow-list,.participant-list,.detail-body,.participant,.cl-notice{display:flex;flex-direction:column;gap:8px}.pager{justify-content:center;margin-top:18px}.detail-body{gap:18px}.participant{padding:12px;border-radius:12px;background:var(--cl-surface-soft)}.dispute-form{padding:0}.action-row{justify-content:flex-start;flex-wrap:wrap}@media(max-width:700px){.exchange-list{grid-template-columns:1fr}}@media(max-width:430px){.action-row .cl-btn{width:100%}}
+.exchange-toolbar,.exchange-pagination,.detail-heading,.exchange-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.exchange-toolbar{margin-bottom:20px}.status-picker{min-width:160px;max-width:250px;flex:1}.exchange-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:18px}.exchange-card,.exchange-detail,.action-form,.pending-action{display:flex;flex-direction:column;gap:14px;min-width:0}.exchange-card .cl-row{justify-content:space-between}.exchange-pagination{justify-content:center;margin:24px 0}.exchange-detail{margin:28px 0}.detail-heading{justify-content:space-between}.detail-flows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.detail-flow,.participant-progress{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--cl-border);border-radius:14px;background:var(--cl-surface-soft);overflow-wrap:anywhere}.detail-flow{color:var(--cl-blue)}.participant-progress{text-align:left}.acknowledge-button{text-align:left;white-space:normal}.acknowledge-button[aria-pressed=true]{background:var(--cl-primary-soft);border-color:var(--cl-primary)}.action-form .cl-textarea{width:100%;box-sizing:border-box;min-height:120px}.exchange-detail>.cl-notice{display:flex;flex-direction:column;gap:6px}.exchange-actions .cl-btn{flex:1;min-width:120px}@media(max-width:700px){.exchange-list,.detail-flows{grid-template-columns:1fr}.exchange-card,.exchange-detail{padding:20px}.exchange-pagination{gap:8px}}
 </style>

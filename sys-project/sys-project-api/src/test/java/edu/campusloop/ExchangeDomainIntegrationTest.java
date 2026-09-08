@@ -133,8 +133,10 @@ class ExchangeDomainIntegrationTest {
         for(String suffix:List.of("?userId="+a.id(),"?ownerId="+a.id(),"?page=1&page=2","?status=READY&status=COMPLETED"))
             call("GET","/api/exchanges/mine"+suffix,outsider.token(),null,400);
         call("GET","/api/exchanges/"+id+"?ownerId="+a.id(),outsider.token(),null,400);
-        call("GET","/api/admin/exchanges",a.token(),null,404);
-        call("GET","/api/admin/exchanges",admin.token(),null,404);
+        call("GET","/api/admin/exchanges",a.token(),null,403);
+        var adminRows=call("GET","/api/admin/exchanges",admin.token(),null,200).path("records");
+        assertEquals(1,adminRows.size());assertEquals(id,adminRows.get(0).path("id").asLong());
+        assertEquals(0,adminRows.get(0).path("allowedActions").size());
         assertEquals(before,businessRows());
     }
     @Test void paginationFiltersAndStableIdOrderCountOnlyMembership() throws Exception {

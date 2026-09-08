@@ -7,6 +7,7 @@ import {
   Box,
   CollectionTag,
   Connection,
+  Sort,
   MagicStick,
   Grid,
   Sunny,
@@ -32,6 +33,8 @@ const links = [
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/disputes", label: "交换争议", icon: Warning },
   { path: "/reports", label: "举报队列", icon: Warning },
+
+  { path: "/exchanges", label: "交换记录", icon: Sort },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
 ];
