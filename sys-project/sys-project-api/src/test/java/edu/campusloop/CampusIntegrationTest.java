@@ -1318,15 +1318,12 @@ class CampusIntegrationTest {
         assertMatchingDomainRowsUnchanged(rows);
         assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
     }
-    @Test void handoffRemainsUnavailableWithoutAnyExchangeWrites() throws Exception {
+    @Test void malformedOrUnauthorizedHandoffCannotWriteExchangeFacts() throws Exception {
         var rows=matchingDomainRows();
         var participants=jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id");
-        for(String action:List.of("handoff")) {
-            demandCall("POST","/api/exchanges/91/"+action,null,Map.of("version",0),401);
-            JsonNode result=demandCall("POST","/api/exchanges/91/"+action,memberToken,
-                action.equals("cancel")?Map.of("version",0,"reason","虚构原因"):Map.of("version",0),501);
-            assertTrue(result.isNull());
-        }
+        demandCall("POST","/api/exchanges/91/handoff",null,Map.of("version",0),401);
+        demandCall("POST","/api/exchanges/91/handoff",memberToken,Map.of("version",0),400);
+        demandCall("POST","/api/exchanges/91/handoff",memberToken,Map.of("version",0,"kind","RECEIVED","acknowledged",true),404);
         assertMatchingDomainRowsUnchanged(rows);
         assertEquals(participants,jdbc.queryForList("SELECT * FROM cl_exchange_participant ORDER BY id"));
     }

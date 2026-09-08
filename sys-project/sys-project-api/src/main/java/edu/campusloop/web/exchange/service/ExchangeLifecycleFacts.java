@@ -32,5 +32,18 @@ final class ExchangeLifecycleFacts {
                 participants,confirmed,handover,cancellation);
         } catch(IllegalArgumentException | NullPointerException bad) { throw incomplete(); }
     }
+    static Handover handover(List<ExchangeParticipantRecord> people) {
+        Map<Long,String> given=new HashMap<>(),received=new HashMap<>();
+        for(var p:people) {
+            if(p.getHandedOffAt()!=null) given.put(p.getUserId(),p.getHandedOffNote()==null?"":p.getHandedOffNote());
+            if(p.getReceivedAt()!=null) received.put(p.getUserId(),p.getReceivedNote()==null?"":p.getReceivedNote());
+        }
+        return new Handover(given,received);
+    }
+    static Dispute dispute(ExchangeRecord row) {
+        if(row.getDisputedBy()==null && row.getDisputeReason()==null && row.getDisputedAt()==null) return null;
+        if(row.getDisputedBy()==null || row.getDisputeReason()==null || row.getDisputedAt()==null) throw incomplete();
+        return new Dispute(row.getDisputedBy(),row.getDisputeReason(),row.getDisputedAt().toInstant(ZoneOffset.UTC));
+    }
     static ApiException incomplete() { return new ApiException(409,"交换记录或占用已变化，请刷新后联系维护人员"); }
 }

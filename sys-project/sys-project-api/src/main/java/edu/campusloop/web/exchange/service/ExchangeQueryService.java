@@ -67,11 +67,11 @@ public class ExchangeQueryService {
             utc(row.getCreatedAt()),utc(row.getExpiresAt()),ordered.stream().map(person -> new ExchangeView.Participant(
                 person.getUserId(),person.getDisplayName(),person.getOfferedItemId(),incoming.get(person.getUserId()),
                 person.getConfirmedAt()==null?"PENDING":"CONFIRMED",utc(person.getConfirmedAt()),
-                utc(person.getHandedOffAt()),utc(person.getReceivedAt()))).toList(),
+                utc(person.getHandedOffAt()),utc(person.getReceivedAt()),person.getHandedOffNote(),person.getReceivedNote())).toList(),
             ordered.stream().map(person -> new ExchangeView.Flow(person.getOfferedItemId(),person.getUserId(),person.getRecipientUserId())).toList(),
-            ExchangeLifecycleFacts.supported(row)?rules.permittedActions(ExchangeLifecycleFacts.snapshot(row,people),userId,now)
+            ExchangeLifecycleFacts.supported(row)?rules.permittedActions(ExchangeLifecycleFacts.snapshot(row,people),ExchangeLifecycleFacts.handover(people),userId,now)
                 .stream().map(Enum::name).toList():List.of(),
-            row.getCancelledBy(),row.getCancellationReason(),utc(row.getCancelledAt()));
+            row.getCancelledBy(),row.getCancellationReason(),utc(row.getCancelledAt()),row.getDisputedBy(),row.getDisputeReason(),utc(row.getDisputedAt()));
     }
     private static Instant utc(LocalDateTime value) { return value==null?null:value.toInstant(ZoneOffset.UTC); }
     private static ApiException incomplete() { return new ApiException(409,"交换记录不完整，请联系维护人员"); }

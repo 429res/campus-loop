@@ -5,14 +5,14 @@ import java.time.Instant;
 import java.util.*;
 
 /**
- * Shared pure policy for B-03.2 and A-04. Not wired to production mutation endpoints.
- * A future single lifecycle transaction must supply locked database facts and database UTC,
+ * Shared pure policy for B-03.2, B-04 and A-04. Used by the shared production lifecycle transaction.
+ * The single lifecycle transaction must supply locked database facts and database UTC,
  * atomically apply the decision and audit, and release only the specified exchange's holds.
  */
 public final class ExchangeLifecycleRules {
     public enum State { AWAITING_CONFIRMATION, READY, COMPLETED, CANCELLED, EXPIRED, DISPUTED }
-    public enum Action { CONFIRM, CANCEL }
-    public enum EventType { CONFIRMED, CANCELLED, EXPIRED }
+    public enum Action { CONFIRM, CANCEL, HANDED_OFF, RECEIVED, DISPUTE }
+    public enum EventType { CONFIRMED, CANCELLED, EXPIRED, HANDED_OFF, RECEIVED, DISPUTED }
     public record Cancellation(long actorId, String reason, Instant at) {}
     public record Snapshot(long exchangeId, State state, int version, Instant expiresAt,
                            Set<Long> participants, Set<Long> confirmed, boolean handoverStarted,
@@ -67,11 +67,64 @@ public final class ExchangeLifecycleRules {
             current.participants(),current.confirmed(),false,null),new Event(EventType.EXPIRED,null,null,databaseNow),current.exchangeId());
     }
 
-    /** Future allowedActions projection. An unavailable transaction capability must still return [] in the API. */
+    /** Invitation projection; the overload adds participant-specific handover actions for READY. */
     public List<Action> permittedActions(Snapshot current, long actorId, Instant databaseNow) {
         if (!current.participants().contains(actorId) || current.version()==Integer.MAX_VALUE || !live(current)
             || current.handoverStarted() || !databaseNow.isBefore(current.expiresAt())) return List.of();
         return current.confirmed().contains(actorId)?List.of(Action.CANCEL):List.of(Action.CONFIRM,Action.CANCEL);
+    }
+
+    public enum HandoffKind { HANDED_OFF, RECEIVED }
+    public record Handover(Map<Long,String> handedOff, Map<Long,String> received) {
+        public Handover { handedOff=Map.copyOf(handedOff); received=Map.copyOf(received); }
+        public Map<Long,String> acknowledgements(HandoffKind kind) { return kind==HandoffKind.HANDED_OFF?handedOff:received; }
+    }
+    public record Dispute(long actorId,String reason,Instant at) {}
+
+    public Decision handoff(Snapshot current,Handover progress,long actor,Integer version,HandoffKind kind,String note,Instant now) {
+        requireParticipant(current,actor); requireVersionInput(current,version);
+        if(kind==null) throw new ApiException(400,"交接类型不正确");
+        String normalized=normalizeNote(note);
+        var existing=progress.acknowledgements(kind);
+        if(existing.containsKey(actor)) {
+            if(!existing.get(actor).equals(normalized)) throw new ApiException(409,"已有交接声明不能覆盖");
+            if(current.state()!=State.READY && current.state()!=State.COMPLETED && current.state()!=State.DISPUTED)
+                throw new ApiException(409,"当前状态不允许交接");
+            return unchanged(current);
+        }
+        requireHandoverOpen(current,now); requireCurrentVersion(current,version);
+        if(!current.participants().containsAll(progress.handedOff().keySet()) || !current.participants().containsAll(progress.received().keySet()))
+            throw invalidSnapshot();
+        boolean complete=progress.handedOff().size()+progress.received().size()+1==current.participants().size()*2;
+        return new Decision(new Snapshot(current.exchangeId(),complete?State.COMPLETED:State.READY,current.version()+1,
+            current.expiresAt(),current.participants(),current.confirmed(),true,null),
+            new Event(EventType.valueOf(kind.name()),actor,normalized,now),complete?current.exchangeId():null);
+    }
+    public Decision dispute(Snapshot current,Dispute prior,long actor,Integer version,String reason,Instant now) {
+        requireParticipant(current,actor);requireVersionInput(current,version);String normalized=normalizeReason(reason);
+        if(current.state()==State.DISPUTED && prior!=null && prior.actorId()==actor && prior.reason().equals(normalized)) return unchanged(current);
+        if(current.state()!=State.READY || !current.handoverStarted()) throw new ApiException(409,"仅交接中的交换可登记争议");
+        requireCurrentVersion(current,version);
+        return new Decision(new Snapshot(current.exchangeId(),State.DISPUTED,current.version()+1,current.expiresAt(),
+            current.participants(),current.confirmed(),true,null),new Event(EventType.DISPUTED,actor,normalized,now),null);
+    }
+    public List<Action> permittedActions(Snapshot current,Handover progress,long actor,Instant now) {
+        if(current.state()!=State.READY) return permittedActions(current,actor,now);
+        if(!current.participants().contains(actor) || current.version()==Integer.MAX_VALUE
+            || (!current.handoverStarted() && !now.isBefore(current.expiresAt()))) return List.of();
+        List<Action> result=new ArrayList<>();
+        if(!progress.handedOff().containsKey(actor)) result.add(Action.HANDED_OFF);
+        if(!progress.received().containsKey(actor)) result.add(Action.RECEIVED);
+        result.add(current.handoverStarted()?Action.DISPUTE:Action.CANCEL);
+        return List.copyOf(result);
+    }
+    public static String normalizeNote(String note) {
+        if(note!=null && note.trim().length()>1000) throw new ApiException(400,"交接说明最长1000字");
+        return note==null?"":note.trim();
+    }
+    private static void requireHandoverOpen(Snapshot current,Instant now) {
+        if(current.state()!=State.READY || current.confirmed().size()!=current.participants().size()) throw new ApiException(409,"交换尚未就绪或已停止交接");
+        if(!current.handoverStarted() && !now.isBefore(current.expiresAt())) throw new ApiException(409,"截止后不能开始交接");
     }
 
     private static Decision unchanged(Snapshot current) { return new Decision(current,null,null); }
@@ -95,7 +148,7 @@ public final class ExchangeLifecycleRules {
     }
     private static String normalizeReason(String reason) {
         if (reason==null || reason.trim().isEmpty() || reason.trim().length()>1000)
-            throw new ApiException(400,"取消原因须为1–1000字");
+            throw new ApiException(400,"原因须为1–1000字");
         return reason.trim();
     }
     private static ApiException invalidSnapshot() { return new ApiException(409,"交换记录不完整，不能计算参与者动作"); }

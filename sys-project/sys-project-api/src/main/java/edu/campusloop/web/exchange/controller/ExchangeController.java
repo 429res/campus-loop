@@ -36,6 +36,18 @@ public class ExchangeController {
         allow(params,Set.of());lifecycle.cancel(user.getId(),id,body.version(),body.reason());
         return ResultVo.success(queries.detail(user.getId(),id));
     }
+    @PostMapping("/{id}/handoff")
+    public ResultVo<ExchangeView> handoff(@RequestAttribute(AuthInterceptor.USER) User user,@PathVariable long id,
+        @RequestBody ExchangeActionRequest.Handoff body,@RequestParam MultiValueMap<String,String> params) {
+        allow(params,Set.of());lifecycle.handoff(user.getId(),id,body.version(),body.kind(),body.note());
+        return ResultVo.success(queries.detail(user.getId(),id));
+    }
+    @PostMapping("/{id}/dispute")
+    public ResultVo<ExchangeView> dispute(@RequestAttribute(AuthInterceptor.USER) User user,@PathVariable long id,
+        @RequestBody ExchangeActionRequest.Dispute body,@RequestParam MultiValueMap<String,String> params) {
+        allow(params,Set.of());lifecycle.dispute(user.getId(),id,body.version(),body.reason());
+        return ResultVo.success(queries.detail(user.getId(),id));
+    }
     @GetMapping("/mine")
     public ResultVo<PageResult<ExchangeView>> mine(@RequestAttribute(AuthInterceptor.USER) User user,
                                                   @RequestParam MultiValueMap<String,String> params) {

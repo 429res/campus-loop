@@ -114,7 +114,7 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 6. 确认截止前可取消；取消与超时任务使用相同 exchange 行锁与条件状态更新，仅释放属于该 exchange 的占用。重试任务幂等。交接开始后不能简单取消，进入争议流程，避免已交付物品被自动重新上架。
 7. 超时使用数据库 UTC 时间、批次扫描和可恢复任务，UI 倒计时只展示。version 乐观锁用于编辑与条件状态变更，唯一占用约束作为最终防线。数据库死锁按有限次数重试，外部通知在事务提交后 outbox 发送。
 
-状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED → COMPLETED/CANCELLED`。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描留待A-04。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
+状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消已接通持久事务；交接仍501，自动超时扫描由A-04接通。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
 ## 履历可信度
 
@@ -136,4 +136,31 @@ A-03基于已合入的B-03 PR #28实现唯一事务端口，复用其ExchangeDom
 
 READY未交接且原24h截止前，任一参与者可取消；全员独立确认才READY。重复确认/精确取消重放不增加事件/版本或重复释放，新动作检查version。交换锁串行确认、取消、到期；V9审计事件按exchange/new_version唯一。释放核对持久流向、创建时版本、当前RESERVED/owner/version、占用集合与exchange归属及其他进行中引用，然后仅条件删除本交换占用、保留所有权恢复AVAILABLE/version+1；任何失败整笔回滚。
 
-旧无V8创建依据记录继续只读，V9不伪造历史取消信息。取消字段仅参与者详情可见，管理读契约不带代确认权。A-04后续扫描调用相同expire入口，尚无扫描/批次/重启恢复；交接/所有权转移留后续。完整矩阵、迁移与证据见[B-03.2](b03-invitation-rules.md)。
+旧无V8创建依据记录继续只读，V9不伪造历史取消信息。取消字段仅参与者详情可见，管理读契约不带代确认权。A-04扫描通过同一applyLocked路径和SKIP LOCKED首锁调用expireForScan，V10保存失败退避，重启从数据库恢复到期记录；交接/所有权转移见B-04。完整矩阵、迁移与证据见[B-03.2](b03-invitation-rules.md)。
+
+
+## A-04 扫描与恢复
+
+ExchangeExpiryScanner按数据库UTC读取有界候选批次，复用ExchangeLifecycleService和ExchangeLifecycleRules决定到期与条件释放；没有第二套超时状态机。exchange首锁SKIP LOCKED只跳过忙行，后续用户/需求/物品顺序不变。失败整笔回滚后以条件SQL保存expiry_retry_at/count/failure_code，30秒起指数退避、上限1小时；正常候选继续处理。业务终态不被迟到重试覆盖，成功转换清除退避标记。
+
+持久待办来源是原expires_at、活动状态与重试时间，调度器只负责唤醒；任意实例重启自动重新发现，重复处理不释放新交换占用。交接事实非空、终态或缺少V8依据的旧记录排除自动扫描。V10只增加运维字段/索引，不改已有状态与截止。配置、B/C/D语义和真实恢复证据见[A-04](a04-exchange-expiry.md)。
+
+### B-04 双向声明与原子完成
+
+沿用 ExchangeLifecycleService/ExchangeLifecycleRules，不创建第二套事务/占用或状态机。锁序为 exchange→用户升序→精确需求升序→物品/占用升序；参与者、路由和需求引用从数据库读取，最终数据库UTC授权首次交接。所有确认只写登录参与者的相应时间与说明。任何handed_off_at/received_at即已开始交接，与A-04扫描筛选一致；原24h此后不再授权取消/释放，也不阻止补齐独立声明。
+
+V11追加两种声明说明、争议审计和事件类型，旧数据不补造确认。最后2N中的一条声明在一次事务写入：参与者事实→交换COMPLETED/version+1→该声明审计（new_status=COMPLETED）→精确需求INACTIVE/version+1→逐件owner迁移/EXCHANGED/version+1、不可覆盖EXCHANGED履历、条件释放自身占用。任何写阶段失败全部回滚。需求核对创建command、cl_exchange_demand版本/对应提供物、当前owner/ACTIVE/category、本人提供关联、唯一进行中引用；不关闭其他需求，也不双写wanted旧字段。转移后的EXCHANGED不公开参与交换推荐。事件可信度BOTH_CONFIRMED，绝不自动ADMIN_VERIFIED。
+
+```mermaid
+stateDiagram-v2
+    AWAITING_CONFIRMATION --> READY: 全员邀请确认
+    AWAITING_CONFIRMATION --> CANCELLED: 未截止取消
+    AWAITING_CONFIRMATION --> EXPIRED: 截止且无交接
+    READY --> READY: 部分交出或收到声明
+    READY --> COMPLETED: 所有2N声明 原子流转
+    READY --> CANCELLED: 未交接且未截止取消
+    READY --> EXPIRED: 未交接且已截止
+    READY --> DISPUTED: 已交接 参与者登记异常
+```
+
+争议停止在DISPUTED，保留原所有权/占用，无管理员代办、回滚实物或自动重新上架能力。允许动作、重放边界与B-05事件入口见[B-04契约](b04-exchange-handoff.md)。

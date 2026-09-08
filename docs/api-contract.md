@@ -196,7 +196,7 @@ B-03 [PR #28](https://github.com/429res/campus-loop/pull/28) 的领域入口在�
 
 列表status为AWAITING_CONFIRMATION/READY/COMPLETED/CANCELLED/EXPIRED/DISPUTED，空串或未知值400；超页返回空records及真实total。只允许所列参数，ownerId/userId、重复参数400；详情和创建不接受查询参数。所有读取无FOR UPDATE和业务写入，不因截止已过自动改状态或释放占用。异常、不完整的已存环返回409，不拼出虚假流向。
 
-ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,participants,flows,allowedActions,cancelledBy,cancellationReason,cancelledAt`。时间UTC ISO8601；participants按有向环从最小物品ID起点返回，含`userId,displayName,offeredItemId,receivedItemId,confirmationStatus,confirmedAt,handedOffAt,receivedAt`；confirmationStatus仅由confirmedAt是否存在映射PENDING/CONFIRMED。flows为`itemId,fromUserId,toUserId`，来源是持久参与者记录，不能用物品当前owner重建历史流向。displayName是当前公开显示名；V8在内部保存创建与所选需求快照；读取不暴露摘要、幂等键、私人需求说明或内部快照，不拼接后来私人物品字段。`allowedActions`按B-03.2实际动作资格返回CONFIRM/CANCEL或空；取消审计三字段未取消为null，时间UTC ISO8601。查看记录不等于获得确认、取消或交接权限。
+ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,participants,flows,allowedActions,cancelledBy,cancellationReason,cancelledAt`。时间UTC ISO8601；participants按有向环从最小物品ID起点返回，含`userId,displayName,offeredItemId,receivedItemId,confirmationStatus,confirmedAt,handedOffAt,receivedAt`；confirmationStatus仅由confirmedAt是否存在映射PENDING/CONFIRMED。flows为`itemId,fromUserId,toUserId`，来源是持久参与者记录，不能用物品当前owner重建历史流向。displayName是当前公开显示名；V8在内部保存创建与所选需求快照；读取不暴露摘要、幂等键、私人需求说明或内部快照，不拼接后来私人物品字段。`allowedActions`按B-03.2/B-04实际动作资格返回CONFIRM/CANCEL/HANDED_OFF/RECEIVED/DISPUTE或空；取消审计三字段未取消为null，时间UTC ISO8601。查看记录不等于获得确认、取消或交接权限。
 
 创建请求固定为`{ruleVersion,idempotencyKey,flows:[{itemId,itemVersion,demandId,demandVersion},...]}`，flows长度2/3，表示本项物品提供给下一项物品的当前所有者，最后一项流向第一项；需求属于该接收者且关联其环内提供物品。ID为不同正整数，版本为非负int32 JSON整数，不接受字符串/小数/null；所有字段必填，不接受owner/参与者/理由/分数/状态/时间。幂等键为8–64位`[a-z0-9_-]`，不trim或大小写折叠。请求体与每条流向均拒绝未知字段。
 
@@ -208,7 +208,7 @@ ExchangeView字段：`id,initiatorId,status,version,createdAt,expiresAt,particip
 
 幂等作用域`(服务端initiatorId,idempotencyKey)`；摘要含ruleVersion和整条绑定流向的itemId/itemVersion/demandId/demandVersion。按最小物品ID旋转、保留方向，旋转起点不同视为同请求，反向三环不同。同键同摘要应先返回原交换，不以首次创建造成的RESERVED/版本递增拒绝重放，不刷新截止时间；同键不同摘要409。状态/物品版本/需求版本或B-02所选需求变化409，不能悄悄替换新需求；越权发起403、非法重复用户/物品或环形状400、有效需求规模超限422。任何校验/唯一约束失败整体回滚，无部分占用/参与者。死锁等数据库瞬态冲突最多重试三次，每次新事务；耗尽返回409，客户端保持同一逻辑提交的键。V2历史行缺摘要时同键拒绝409，不推断成可重放请求。
 
-C-03的管理读取需求：后续单独提供ADMIN的`GET /admin/exchanges?page=1&size=12&status=`与`GET /admin/exchanges/{id}`，基础字段沿用ExchangeView、增加已持久化的审计时间线/快照，限制用户私人说明和凭据披露。**这两个路径尚未注册（404），不能接成现有API**。管理读权限不映射为代确认/代交接权限；无写动作就展示待开发。D-03页面尚未接入本次POST；接入时保持同一逻辑提交的幂等键，并在409保留选择、刷新推荐后让用户重新决定。确认/取消按下述B-03.2契约可用；交接仍501。
+C-03的管理读取需求：后续单独提供ADMIN的`GET /admin/exchanges?page=1&size=12&status=`与`GET /admin/exchanges/{id}`，基础字段沿用ExchangeView、增加已持久化的审计时间线/快照，限制用户私人说明和凭据披露。**这两个路径尚未注册（404），不能接成现有API**。管理读权限不映射为代确认/代交接权限；无写动作就展示待开发。D-03页面尚未接入本次POST；接入时保持同一逻辑提交的幂等键，并在409保留选择、刷新推荐后让用户重新决定。确认/取消按下述B-03.2契约可用；交接与争议登记按B-04契约。
 
 ## B-03.2：参与者确认与取消
 
@@ -218,20 +218,30 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 
 非参与者含ADMIN均404；参数400、未认证401、锁内操作人停用403、状态/截止/版本/占用或数据完整性冲突409。缺少V8创建依据的旧记录只读，动作空、写409。409保留原因/原version，回读后由本人决定，不自动覆盖版本。详情取消字段为cancelledBy/cancellationReason/cancelledAt，仅读参与者可见；不公开内部快照、幂等键或私人需求。
 
-`ExchangeLifecycleService`在exchange→用户→需求→物品/占用锁内调用`ExchangeLifecycleRules`，最终数据库UTC决定权限；状态、参与者时间、取消审计、事件、按item_id+exchange_id条件释放及物品version更新原子提交。allowedActions共用纯规则，未确认为CONFIRM/CANCEL，已确认/READY为CANCEL，截止/交接/终态为空；按钮不替代鉴权和锁内重校验。V9追加取消字段和按exchange/new_version唯一的审计事件，旧行不伪造审计。
+`ExchangeLifecycleService`在exchange→用户→需求→物品/占用锁内调用`ExchangeLifecycleRules`，最终数据库UTC决定权限；状态、参与者时间、取消审计、事件、按item_id+exchange_id条件释放及物品version更新原子提交。allowedActions共用纯规则，等待邀请时未确认为CONFIRM/CANCEL、已确认为CANCEL；READY交接动作见B-04，未开始且已截止或终态为空；按钮不替代鉴权和锁内重校验。V9追加取消字段和按exchange/new_version唯一的审计事件，旧行不伪造审计。
 
-共同内部expire入口已可用，A-04定时扫描/批次/恢复仍未实现，无公共expire路径；交接仍501。状态矩阵、兼容与D/C样例见[B-03.2说明](b03-invitation-rules.md)。
+共同内部expire入口由A-04定时扫描接通，批次与持久退避在重启后继续处理。仅AWAITING_CONFIRMATION/READY、数据库UTC达到原expiresAt且无handedOffAt/receivedAt才EXPIRED；保留原24h截止，不延长、不释放其他交换占用。处理中或失败退避期间，GET可返回已到期活动状态且allowedActions为空，客户端回读结果，不能自行标记完成。无公共expire路径，技术重试字段不返回ExchangeView；运维和恢复证据见[A-04](a04-exchange-expiry.md)。交接及争议登记见B-04。状态矩阵、兼容与D/C样例见[B-03.2说明](b03-invitation-rules.md)。
 
 ## 后续接口设计（未实现）
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
-| POST /exchanges/{id}/handoff | 参与者交接凭据；全部确认才转移所有权 |
+| POST /exchanges/{id}/handoff | B-04已实现，见下述契约 |
 | GET/POST /items/{id}/history | 事件、来源、发生/记录时间、证据；提交自述不能设置管理员级别 |
 | POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
 
-后端预留的exchange交接操作返回501；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
+交接已由B-04接入；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
 
 
 
 精确DTO限制、已预留路径和后端实现入口见 [backend-contract.md](backend-contract.md)。
+
+### B-04 交接和争议登记（已实现）
+
+`POST /exchanges/{id}/handoff`：严格请求 `{version,kind,acknowledged:true,note?}`，kind仅HANDED_OFF/RECEIVED，note可省略、trim后0–1000字。身份、物品和时间来自服务端；每人分别确认 offeredItemId 已交出、receivedItemId 已收到，不允许指定owner/物品/对方/时间。两人4次、三人6次声明才完成；新动作当前version，已提交同类同说明可用旧但非未来version重放（含COMPLETED/DISPUTED），不覆盖声明或追加事件。不同说明409。
+
+READY首次交接必须原截止前；任一handedOffAt/receivedAt非空后允许原截止后继续，不能取消或自动到期。最后声明同事务迁移所有owner、置EXCHANGED/version+1、仅精确满足且ACTIVE/版本/引用一致的需求置INACTIVE/version+1、追加BOTH_CONFIRMED履历并释放本交换占用、COMPLETED。EXCHANGED仍遵循既有公开读取，但不参与推荐或再次提供。
+
+`POST /exchanges/{id}/dispute`：严格请求 `{version,reason}`，原因trim后1–1000字，仅READY已开始交接的本人参与者可登记，原截止不阻止登记；转DISPUTED保留owner、需求和占用。原登记者相同原因可用旧但非未来版本重放；裁决与恢复推进未实现。上述成功返回最新ExchangeView；未知字段400，失效身份401、不可用参与者403、非参与者404、状态/版本/引用冲突409。GET仍只读，管理员没有代办权。
+
+ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），participants追加handedOffNote/receivedNote（未声明null，可选说明省略后为空串）。READY未开始且未截止allowedActions=[HANDED_OFF,RECEIVED,CANCEL]；开始后按本人未提交类别返回HANDED_OFF/RECEIVED及DISPUTE；终态空。等待期仍遵循B-03，动作集合与锁内规则共用。两方/三方、错误、精确重放与C/D恢复样例见[B-04](b04-exchange-handoff.md)。

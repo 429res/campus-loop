@@ -47,7 +47,7 @@ HTTP GET `/api/matches` 只读即时计算，不持久化推荐，不创建交�
 
 `cl_exchange`：发起人、状态、version、请求幂等键、过期时间。`cl_exchange_participant`：每人提供物品和接收人、确认/交出/收到时间；同一交换内用户与物品各唯一。`cl_item_hold`：item_id 为主键，一个物品只能有一条活动占用。`cl_item_history`：物品与可选交换、事件类型、来源用户、对方确认者、管理员核验者、发生与记录时间。
 
-V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff仍HTTP 501。履历、争议、举报、履历审核不得以伪成功 API 替代。
+V8新增请求摘要、规则/创建快照与cl_exchange_demand精确历史引用。POST `/api/exchanges` 已接入A-03；confirm/cancel已接入共用生命周期，handoff及dispute登记已接入B-04共用事务，详见[b04-exchange-handoff.md](b04-exchange-handoff.md)。履历编辑、争议裁决、举报、履历审核不得以伪成功 API 替代。
 
 ## 交换创建与并发设计
 
@@ -80,3 +80,7 @@ READY 时每名参与者分别记录 handedOffAt / receivedAt，所有交接双�
 受保护接口使用 `Authorization: Bearer <token>`。JWT 8 小时到期，MySQL 会话记录同时校验；注销删除当前会话。修改密码和管理员停用账号均在同一事务删除该账号所有会话，禁用后拒绝登录，重新启用不会恢复旧令牌。管理员重置密码尚未实现，后续也必须遵守相同撤销规则。
 
 当前运行基础面向四人本地开发。开发自助注册默认关闭，显式开启也不代表学校身份核验。公开部署前须确定真实注册准入，并补充登录限速、找回密码、学校身份策略、细粒度权限、反垃圾、上传生命周期清理、审计和运维指标；这些是后续范围，不是假装已完成的入口。数据库与 JWT 密钥仅由后端加载，前端不能持有这些凭据。
+
+## A-04到期处理
+
+自动轮询调用共用生命周期事务，仅到期未交接的AWAITING_CONFIRMATION/READY可变EXPIRED；确认/取消/超时同锁同规则，原截止不变。V10持久化失败退避，重启重新读取数据库待办；没有公共expire接口或内存唯一任务队列。后端配置、失败与恢复语义见[A-04](a04-exchange-expiry.md)。
