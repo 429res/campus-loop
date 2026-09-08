@@ -1,5 +1,13 @@
 # 验收记录
 
+## 2026-09-08：C-04 业务统计口径与管理看板切片
+
+- 生产概览继续读取真实 `GET /api/admin/stats`，另以 `GET /api/admin/items?status=PENDING_REVIEW&page=1&size=1` 的服务端 `total` 展示待审量；没有从当前页推全量。统计、待审量、最近物品独立失败，真实0、推荐超限 null 和请求失败分别显示。
+- A/B 源码核对确认：users 是全部账号、items 是全状态物品、availableItems 仅是当前 AVAILABLE、recommendations 是 legacy-v1 即时候选环而非交换成果；当前没有 ADMIN 交换统计、日期筛选、强一致 `asOf` 或趋势接口。契约已记录去重单位、范围、UTC 后续窗口建议及缺失完成事件边界。
+- 管理端 Node 单元测试 17/17 通过；Vite 8.2.2 生产构建通过，仅有既存大 chunk 提示；根 `repository-check` 通过。统计相关 `MatchingLimitsIntegrationTest` 在隔离 H2 / 14 个 Flyway 迁移上 3/3 通过，验证基础计数、真实0和两类规模超限。根 `node scripts/run.mjs test` 先完成用户端49/49，随后因当前 Windows Maven Wrapper 的 `$HOME/.m2` 路径解析失败中止；改用同一 Maven 3.9.16 并显式指向本机依赖缓存后完成上述目标测试。
+- 内置浏览器实际检查开发路由 `/fixtures/stats`：真实0显示0；推荐超限显示“—”及原因；待审量单路失败和全部失败均显示“读取失败”而非0。统计说明可用键盘 Enter 展开，浅/深色均检查；1280×720、820×1180、390×844 下 `document/body.scrollWidth` 未超过可视内容宽度，卡片分别为5列、3列、1列。减少动态效果开启后卡片/说明计算过渡均为0s，并已恢复原偏好与原深色主题；控制台无 error/warning。
+- 浏览器场景使用固定虚构数据，仅证明组件状态与响应式，不是 API/数据库证据。本切片未改后端或数据库，未运行隔离 MySQL；上述 H2 集成测试是当前统计 API 的实际回归证据，新增完成交换/状态分布仍待 A/B 接口与数据库验证。
+
 ## 2026-09-08：A-05 UniApp 工具链兼容补丁
 
 - 冲突修复复验：合入主线 `777d422`，完整保留 C-04 两组验收记录；在独立工作树使用 Node 24.20.0 / npm 12.0.2 全新执行 `npm ci --offline=false`、用户端测试 49 项、H5 与 mp-weixin 构建、微信产物接线检查 6 项及仓库交付检查，全部通过。依赖与锁文件保持 A-05 补丁原样；业务源码与上述主线一致。本次未运行浏览器、微信开发者工具或真机。

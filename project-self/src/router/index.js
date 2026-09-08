@@ -22,6 +22,11 @@ const developmentRoutes = import.meta.env.DEV
         component: () => import("@/views/Reports.vue"),
         meta: { public: true, title: "举报队列组件夹具" },
       },
+      {
+        path: "/fixtures/stats",
+        component: () => import("@/views/StatsFixture.vue"),
+        meta: { public: true, title: "业务统计展示夹具" },
+      },
     ]
   : [];
 const router = createRouter({
