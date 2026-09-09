@@ -1,4 +1,4 @@
-import {canVisit,firstAllowed} from "@/common/permissions";
+import {canVisit,firstAllowed,routeScope} from "@/common/permissions";
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/stores/auth";
 const developmentRoutes = import.meta.env.DEV
@@ -34,6 +34,8 @@ const router = createRouter({
   history: createWebHistory(),
   scrollBehavior: () => ({ top: 0 }),
   routes: [
+    {path:"/community",component:()=>import("@/views/Community.vue"),meta:{title:"校园动态"}},
+    {path:"/connection",component:()=>import("@/views/Connection.vue"),meta:{public:true,title:"连接中断"}},
     {
       path: "/login",
       component: () => import("@/views/Login.vue"),
@@ -96,21 +98,24 @@ const router = createRouter({
 });
 router.beforeEach(async (to) => {
   document.title = `${to.meta.title} · Campus Loop`;
-  if (to.meta.public) return true;
   const auth = useAuth();
-  if (!auth.token) return { path: "/login", query: { redirect: to.fullPath } };
-  if (!auth.user) {
-    const token = auth.token;
-    try {
-      await auth.refresh();
-      if (auth.token !== token) return false;
-    } catch {
-      if (auth.token !== token) return false;
-      auth.clear();
-      return { path: "/login", query: { redirect: to.fullPath } };
+  const loginRoute={path:'/login',query:{redirect:to.fullPath},replace:true};
+  if(to.meta.public && to.path!=='/login')return true;
+  if(!auth.token)return to.path==='/login'?true:loginRoute;
+  if(!auth.user){
+    const token=auth.token;
+    try {await auth.refresh();}
+    catch(error){
+      if(!auth.token)return to.path==='/login'?true:loginRoute;
+      if(auth.token!==token)return false;
+      return {path:'/connection',query:{redirect:to.path==='/login'?(to.query.redirect||'/'):to.fullPath},replace:true};
     }
+    if(auth.token!==token)return auth.token?false:loginRoute;
   }
-  if(!canVisit(auth.user,to.path))return firstAllowed(auth.user);
-  return true;
+  if(to.path==='/login'){
+    const next=typeof to.query.redirect==='string'?to.query.redirect:'/';
+    return {path:Object.hasOwn(routeScope,next)&&canVisit(auth.user,next)?next:firstAllowed(auth.user),replace:true};
+  }
+  return canVisit(auth.user,to.path)?true:firstAllowed(auth.user);
 });
 export default router;

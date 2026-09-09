@@ -26,6 +26,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler({ConstraintViolationException.class, IllegalArgumentException.class}) public ResponseEntity<ResultVo<Void>> invalid(Exception e) { return error(400, e.getMessage()); }
     @ExceptionHandler({HttpMessageNotReadableException.class, MethodArgumentTypeMismatchException.class, MissingServletRequestPartException.class}) public ResponseEntity<ResultVo<Void>> malformed(Exception e) { return error(400, "请求格式或参数不正确"); }
     @ExceptionHandler(MaxUploadSizeExceededException.class) public ResponseEntity<ResultVo<Void>> tooLarge() { return error(413, "图片不得超过 5 MB"); }
+    @ExceptionHandler(org.springframework.dao.PessimisticLockingFailureException.class) public ResponseEntity<ResultVo<Void>> concurrentWrite() { return error(409, "有人同时更新了相关内容，请刷新后重试"); }
     @ExceptionHandler(DataIntegrityViolationException.class) public ResponseEntity<ResultVo<Void>> conflict() { return error(409, "数据状态冲突，请刷新后重试"); }
     @ExceptionHandler(org.springframework.web.HttpRequestMethodNotSupportedException.class) public ResponseEntity<ResultVo<Void>> unsupportedMethod() { return error(405, "不支持此请求方法"); }
     @ExceptionHandler(NoResourceFoundException.class) public ResponseEntity<ResultVo<Void>> missing() { return error(404, "资源不存在"); }

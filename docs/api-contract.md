@@ -338,3 +338,16 @@ HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保�
 - `GET /api/admin/operations/summary?days=7|30|90`：OPERATIONS 权限，数据库实时汇总、UTC 日趋势和分类计数。`GET /api/admin/operations/audits?page&size&module`：跨物品、账号、举报、交换的审计分页；module 可为 ITEMS / USERS / REPORTS / EXCHANGES。
 
 自动审核和 OSS 付费服务暂不启用。内容维持现有人工审核流程。
+
+
+## 发布自动匹配、账号维护与校园动态（V17/V18）
+
+发布与物品求换编辑会在事务中维护唯一 `sourceItemId` 自动需求；V17 补齐尚未完成交换的旧物品。原 `/api/matches/independent` 同时使用自动与手动需求，保持原规则、快照、占用和版本校验。`DemandView.sourceItemId` 非空时，需从对应物品修改，独立需求写接口返回 409。`GET /api/matches/readiness` 返回本人 PENDING_REVIEW / AVAILABLE / RESERVED / REJECTED / HIDDEN 物品数与 ACTIVE 需求数（DEMANDS）。
+
+管理端新增 `POST /api/admin/users`（username/password/displayName/role/permissions/reason）；`GET/PUT /api/admin/users/{id}/profile`（PUT: version/displayName/campus/bio/reason）；`POST .../{id}/password`（version/password/reason）；`GET .../{id}/activity?page&size`。USERS 可维护普通用户公开资料及启停，创建/维护管理员和重置密码仅 ALL。密码不返回、不写入审计；重置撤销全部旧会话。联系方式仍仅本人可见。资料/权限版本冲突 409，角色、状态和操作人由服务端验证。
+
+校园动态公开读取：`GET /api/community/posts?page=1&size=20&mine=false&keyword=`，`GET .../{id}` 与 `GET .../{id}/replies?page&size`，可选登录以显示本人点赞；mine 要求登录。隐藏内容仅作者或管理接口可见，已撤回不可读取。记录包含作者、文本、可选物品/图片、点赞/回复数、状态和版本，createdAt 为 UTC。
+
+登录写入：`POST /api/community/posts`（body 1–2000 字、可选 itemId/imageUrl、requestKey 8–64 位字母数字下划线/短横线）；`POST .../{id}/replies`（body 1–1000 字、requestKey）；`PUT/DELETE .../{id}/like`；`DELETE .../{id}`（version）；`DELETE .../{id}/replies/{replyId}`；`POST .../{id}/reports`（reason 1–500 字）。requestKey 按作者唯一且校验相同内容，作者和上传归属服务端确定。回复通知动态作者；物品链接只解析仍公开的物品。作者可撤回本人内容，举报每人每动态一条；有发帖和回复频率限制。
+
+COMMUNITY 管理权限：`GET /api/admin/community/posts?page&size&reported&keyword`；`GET .../{id}`、`.../{id}/reports`、`.../{id}/audits`、`.../{id}/replies`；`POST .../{id}/moderate`（version/action/reason），action 为 HIDE / RESTORE / DISMISS_REPORTS；处置解决当前举报并留审计，作者撤回内容不可恢复。管理员也可经用户回复删除接口移除违规回复。帖子正文和回复以纯文本渲染，不执行 HTML。

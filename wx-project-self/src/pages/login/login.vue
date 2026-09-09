@@ -2,19 +2,27 @@
 import LoopInput from '../../components/LoopInput.vue'
 import LoopButton from '../../components/LoopButton.vue'
 import { ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
-const openRegister=()=>uni.navigateTo({url:'/pages/register/register'})
+import { finishLogin, loginDestination } from '../../common/navigation.mjs'
+const openRegister=()=>{const next=loginDestination(routeOptions);uni.navigateTo({url:'/pages/register/register?redirect='+next.page+(routeOptions.id?'&id='+encodeURIComponent(routeOptions.id):routeOptions.exchangeId?'&exchangeId='+encodeURIComponent(routeOptions.exchangeId):'')})}
 const username = ref(''), password = ref(''), busy = ref(false), error = ref(''), notice = ref('')
-let redirect = 'profile', exchangeId = ''
+let routeOptions = {}, restoring = false
 onLoad(options => {
-  if (['publish','demands','matches','favorites','exchanges'].includes(options.redirect)) redirect = options.redirect
-  if (/^[1-9][0-9]*$/.test(options.exchangeId || '') && Number.isSafeInteger(Number(options.exchangeId))) exchangeId = options.exchangeId
+  routeOptions = options || {}
   if (options.reason === 'registered') notice.value = '账号已创建，请登录。'
   if (options.reason === 'password-changed') notice.value = '密码已修改，请使用新密码登录。'
   if (options.reason === 'password-unknown') notice.value = '改密请求结果无法确认。请先尝试新密码登录；若未生效，再使用旧密码。'
   if (options.reason === 'session-expired') notice.value = '登录已过期，请重新登录。'
+})
+onShow(async () => {
+  const token=uni.getStorageSync(TOKEN_KEY)
+  if(!token||restoring||busy.value)return
+  restoring=true
+  try{const user=await http.get('/api/auth/me',{}, {silent:true});if(token===uni.getStorageSync(TOKEN_KEY)){uni.setStorageSync(USER_KEY,user);finishLogin(uni,routeOptions)}}
+  catch(e){if(e.status!==401)error.value='暂时无法确认登录状态，请检查网络后重试。'}
+  finally{restoring=false}
 })
 async function login() {
   if (busy.value) return
@@ -22,10 +30,9 @@ async function login() {
   if (!username.value.trim() || !password.value) { error.value = '请填写用户名和密码'; return }
   busy.value = true
   try {
-    const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true})
+    const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true,skipAuth:true})
     uni.setStorageSync(TOKEN_KEY,result.token); uni.setStorageSync(USER_KEY,result.user); password.value = ''
-    if (['demands','favorites','exchanges'].includes(redirect)) uni.redirectTo({url:`/pages/${redirect}/${redirect}${redirect==='exchanges' && exchangeId ? `?id=${exchangeId}` : ''}`})
-    else uni.switchTab({url:`/pages/${redirect}/${redirect}`})
+    finishLogin(uni,routeOptions)
   } catch(e) { error.value = e.message } finally { busy.value = false }
 }
 </script>

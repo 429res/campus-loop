@@ -9,6 +9,11 @@ import http, { isAbortError, TOKEN_KEY } from '../../common/http'
 import { favoriteIds, readAllFavorites, setFavorite } from '../../common/favorites.mjs'
 const categories = ref([]), items = ref([]), keyword = ref(''), selected = ref(''), total = ref(0), page = ref(1), loading = ref(false), error = ref(''), categoriesError = ref('')
 const size = 12
+const readiness=ref(null),matchCount=ref(0),signedIn=ref(false)
+let readinessSequence=0
+async function loadReadiness(){const run=++readinessSequence,token=uni.getStorageSync(TOKEN_KEY);signedIn.value=!!token;readiness.value=null;matchCount.value=0;if(!token)return;try{const [counts,matches]=await Promise.all([http.get('/api/matches/readiness',{}, {silent:true}),http.get('/api/matches/independent',{ruleVersion:'independent-v2'},{silent:true})]);if(run===readinessSequence&&token===uni.getStorageSync(TOKEN_KEY)){readiness.value=counts;matchCount.value=matches.recommendations.length}}catch{}}
+const nextStep=computed(()=>matchCount.value ? `为你找到 ${matchCount.value} 个交换方案` : readiness.value?.PENDING_REVIEW ? '物品正在审核，通过后自动匹配' : readiness.value?.AVAILABLE ? '正在为你的闲置寻找合适的交换' : readiness.value?.RESERVED ? '你有正在进行的交换' : '从发布一件闲置开始')
+const goPublish=()=>uni.switchTab({url:'/pages/publish/publish'})
 const favorites = ref(new Set()), favoriteBusy = ref(new Set()), favoriteNotice = ref('')
 let favoriteSequence = 0
 let sequence = 0
@@ -63,31 +68,33 @@ async function toggleFavorite(item) {
     if (e.uncertain) await loadFavorites()
   } finally { const updated = new Set(favoriteBusy.value); updated.delete(id); favoriteBusy.value = updated }
 }
-async function init() { await Promise.all([loadCategories(), load(), loadFavorites()]) }
+async function init() { await Promise.all([loadCategories(), load(), loadFavorites(), loadReadiness()]) }
 function search() { page.value = 1; load() }
 function choose(id) { selected.value = id; search() }
 function changePage(delta) { const next = page.value + delta; if (next < 1 || next > totalPages.value || loading.value) return; page.value = next; load() }
 const goMatch = () => uni.switchTab({url:'/pages/matches/matches'})
 onShow(init)
 onPullDownRefresh(async () => { await init(); uni.stopPullDownRefresh() })
-onUnload(() => { sequence++; favoriteSequence++; activeRequest?.abort?.() })
+onUnload(() => { sequence++; favoriteSequence++;readinessSequence++; activeRequest?.abort?.() })
 </script>
 <template>
   <LoopLayout active-tab="home">
     <view class="search-row"><view class="search-field"><LoopIcon name="search" :size="20"/><input v-model="keyword" class="search-input" placeholder="搜一搜，让需要与闲置相遇" aria-label="搜索物品" confirm-type="search" @confirm="search"/><LoopButton v-if="keyword" class="cl-icon-btn clear-search" aria-label="清空搜索" @click="keyword='';search()"><LoopIcon name="close" :size="18"/></LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="search">{{ loading ? '搜索中…' : '搜索' }}</LoopButton></view><text class="search-note cl-desktop-only">每一件闲置，都值得下一次心动</text></view>
     <view class="home-hero"><view class="hero-copy"><text class="hero-eyebrow">校园里的下一次相遇</text><text class="hero-title">让闲置，<text class="hero-accent">继续有用。</text></text><text class="hero-subtitle">找到需要的好物，也为你的闲置找到新主人。</text><LoopButton class="cl-btn hero-button" @click="goMatch">寻找交换灵感 <LoopIcon name="arrow" tone="primary" :size="18"/></LoopButton></view><view class="hero-visual" aria-hidden="true"><image src="/static/demo/book.svg" mode="aspectFit"/><text>旧物 · 新的校园故事</text></view></view>
+    <view class="cl-panel getting-started"><view><text class="cl-section-title">{{nextStep}}</text><text class="cl-hint">发布闲置和求换意向 → 查看匹配方案 → 确认并约定交换</text></view><view class="cl-row"><LoopButton class="cl-btn cl-btn--primary" @click="goPublish">发布闲置</LoopButton><LoopButton class="cl-btn" @click="goMatch">{{matchCount?'查看方案':'查看交换灵感'}}</LoopButton></view></view>
     <view class="category-row" role="group" aria-label="物品分类"><LoopButton class="category-button" :class="{active:selected===''}" :aria-pressed="selected===''" @click="choose('')">全部好物</LoopButton><LoopButton v-for="category in categories" :key="category.id" class="category-button" :class="{active:selected===category.id}" :aria-pressed="selected===category.id" @click="choose(category.id)">{{ category.name }}</LoopButton><LoopButton v-if="categoriesError" class="category-button category-retry" @click="loadCategories">分类加载失败，重试</LoopButton></view>
     <view class="cl-section-heading"><view><text class="cl-section-title">发现校园好物</text><text class="section-caption">给物品一次循环，给生活一点惊喜</text></view><text class="cl-label">{{ total }} 件可发现的闲置</text></view>
     <view v-if="error" class="cl-panel cl-empty" role="alert"><LoopIcon name="loop" tone="primary" :size="36"/><text>{{ error }}</text><LoopButton class="cl-btn" @click="load">重试当前结果</LoopButton></view>
     <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在寻找校园好物…</text></view>
     <view v-else-if="!items.length" class="cl-panel cl-empty"><LoopIcon name="search" tone="primary" :size="36"/><text>{{ keyword.trim() || selected ? '没有符合条件的物品' : '还没有可发现的物品' }}</text><text class="cl-hint">{{ keyword.trim() || selected ? '换个关键词或分类再试试。' : '发布第一件闲置，让它开始新的旅程。' }}</text></view>
     <text v-if="favoriteNotice" class="cl-error favorite-notice" role="alert">{{ favoriteNotice }}</text>
-    <view v-if="!error && !loading && items.length" class="item-grid"><ItemCard v-for="item in items" :key="item.id" :item="item" :show-favorite="!!uni.getStorageSync(TOKEN_KEY)" :favorited="favorites.has(String(item.id))" :favorite-busy="favoriteBusy.has(String(item.id))" @favorite="toggleFavorite" /></view>
+    <view v-if="!error && !loading && items.length" class="item-grid"><ItemCard v-for="item in items" :key="item.id" :item="item" :show-favorite="signedIn" :favorited="favorites.has(String(item.id))" :favorite-busy="favoriteBusy.has(String(item.id))" @favorite="toggleFavorite" /></view>
     <view class="pagination" v-if="total > size"><LoopButton class="cl-btn" :disabled="page === 1 || loading" @click="changePage(-1)">上一页</LoopButton><text class="cl-label">{{ page }} / {{ totalPages }}</text><LoopButton class="cl-btn" :disabled="page >= totalPages || loading" @click="changePage(1)">下一页</LoopButton></view>
-    <view class="home-bottom"><view><text class="home-bottom-title">两人刚刚好，三人也可以。</text><text class="cl-subtitle">用有方向的需求匹配，发现意想不到的交换环。</text></view><LoopButton class="cl-btn cl-btn--blue" @click="goMatch">了解循环交换 <LoopIcon name="arrow" :size="18"/></LoopButton></view>
+    <view class="home-bottom"><view><text class="home-bottom-title">两人刚刚好，三人也可以。</text><text class="cl-subtitle">你想要的，可能正好是另一位同学的闲置。</text></view><LoopButton class="cl-btn cl-btn--blue" @click="goMatch">了解循环交换 <LoopIcon name="arrow" :size="18"/></LoopButton></view>
   </LoopLayout>
 </template>
 <style scoped>
+.getting-started{display:flex;justify-content:space-between;align-items:center;gap:20px;margin-top:22px}.getting-started>view:first-child{display:flex;flex-direction:column;gap:10px}.getting-started .cl-hint{line-height:1.8}.getting-started .cl-row{flex-wrap:wrap;flex-shrink:0}@media(max-width:760px){.getting-started{align-items:flex-start;flex-direction:column}.getting-started .cl-section-title{font-size:18px}}
 .search-row{display:flex;align-items:center;gap:28px;margin:8px 0 24px}.search-field{display:flex;align-items:center;gap:10px;padding:6px 7px 6px 16px;background:var(--cl-surface);border:1px solid var(--cl-border);border-radius:16px;flex:1;max-width:720px}.search-field:focus-within{border-color:var(--cl-blue);box-shadow:0 0 0 3px var(--cl-blue-soft)}.search-symbol{font-size:29px;color:var(--cl-muted)}.search-input{flex:1;min-width:0;font-size:14px;height:38px}.search-field .cl-btn{min-height:38px;padding:8px 24px;border-radius:11px}.clear-search{border:0;min-height:34px;width:30px;background:transparent;box-shadow:none}.search-note{font-size:12px;color:var(--cl-muted)}
  .home-hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.55fr);align-items:center;gap:24px;padding:36px 42px;border-radius:24px;background:linear-gradient(115deg,var(--cl-primary-soft),var(--cl-surface));border:1px solid var(--cl-border)}
 .hero-copy{min-width:0}.hero-eyebrow{display:block;font-size:12px;letter-spacing:1.5px;color:var(--cl-primary)}.hero-title{display:block;font-size:40px;font-weight:750;letter-spacing:-1px;line-height:1.3;margin:14px 0}.hero-accent{color:var(--cl-primary)}.hero-subtitle{display:block;font-size:14px;line-height:1.8;color:var(--cl-muted)}.hero-button{margin-top:22px;gap:12px;background:var(--cl-surface);color:var(--cl-primary);align-self:flex-start}.hero-visual{display:flex;flex-direction:column;align-items:center;gap:12px}.hero-visual image{width:100%;max-width:230px;height:150px;border-radius:16px}.hero-visual text{font-size:12px;color:var(--cl-muted)}

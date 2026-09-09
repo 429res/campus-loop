@@ -17,6 +17,7 @@ function pageHarness(page,options={}) {
     switchTab: options => navigations.push(options),
   }
   const send = (method,url, data) => {
+    if(url==='/api/matches/readiness') return Promise.resolve({AVAILABLE:1,DEMANDS:1})
     if(url.startsWith('/api/items/')) return Promise.resolve({title:'真实服务器物品标题'})
     let resolve, reject
     const promise = new Promise((yes, no) => { resolve = yes; reject = no })

@@ -34,9 +34,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     private final CategorySelectionService categorySelection;
     private final ItemMutationGuard mutationGuard;
     private final ItemReviewAuditService audits;
-    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadReferenceService uploads,ObjectMapper json,CategorySelectionService categorySelection,ItemMutationGuard mutationGuard,ItemReviewAuditService audits) {
+    private final edu.campusloop.web.demand.service.PublishedDemandService publishedDemands;
+    public ItemServiceImpl(CategoryMapper categories,UserMapper users,UploadReferenceService uploads,ObjectMapper json,CategorySelectionService categorySelection,ItemMutationGuard mutationGuard,ItemReviewAuditService audits,edu.campusloop.web.demand.service.PublishedDemandService publishedDemands) {
         this.categories=categories;this.users=users;this.uploads=uploads;this.json=json;this.categorySelection=categorySelection;
-        this.mutationGuard=mutationGuard;this.audits=audits;
+        this.mutationGuard=mutationGuard;this.audits=audits;this.publishedDemands=publishedDemands;
     }
     @Override public PageResult<ItemView> page(int page,int size,String keyword,Long categoryId,boolean admin) {
         return queryPage(page,size,keyword,categoryId,admin,null);
@@ -74,12 +75,14 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         return views(baseMapper.selectList(new QueryWrapper<Item>().in("id",ids).in("status",ItemVisibility.PUBLIC_STATES)));
     }
     @Override @Transactional public ItemView publish(long ownerId,PublishItemRequest request) {
+        publishedDemands.lock(ownerId,null);
         String image=validateFields(ownerId,request);
         Item item=new Item();item.setOwnerId(ownerId);item.setTitle(request.title().trim());item.setDescription(request.description().trim());
         item.setCategoryId(request.categoryId());item.setConditionLevel(request.conditionLevel());item.setTagsJson(encode(request.tags()));
         item.setWantedCategoryId(request.wantedCategoryId());item.setWantedTagsJson(encode(request.wantedTags()));
         item.setImageUrl(image);item.setStatus("PENDING_REVIEW");item.setReviewBasis("UNREVIEWED");item.setVersion(0);item.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
         baseMapper.insert(item);item=baseMapper.selectById(item.getId());
+        publishedDemands.sync(item);
         audits.append(ownerId,"SUBMIT",null,null,item);return views(List.of(item),true).get(0);
     }
     @Override @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
@@ -130,6 +133,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     }
     private Item lockEditable(long ownerId,long id,Integer version,Set<String> allowedStates) {
         if(version==null || version<0) throw new ApiException(400,"需要非负整数 version");
+        publishedDemands.lock(ownerId,id);
         Item item=requireOwned(baseMapper.selectForUpdate(id),ownerId);
         mutationGuard.requireVersion(item,version);
         if(!allowedStates.contains(item.getStatus()))
@@ -142,6 +146,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
             .eq("version",item.getVersion()).set("version",item.getVersion()+1);
         if(baseMapper.update(null,update)!=1) throw new ApiException(409,"物品已更新，请刷新后重试");
         Item after=baseMapper.selectById(item.getId());
+        if("SUBMIT".equals(action))publishedDemands.sync(after);
         audits.append(item.getOwnerId(),action,null,item,after);
         return views(List.of(after),true).get(0);
     }

@@ -93,6 +93,12 @@
       "style": {
         "navigationBarTitleText": "消息通知"
       }
+    },
+    {
+      "path": "pages/community/community",
+      "style": {
+        "navigationBarTitleText": "校园讨论"
+      }
     }
   ],
   "globalStyle": {

@@ -4,13 +4,14 @@ import { onLoad, onUnload } from '@dcloudio/uni-app'
 import { reactive, ref } from 'vue'
 import LoopButton from '../../components/LoopButton.vue'
 import LoopLayout from '../../components/LoopLayout.vue'
+import {loginDestination} from '../../common/navigation.mjs'
 import http from '../../common/http'
 
 const form = reactive({ username:'', displayName:'', password:'', confirmPassword:'' })
 const busy = ref(false), error = ref(''), uncertain = ref(false)
-let redirect = 'profile'
+let redirect = 'profile', targetId = ''
 
-onLoad(options => { if (['publish','demands'].includes(options.redirect)) redirect = options.redirect })
+onLoad(options => { const target=loginDestination(options);redirect=target.page;targetId=target.url.split('?id=')[1]||'' })
 onUnload(clearPasswords)
 
 function utf8Length(value) {
@@ -41,6 +42,7 @@ function validate() {
 function goLogin(reason = '') {
   clearPasswords()
   const params = [`redirect=${redirect}`]
+  if(targetId)params.push(`id=${targetId}`)
   if (reason) params.push(`reason=${reason}`)
   uni.redirectTo({url:`/pages/login/login?${params.join('&')}`})
 }
@@ -55,7 +57,7 @@ async function register() {
       username: form.username.trim(),
       password: form.password,
       displayName: form.displayName.trim(),
-    }, {silent:true, uncertainOnFailure:true})
+    }, {silent:true, uncertainOnFailure:true,skipAuth:true})
     goLogin('registered')
   } catch (requestError) {
     if (requestError.uncertain) {

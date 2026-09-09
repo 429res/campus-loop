@@ -153,6 +153,7 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
         if (version == null || version < 0) throw new ApiException(400, "需要非负整数 version");
         lockOwner(ownerId);
         Demand demand = requireOwned(baseMapper.selectForUpdate(id), ownerId);
+        if(demand.getSourceItemId()!=null)throw new ApiException(409,"这条求换需求来自已发布物品，请在物品详情中编辑或下架");
         if (baseMapper.activeExchangeReferences(id) > 0)
             throw new ApiException(409, "需求正在参与交换，不能编辑、启停或删除");
         if (!version.equals(demand.getVersion())) throw new ApiException(409, "需求已更新，请刷新后重试");
@@ -219,7 +220,7 @@ public class DemandServiceImpl extends ServiceImpl<DemandMapper, Demand> impleme
             }).toList();
             return new DemandView(demand.getId(), demand.getOwnerId(), demand.getCategoryId(),
                 categoryNames.get(demand.getCategoryId()), demand.getDescription(), decode(demand.getPreferredTagsJson()),
-                demand.getStatus(), demand.getVersion(), demand.getCreatedAt(), demand.getUpdatedAt(), offered);
+                demand.getStatus(), demand.getVersion(), demand.getCreatedAt(), demand.getUpdatedAt(), offered, demand.getSourceItemId());
         }).toList();
     }
 

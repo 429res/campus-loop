@@ -58,6 +58,8 @@ class ItemReviewIntegrationTest {
     @AfterEach void removeOnlyFixtures() {
         for (long id : userIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",id);
         for (long id : userIds) {
+            jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)",id);
+            jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",id);
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?",id);
             jdbc.update("DELETE FROM cl_notification WHERE user_id=?",id);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",id);
