@@ -6,14 +6,14 @@
 
 - 用户端：<https://amoewell.top>，进入“我的 → 登录 → 注册”。密码为 12–64 个字符，UTF-8 编码不超过 72 字节，请使用独立测试密码。
 - 管理端：<https://admin.amoewell.top>，用于审核物品、管理测试用户等。管理员凭据仅保存在部署者本机的私有文件中，不进入仓库或群聊。
-- 注册模式为 `DEVELOPMENT_SELF_SERVICE`，不核验校园身份。需要结束开放注册时，在服务器 `.env` 设置 `CAMPUS_REGISTRATION_MODE=CLOSED`，再执行下方启动命令使后端配置生效。
+- 注册模式为 `EMAIL_VERIFIED`，新用户须先验证邮箱，历史账号保留使用资格；邮箱验证不等于校园身份核验。需要结束开放注册时，在服务器 `.env` 设置 `CAMPUS_REGISTRATION_MODE=CLOSED`，再执行下方启动命令使后端配置生效。
 - 同学发布物品后，需要管理员审核；批准后才进入公开匹配流程。需求和物品分类应互相满足，才会出现可用推荐。
 
 ## 已部署结构与版本
 
 - 中国香港 C 区 ECS `campus-loop-hk-20260909`，公网 IP `47.76.146.201`；Ubuntu 22.04，4 vCPU / 8 GiB / 40 GB ESSD；目录 `/opt/campus-loop`。
 - Docker Compose 项目 `campus-loop-test`：MySQL 8.4.11、Java 17 Spring Boot 后端、Caddy 托管管理端与 H5。
-- 当前应用提交 `defca54`，后端镜像 `campus-loop-backend:defca54`，前端镜像 `campus-loop-web:defca54`；源码与交接文档在 `feature/onboarding-exchange-community`，见 [PR #57](https://github.com/429res/campus-loop/pull/57)。香港迁移保留相同应用版本、V18 数据库及已有账号配置。
+- 当前应用提交 `5bb2d8c`，后端镜像 `campus-loop-backend:5bb2d8c`，前端镜像 `campus-loop-web:5bb2d8c`，数据库 V21；源码与交接文档在 `feature/community-account-upgrade`，见 [PR #60](https://github.com/429res/campus-loop/pull/60)。已有账号、上传和交换保留。
 - 首次成都部署无法直接拉取 Docker Hub，镜像在本机按 `linux/amd64` 构建/拉取后导入。此次香港实例通过完整磁盘克隆保留镜像；尚未单独验证香港实例的 Docker Hub 拉取能力，后续更新应准备可导入的镜像包。
 - 使用 `compose.prod.yaml` 和 `compose.aliyun.yaml` 两份配置；后者设置内存限额、日志轮转及 Cloudflare 专用 Caddy 配置。
 - 两个域名均通过 Cloudflare 代理；当前区域 SSL 模式为 Full，源站也已获得有效的 Let's Encrypt 证书，Caddy 管理续期。未修改其他域名的区域级 TLS 设置。
@@ -97,3 +97,16 @@ sudo systemctl list-timers campus-loop-backup.timer --no-pager
 - 新个人主页与物品分页读取通过，隐私字段未公开；公共目录仅 AVAILABLE / RESERVED 且含 ownerAvatarUrl；动态含 itemStatus，订单含 ruleVersion、物品标题和图片字段。
 - 线上入口 JS 哈希与发布构建一致。API 检查创建的登录会话已退出，没有修改真实用户的物品或交换。
 - 应用提交的管理端、H5、微信、后端、MySQL、Windows 六项 CI 全部成功；主分支合并仍等待成员审核。
+
+## 邮箱安全与发布升级上线（2026-09-09 18:40 CST）
+
+应用提交 `5bb2d8c`，功能分支 `feature/community-account-upgrade`，PR [#60](https://github.com/429res/campus-loop/pull/60)。功能、配置和测试细节见[账号、社区与发布升级](community-account-upgrade.md)。后续 `5052d76` 仅补充旧数据升级测试，对运行产物无影响。
+
+- 发布包 SHA-256：`1876686c000635a43b05ee05e4ad05a7b464877fc1b57539e60f0ba15153ca74`。服务器校验后构建两端镜像，保留上版镜像与私密配置用于回滚。
+- 发布前数据库与上传文件备份 `.local/backups/20260909T104021Z` 已有 `COMPLETE` 标记。V20/V21 成功，服务健康，自动备份定时器 active。
+- 注册模式切为 `EMAIL_VERIFIED`；线上验证码图片能正常生成，认证响应禁止缓存。已有账号登录和资格保留验证通过。
+- 线上 SMTP 向已授权测试邮箱成功发送验证码；部署后的千问 `qwen-plus` 发布助手对虚构描述返回草稿，未创建物品。此前本机 SMTP 验证码收件人已确认收到，三类只读审核助手均真实联调通过。
+- 邮件仅限验证码及账户安全用途。服务端队列与投递器均限制 `ACCOUNT_SECURITY`，V21 清理旧业务待发记录；线上核对非安全类型邮件队列为 0。安全邮件提醒由已绑定邮箱的用户主动开启，商品审核、交换、评论等保持站内通知。
+- 公网两端 HTTPS、数据库健康、管理员/普通用户登录与原有业务读取、公共头像读取通过；前端入口脚本及图标资源哈希与发布产物一致。测试 API 会话均退出，未修改真实物品或交换。
+- Chrome 线上查看页头头像、老账号绑定提示、个人资料和安全邮件设置正常。多图、弹层、主题、曝光配置及审核助手的操作验收使用本机隔离数据；不会把隔离验收数据导入线上。
+- Passkey 本次未实现；微信完成构建与产物检查，未做真机验证。主分支合并仍按成员审核要求执行。
