@@ -39,7 +39,8 @@ H5 和管理端开发代理避免不必要的跨域；微信直接配置 API URL
 | 有效占用 | A-03 | item_id 唯一、exchange_id、expires_at；所有流程统一锁定顺序 |
 | 履历事件与证据 | B-05.1自述/证据/查询及B-05.2参与者确认已实现，管理员核验见B-05.3 | item、eventType、statement、sourceLevel、sourceUser、relatedExchange、occurredAt、recordedAt、证据引用 |
 | 物品审核 | A-02 第四批 | cl_item.review_basis、cl_item_review_audit；提交/决定/下架快照、版本与操作人；无审计修改/删除接口 |
-| 举报/争议/履历审核 | 后续 A/B/C | report、reporter、target、reason、evidence、assignedAdmin、status、decision、version、时间与审计记录 |
+| 通用举报 | C-04 A 后端切片 | cl_report、cl_report_evidence、cl_report_audit；ITEM 目标、安全摘要、本人私有证据、SUBMITTED/IN_REVIEW/RESOLVED、版本与追加审计 |
+| 交换争议/履历审核 | B/C 分片推进 | B-04 DISPUTED 与管理员只读追溯已实现；争议裁决后果待 B；履历管理员单事件核验见 B-05.3 |
 | 收藏 | 当前 A-02 后端，D-02待接入 | cl_favorite，unique(user,item)、收藏时间、非级联用户/物品外键；只读本人列表、幂等添加/取消 |
 
 实际已建表以版本迁移 SQL 为准；概念模型不能视为接口已经可写。V7 新发布为 PENDING_REVIEW，旧公开记录保留 LEGACY_DIRECT；审核与两端兼容改动同批发布。
@@ -192,6 +193,14 @@ V14增加单事件状态守卫及唯一追加审计，读请求虚拟PENDING/ver
 ### C-04 管理争议读取
 
 ExchangeDisputeQueryService 在 REPEATABLE_READ 只读事务校验有效ADMIN并限定DISPUTED；复用ExchangeQueryService流向校验，投影全部2/3参与者，移除交接私人说明与动作。事件分页只读已有cl_exchange_event，无新增表/锁/写入口；证据与裁决仍待A受理基础和团队策略，详见[C-04读取边界](c04-exchange-domain-read.md)。
+
+### C-04 通用举报事务与隐私
+
+V15 增加通用举报、证据关联和审计，不修改既有交换表。创建按 `reporter user → ITEM` 加锁，在 READ COMMITTED 同一事务内重校验有效身份、幂等键、同目标待处理记录、公开目标状态和 0–5 个本人 PRIVATE_EVIDENCE，再一起写 report/evidence/SUBMIT audit。锁住 reporter 使同账号并发提交在查询幂等和待处理约束前串行；数据库唯一键兜底同键、证据和单动作审计。提交时保存目标标题、举报人显示名、证据大小与 SHA-256 快照，后续目标失效不抹除历史摘要。
+
+管理员写按 `admin user → report` 锁序串行，版本条件更新与 ACCEPT/DECIDE 审计在同一事务；不同管理员旧版本不能覆盖。同一管理员完全相同的原动作可依据审计摘要回读，不追加第二条。受理不独占决定权，任一有效 ADMIN 可决定 IN_REVIEW，accepted/decided 分别追溯。读取用 REPEATABLE_READ；列表省略全文理由和证据，详情按举报人本人或 ADMIN 授权，内容端点重新核对本人上传关系、文件大小和提交摘要。
+
+本状态机只形成 UPHELD/DISMISSED 治理结论，不改 item owner/status、exchange、demand、hold 或 history。EXCHANGE 目标不进入通用举报；B 尚未提供管理员争议裁决后果事务，因此本模块没有调用或替代该服务。字段、错误、C/D 消费和 MySQL 证据见 [通用举报说明](c04-generic-reports.md)。
 
 ### B-06 单项分类建边优化
 

@@ -5,9 +5,10 @@ import { randomBytes } from 'node:crypto'
 import { root } from './env.mjs'
 import { resolve } from 'node:path'
 const upgradeOnly = process.argv.includes('--item-review-upgrade')
+const reportsOnly = process.argv.includes('--reports')
 const rateLimitOnly = process.argv.includes('--rate-limit')
-if (upgradeOnly && rateLimitOnly) throw new Error('Test options are mutually exclusive')
-if (process.argv.slice(2).some(arg => !['--item-review-upgrade','--rate-limit'].includes(arg))) throw new Error('Unknown test option')
+if ([upgradeOnly,reportsOnly,rateLimitOnly].filter(Boolean).length > 1) throw new Error('Test options are mutually exclusive')
+if (process.argv.slice(2).some(arg => !['--item-review-upgrade','--reports','--rate-limit'].includes(arg))) throw new Error('Unknown test option')
 const container = `campus-loop-test-${randomBytes(4).toString('hex')}`
 const port = process.env.CAMPUS_TEST_PORT || '3319'
 if (!/^\d+$/.test(port)) throw new Error('Invalid test port')
@@ -34,6 +35,8 @@ try {
   env.TEST_DB_USERNAME=env.MYSQL_USER;env.TEST_DB_PASSWORD=env.MYSQL_PASSWORD
   const selection = upgradeOnly
     ? ['-Dtest=ItemReviewMigrationCheck','-Dsurefire.failIfNoSpecifiedTests=false']
+    : reportsOnly
+      ? ['-Dtest=ReportIntegrationTest','-Dsurefire.failIfNoSpecifiedTests=false']
     : rateLimitOnly
       ? ['-Dtest=RateLimitCoreTest,RateLimitHttpIntegrationTest','-Dsurefire.failIfNoSpecifiedTests=false']
       : []
