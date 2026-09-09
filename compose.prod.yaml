@@ -1,0 +1,99 @@
+name: campus-loop-prod
+x-backend: &backend
+  image: campus-loop-backend:${CAMPUS_IMAGE_TAG:-local}
+  build:
+    context: .
+    dockerfile: deploy/Dockerfile.backend
+  environment: &backend-env
+    DB_HOST: mysql
+    DB_PORT: 3306
+    DB_NAME: ${DB_NAME:-campus_loop_prod}
+    DB_USERNAME: ${DB_USERNAME:-campus_loop}
+    DB_PASSWORD: ${DB_PASSWORD:?Run setup first}
+    JWT_SECRET: ${JWT_SECRET:?Run setup first}
+    SERVER_PORT: 8088
+    SERVER_FORWARD_HEADERS_STRATEGY: framework
+    UPLOAD_DIR: /data/uploads
+    CAMPUS_BOOTSTRAP_ENABLED: "false"
+    CAMPUS_DEMO_ENABLED: "false"
+    CAMPUS_REGISTRATION_MODE: ${CAMPUS_REGISTRATION_MODE:-CLOSED}
+    # Only the reverse proxy on this dedicated network may supply client IPs.
+    CAMPUS_RATE_LIMIT_TRUSTED_PROXIES: ${CAMPUS_PROXY_IP:-172.30.88.10}
+  volumes:
+    - uploads:/data
+  depends_on:
+    mysql:
+      condition: service_healthy
+  networks: [campus]
+
+services:
+  mysql:
+    image: mysql:8.4.11
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_NAME:-campus_loop_prod}
+      MYSQL_USER: ${DB_USERNAME:-campus_loop}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Run setup first}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run setup first}
+    volumes:
+      - mysql:/var/lib/mysql
+    healthcheck:
+      test: [CMD-SHELL, 'MYSQL_PWD=$$MYSQL_ROOT_PASSWORD mysqladmin ping -h localhost -u root --silent']
+      interval: 5s
+      timeout: 5s
+      retries: 40
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_0900_ai_ci]
+    networks: [campus]
+  init:
+    <<: *backend
+    profiles: [setup]
+    restart: "no"
+    healthcheck:
+      disable: true
+    environment:
+      <<: *backend-env
+      CAMPUS_BOOTSTRAP_ENABLED: "true"
+      CAMPUS_BOOTSTRAP_ONLY: "true"
+      CAMPUS_EXCHANGE_EXPIRY_ENABLED: "false"
+      SPRING_MAIN_WEB_APPLICATION_TYPE: none
+      CAMPUS_ADMIN_USERNAME: ${CAMPUS_ADMIN_USERNAME:?Run setup first}
+      CAMPUS_ADMIN_PASSWORD: ${CAMPUS_ADMIN_PASSWORD:?Run setup first}
+      CAMPUS_USER_USERNAME: ${CAMPUS_USER_USERNAME:?Run setup first}
+      CAMPUS_USER_PASSWORD: ${CAMPUS_USER_PASSWORD:?Run setup first}
+  backend:
+    <<: *backend
+    restart: unless-stopped
+  web:
+    image: campus-loop-web:${CAMPUS_IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    environment:
+      ADMIN_SITE: ${ADMIN_SITE:-http://localhost:8080}
+      USER_SITE: ${USER_SITE:-http://localhost:8081}
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443"
+      - "127.0.0.1:${ADMIN_HTTP_PORT:-8080}:8080"
+      - "127.0.0.1:${USER_HTTP_PORT:-8081}:8081"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      campus:
+        ipv4_address: ${CAMPUS_PROXY_IP:-172.30.88.10}
+
+volumes:
+  mysql:
+  uploads:
+  caddy_data:
+  caddy_config:
+networks:
+  campus:
+    ipam:
+      config:
+        - subnet: ${CAMPUS_SUBNET:-172.30.88.0/24}

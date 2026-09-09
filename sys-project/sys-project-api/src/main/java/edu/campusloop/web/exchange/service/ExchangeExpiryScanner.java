@@ -21,7 +21,9 @@ public class ExchangeExpiryScanner {
         this.queue=queue;this.lifecycle=lifecycle;this.clock=clock;this.transactions=transactions;this.batchSize=batchSize;
     }
     public BatchResult scanBatch() {
-        var ids=queue.due(clock.now(),batchSize);
+        // Skip busy rows before LIMIT so the oldest locked batch cannot starve later due exchanges.
+        // Release these short-lived candidate locks before entering any lifecycle transaction.
+        var ids=transactions.execute("到期候选读取",()->queue.due(clock.now(),batchSize));
         int expired=0,skipped=0,deferred=0,retryWriteFailures=0;
         for(long id:ids) {
             try {

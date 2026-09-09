@@ -14,23 +14,23 @@ const emit = defineEmits(["open-records"]);
 const metrics = computed(() => [
   {
     key: "items", label: "物品记录", icon: Box, color: "pink", source: "stats",
-    note: "cl_item 全状态记录（含历史与下架）",
+    note: "全部物品，包含已下架与历史记录",
   },
   {
     key: "users", label: "账号记录", icon: User, color: "blue", source: "stats",
-    note: "cl_user 全部角色与启停状态",
+    note: "全部账号，包含已停用账号",
   },
   {
-    key: "availableItems", label: "AVAILABLE 物品", icon: RefreshRight, color: "green", source: "stats",
+    key: "availableItems", label: "可交换物品", icon: RefreshRight, color: "green", source: "stats",
     note: "仅按物品状态统计，不等同匹配候选",
   },
   {
     key: "pendingReview", label: "待审核物品", icon: DocumentChecked, color: "orange", source: "pending",
-    note: "服务端 PENDING_REVIEW 完整筛选 total",
+    note: "等待审核后上架的物品",
     route: "/items?status=PENDING_REVIEW",
   },
   {
-    key: "recommendations", label: "即时推荐方案（legacy-v1）", icon: Connection, color: "blue", source: "stats",
+    key: "recommendations", label: "交换推荐", icon: Connection, color: "blue", source: "stats",
     note: "当前 2/3 人候选环；不是正式或完成交换",
   },
 ]);
@@ -56,8 +56,8 @@ function note(metric, shown) {
   <section class="business-stats" aria-labelledby="business-stats-title">
     <div class="section-heading stats-heading">
       <div>
-        <h2 id="business-stats-title">业务统计 · 当前读数</h2>
-        <p>无日期筛选；各接口独立读取，不代表同一时点强一致快照。</p>
+        <h2 id="business-stats-title">校园循环概况</h2>
+        <p>当前全量数据；各指标独立更新。</p>
       </div>
       <el-tag type="info" round>无趋势数据</el-tag>
     </div>
@@ -99,4 +99,5 @@ function note(metric, shown) {
 @media (max-width: 1180px) { .stats-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 760px) { .stats-grid { grid-template-columns: 1fr 1fr; } }
 @media (max-width: 480px) { .stats-grid { grid-template-columns: 1fr; } .stats-heading { align-items: flex-start; } }
+.stat-top { gap:12px; align-items:flex-start; }.stat-top .el-icon { flex:none; }.stat-card small { font-size:12px; min-height:38px; }.stats-heading p {font-size:13px}.stat-card .el-button {margin:8px 0 0; padding:0; min-height:32px;}
 </style>

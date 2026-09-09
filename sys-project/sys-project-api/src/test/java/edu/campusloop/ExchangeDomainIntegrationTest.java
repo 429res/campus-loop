@@ -133,8 +133,10 @@ class ExchangeDomainIntegrationTest {
         for(String suffix:List.of("?userId="+a.id(),"?ownerId="+a.id(),"?page=1&page=2","?status=READY&status=COMPLETED"))
             call("GET","/api/exchanges/mine"+suffix,outsider.token(),null,400);
         call("GET","/api/exchanges/"+id+"?ownerId="+a.id(),outsider.token(),null,400);
-        call("GET","/api/admin/exchanges",a.token(),null,404);
-        call("GET","/api/admin/exchanges",admin.token(),null,404);
+        call("GET","/api/admin/exchanges",a.token(),null,403);
+        var adminRows=call("GET","/api/admin/exchanges",admin.token(),null,200).path("records");
+        assertEquals(1,adminRows.size());assertEquals(id,adminRows.get(0).path("id").asLong());
+        assertEquals(0,adminRows.get(0).path("allowedActions").size());
         assertEquals(before,businessRows());
     }
     @Test void paginationFiltersAndStableIdOrderCountOnlyMembership() throws Exception {
@@ -724,9 +726,36 @@ class ExchangeDomainIntegrationTest {
                 try{return expiryScanner.scanBatch();}finally{SqlProbe.before.remove();}
             });
             await(locked);
-            var second=expiryScanner.scanBatch();assertEquals(1,second.skipped());assertEquals(0,second.expired());
+            var second=expiryScanner.scanBatch();assertEquals(0,second.selected());assertEquals(0,second.expired());
             release.countDown();assertEquals(1,first.get(10,java.util.concurrent.TimeUnit.SECONDS).expired());
             assertEquals(1,eventCount(id));assertEquals(0,expiryScanner.scanBatch().selected());
+        } finally {release.countDown();pool.shutdownNow();}
+    }
+
+    @Test void mysqlExpiryBatchSkipsOldestBusyExchangeAndProcessesTheNextDueRow() throws Exception {
+        mysqlOnly();
+        long busy=creation.create(a.id(),ring(2,"expiry-busy-first"));
+        long available=creation.create(a.id(),ring(2,"expiry-available-next"));
+        var now=exchangeClock.now();
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",now.minusSeconds(2),busy);
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",now.minusSeconds(1),available);
+        var single=new ExchangeExpiryScanner(expiryQueue,lifecycle,exchangeClock,exchangeTransactions,1);
+        var pool=java.util.concurrent.Executors.newSingleThreadExecutor();
+        var locked=new java.util.concurrent.CountDownLatch(1);var release=new java.util.concurrent.CountDownLatch(1);
+        var tx=new org.springframework.transaction.support.TransactionTemplate(transactions);
+        try {
+            var blocker=pool.submit(()->tx.executeWithoutResult(status -> {
+                jdbc.queryForList("SELECT id FROM cl_exchange WHERE id=? FOR UPDATE",busy);
+                locked.countDown();await(release);
+            }));
+            await(locked);
+            var first=single.scanBatch();
+            assertEquals(1,first.selected());assertEquals(1,first.expired());
+            assertEquals("EXPIRED",state(available));assertEquals("AWAITING_CONFIRMATION",state(busy));
+            assertEquals(1,eventCount(available));assertEquals(0,eventCount(busy));
+            release.countDown();blocker.get(10,java.util.concurrent.TimeUnit.SECONDS);
+            assertEquals(1,single.scanBatch().expired());assertEquals(1,eventCount(busy));
+            assertEquals(0,single.scanBatch().selected());
         } finally {release.countDown();pool.shutdownNow();}
     }
 

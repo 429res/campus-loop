@@ -1,6 +1,7 @@
 <script setup>
+import LoopInput from '../../components/LoopInput.vue'
 import { computed, reactive, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onUnload } from '@dcloudio/uni-app'
 import LoopButton from '../../components/LoopButton.vue'
 import LoopLayout from '../../components/LoopLayout.vue'
 import LoopPicker from '../../components/LoopPicker.vue'
@@ -19,6 +20,18 @@ const selectedItemIds = ref([]), linkedItems = ref([])
 const itemCache = ref({})
 const form = reactive({ id:null, version:null, categoryIndex:-1, description:'', tags:'' })
 let demandRequest = 0, offerableRequest = 0, categoryRequest = 0, authRedirecting = false
+let loadedToken = uni.getStorageSync(TOKEN_KEY), sessionEpoch = 0
+function sessionGuard() {
+  const token = uni.getStorageSync(TOKEN_KEY), epoch = sessionEpoch
+  return error => epoch === sessionEpoch && (token === uni.getStorageSync(TOKEN_KEY) || (error?.status === 401 && !uni.getStorageSync(TOKEN_KEY)))
+}
+function clearAccount() {
+  sessionEpoch++; demandRequest++; offerableRequest++
+  demands.value = []; total.value = 0; offerable.value = []; offerableTotal.value = 0; itemCache.value = {}
+  page.value = 1; offerablePage.value = 1; listError.value = ''; offerableError.value = ''
+  editorOpen.value = false; editorBusy.value = false; actionBusy.value = null
+  loading.value = false; offerableLoading.value = false; resetEditor()
+}
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / PAGE_SIZE)))
 const offerablePages = computed(() => Math.max(1, Math.ceil(offerableTotal.value / PAGE_SIZE)))
@@ -54,32 +67,36 @@ async function loadCategories() {
 
 async function loadDemands(nextPage = page.value) {
   if (!uni.getStorageSync(TOKEN_KEY)) return
+  const active = sessionGuard()
   const request = ++demandRequest
   loading.value = true; listError.value = ''
   try {
     const data = await http.get('/api/demands',{page:nextPage,size:PAGE_SIZE,...(statusQuery.value ? {status:statusQuery.value} : {})},{silent:true})
-    if (request !== demandRequest) return
+    if (request !== demandRequest || !active()) return
     demands.value = data.records; total.value = data.total; page.value = data.page
     if (!data.records.length && nextPage > 1) return loadDemands(nextPage - 1)
-  } catch (error) { if (request === demandRequest && !handleAuth(error)) listError.value = error.message }
+  } catch (error) { if (request === demandRequest && active(error) && !handleAuth(error)) listError.value = error.message }
   finally { if (request === demandRequest) loading.value = false }
 }
 
 async function loadOfferable(nextPage = offerablePage.value) {
   if (!uni.getStorageSync(TOKEN_KEY)) return
+  const active = sessionGuard()
   const request = ++offerableRequest
   offerableLoading.value = true; offerableError.value = ''
   try {
     const data = await http.get('/api/demands/offerable-items',{page:nextPage,size:PAGE_SIZE},{silent:true})
-    if (request !== offerableRequest) return
+    if (request !== offerableRequest || !active()) return
     offerable.value = data.records; offerableTotal.value = data.total; offerablePage.value = data.page
     itemCache.value = {...itemCache.value,...Object.fromEntries(data.records.map(item => [item.itemId,item]))}
-  } catch (error) { if (request === offerableRequest && !handleAuth(error)) offerableError.value = error.message }
+  } catch (error) { if (request === offerableRequest && active(error) && !handleAuth(error)) offerableError.value = error.message }
   finally { if (request === offerableRequest) offerableLoading.value = false }
 }
 
 async function init() {
   authRedirecting = false
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (token !== loadedToken) { clearAccount(); loadedToken = token }
   authenticated.value = !!uni.getStorageSync(TOKEN_KEY)
   if (!authenticated.value) { editorOpen.value = false; return }
   await Promise.all([loadCategories(),loadDemands(1),loadOfferable(1)])
@@ -104,10 +121,11 @@ function applyDemand(demand) {
 
 async function openEdit(demand) {
   if (editorBusy.value || actionBusy.value) return
+  const active = sessionGuard()
   editorBusy.value = true; formError.value = ''
-  try { applyDemand(await http.get(`/api/demands/${demand.id}`,{}, {silent:true})); editorOpen.value = true; await loadOfferable(1) }
-  catch (error) { if (!handleAuth(error)) { formError.value = error.message; await loadDemands() } }
-  finally { editorBusy.value = false }
+  try { const loaded = await http.get(`/api/demands/${demand.id}`,{}, {silent:true}); if (!active()) return; applyDemand(loaded); editorOpen.value = true; await loadOfferable(1) }
+  catch (error) { if (active(error) && !handleAuth(error)) { formError.value = error.message; await loadDemands() } }
+  finally { if (active()) editorBusy.value = false }
 }
 
 function closeEditor() { if (editorBusy.value) return; editorOpen.value = false; resetEditor() }
@@ -139,6 +157,7 @@ async function saveDemand() {
   if (form.description.length > 2000) { formError.value = '需求说明不能超过 2000 个字符'; return }
   let preferredTags
   try { preferredTags = parseTags() } catch (error) { formError.value = error.message; return }
+  const active = sessionGuard()
   const editing = !!form.id
   const payload = {categoryId:selectedCategory.value.id,description:form.description,preferredTags}
   if (!editing || selectionTouched.value) payload.offeredItemIds = [...selectedItemIds.value].sort((a,b) => a-b)
@@ -148,17 +167,19 @@ async function saveDemand() {
     const saved = editing
       ? await http.patch(`/api/demands/${form.id}`,payload,{silent:true,uncertainOnFailure:true})
       : await http.post('/api/demands',payload,{silent:true,uncertainOnFailure:true})
+    if (!active()) return
     applyDemand(saved); editorOpen.value = false
     await Promise.all([loadDemands(1),loadOfferable(1)])
+    if (!active()) return
     uni.showToast({title:editing ? '需求已保存' : '需求已创建',icon:'success'})
   } catch (error) {
-    if (handleAuth(error)) return
+    if (!active(error) || handleAuth(error)) return
     if (error.uncertain) {
       writeUncertain.value = true
       formError.value = '未收到服务器响应，结果无法确认。请先重新读取列表核对，不要直接重复提交。'
     } else if (error.status === 409 && form.id) {
       formError.value = '需求已被另一会话更新。当前输入已保留，请读取服务器版本后核对。'
-      try { conflictServer.value = await http.get(`/api/demands/${form.id}`,{}, {silent:true}) } catch (readError) { if (!handleAuth(readError)) formError.value += ` 读取失败：${readError.message}` }
+      try { const latest = await http.get(`/api/demands/${form.id}`,{}, {silent:true}); if (!active()) return; conflictServer.value = latest } catch (readError) { if (!active(readError)) return; if (!handleAuth(readError)) formError.value += ` 读取失败：${readError.message}` }
       await loadOfferable(1)
     } else if (error.status === 404) {
       formError.value = '需求已不存在或删除，列表已刷新。'; await loadDemands()
@@ -166,52 +187,56 @@ async function saveDemand() {
       formError.value = error.message
       if (error.status === 400) await loadCategories()
     }
-  } finally { editorBusy.value = false }
+  } finally { if (active()) editorBusy.value = false }
 }
 
 function useServerVersion() { if (conflictServer.value) applyDemand(conflictServer.value) }
 
 async function recoverUncertain() {
+  const active = sessionGuard()
   editorBusy.value = true
-  try { await Promise.all([loadDemands(1),loadOfferable(1)]); editorOpen.value = false; resetEditor() }
-  finally { editorBusy.value = false }
+  try { await Promise.all([loadDemands(1),loadOfferable(1)]); if (!active()) return; editorOpen.value = false; resetEditor() }
+  finally { if (active()) editorBusy.value = false }
 }
 
 async function changeStatus(demand) {
   if (actionBusy.value) return
+  const active = sessionGuard()
   const next = demand.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'
   const confirmation = await showAppModal({title:next === 'INACTIVE' ? '停用需求' : '恢复需求',content:next === 'INACTIVE' ? '停用后仍可查看和编辑，不等同于删除。' : '恢复时服务端会重新核实全部关联物品。'})
-  if (!confirmation.confirm) return
+  if (!confirmation.confirm || !active() || actionBusy.value) return
   actionBusy.value = demand.id; listError.value = ''
   try {
     await http.patch(`/api/demands/${demand.id}/status`,{version:demand.version,status:next},{silent:true,uncertainOnFailure:true})
     await Promise.all([loadDemands(),loadOfferable(1)])
   } catch (error) {
-    if (handleAuth(error)) return
+    if (!active(error) || handleAuth(error)) return
     const message = error.uncertain ? '状态请求结果无法确认，已停止重复提交。请刷新列表核对。' : error.status === 409 ? '需求或关联物品状态已变化，请刷新后核对。' : error.message
     await Promise.all([loadDemands(),loadOfferable(1)])
-    listError.value = message
-  } finally { actionBusy.value = null }
+    if (active()) listError.value = message
+  } finally { if (active()) actionBusy.value = null }
 }
 
 async function deleteDemand(demand) {
   if (actionBusy.value) return
-  const confirmation = await showAppModal({title:'删除需求',content:'删除会保留历史墓碑但不可从 API 恢复；停用才是可恢复操作。确认删除？',danger:true,confirmText:'删除'})
-  if (!confirmation.confirm) return
+  const active = sessionGuard()
+  const confirmation = await showAppModal({title:'删除需求',content:'删除后无法恢复。如果只是暂时不需要，可以选择停用。确认删除？',danger:true,confirmText:'删除'})
+  if (!confirmation.confirm || !active() || actionBusy.value) return
   actionBusy.value = demand.id; listError.value = ''
   try {
     await http.delete(`/api/demands/${demand.id}?version=${demand.version}`,{}, {silent:true,uncertainOnFailure:true})
     await Promise.all([loadDemands(),loadOfferable(1)])
   } catch (error) {
-    if (handleAuth(error)) return
+    if (!active(error) || handleAuth(error)) return
     const message = error.uncertain ? '删除结果无法确认，请刷新列表核对，不要重复删除。' : error.status === 409 ? '需求已由另一会话更新，请刷新后再决定。' : error.message
     await Promise.all([loadDemands(),loadOfferable(1)])
-    listError.value = message
-  } finally { actionBusy.value = null }
+    if (active()) listError.value = message
+  } finally { if (active()) actionBusy.value = null }
 }
 
 function changeFilter(value) { filter.value = Number(value); loadDemands(1) }
 onShow(init)
+onUnload(() => { clearAccount(); categoryRequest++ })
 </script>
 
 <template>
@@ -229,7 +254,7 @@ onShow(init)
     </template>
 
     <view v-if="editorOpen" class="editor-grid">
-      <form class="cl-panel cl-form" @submit="saveDemand"><view class="editor-head"><view><text class="cl-section-title">{{ form.id ? '编辑需求' : '新建需求' }}</text><text v-if="form.id" class="cl-hint">正在编辑服务器版本 {{ form.version }}</text></view><LoopButton class="cl-btn" :disabled="editorBusy" @click="closeEditor">关闭</LoopButton></view><view class="cl-field"><text class="cl-field-title">想要的分类</text><LoopPicker aria-label="想要的分类" :range="categories" range-key="name" :value="form.categoryIndex" :disabled="editorBusy || writeUncertain || !!conflictServer || !categories.length" @change="form.categoryIndex=Number($event.detail.value)"><view class="cl-picker">{{ selectedCategory?.name || '请选择分类' }}⌄</view></LoopPicker><view v-if="categoriesError" class="inline-state"><text class="cl-error">分类读取失败：{{ categoriesError }}</text><LoopButton class="cl-btn" @click="loadCategories">重试</LoopButton></view></view><view class="cl-field"><text class="cl-field-title">需求说明</text><textarea v-model="form.description" class="cl-textarea" aria-label="需求说明" maxlength="2000" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="可留空；说明使用场景、可接受范围等"/><text class="cl-hint">{{ form.description.length }} / 2000</text></view><view class="cl-field"><text class="cl-field-title">偏好标签</text><input v-model="form.tags" class="cl-input" aria-label="偏好标签" maxlength="200" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="逗号分隔，最多 8 个，每项 20 字" /></view><text v-if="formError" class="cl-error" role="alert">{{ formError }}</text><view v-if="conflictServer" class="conflict-box"><text class="cl-field-title">服务器当前版本 {{ conflictServer.version }}</text><text class="cl-hint">{{ conflictServer.categoryName }} · {{ conflictServer.description || '无说明' }} · {{ conflictServer.preferredTags.join('、') || '无标签' }}</text><LoopButton class="cl-btn" @click="useServerVersion">使用服务器内容重新编辑</LoopButton></view><view v-if="writeUncertain" class="cl-notice"><text>当前输入仍保留，但不能直接重放。重新读取列表后请核对是否已有对应变化。</text><LoopButton class="cl-btn" :disabled="editorBusy" @click="recoverUncertain">重新读取并结束本次提交</LoopButton></view><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="editorBusy || writeUncertain || !!conflictServer || !!categoriesError">{{ editorBusy ? '保存中…' : form.id ? '保存修改' : '创建需求' }}</LoopButton></form>
+      <form class="cl-panel cl-form" @submit="saveDemand"><view class="editor-head"><view><text class="cl-section-title">{{ form.id ? '编辑需求' : '新建需求' }}</text><text v-if="form.id" class="cl-hint">正在编辑服务器版本 {{ form.version }}</text></view><LoopButton class="cl-btn" :disabled="editorBusy" @click="closeEditor">关闭</LoopButton></view><view class="cl-field"><text class="cl-field-title">想要的分类</text><LoopPicker aria-label="想要的分类" :range="categories" range-key="name" :value="form.categoryIndex" :disabled="editorBusy || writeUncertain || !!conflictServer || !categories.length" @change="form.categoryIndex=Number($event.detail.value)"><view class="cl-picker">{{ selectedCategory?.name || '请选择分类' }}⌄</view></LoopPicker><view v-if="categoriesError" class="inline-state"><text class="cl-error">分类读取失败：{{ categoriesError }}</text><LoopButton class="cl-btn" @click="loadCategories">重试</LoopButton></view></view><view class="cl-field"><text class="cl-field-title">需求说明</text><LoopInput multiline v-model="form.description" class="cl-textarea" aria-label="需求说明" maxlength="2000" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="可留空；说明使用场景、可接受范围等"/><text class="cl-hint">{{ form.description.length }} / 2000</text></view><view class="cl-field"><text class="cl-field-title">偏好标签</text><LoopInput v-model="form.tags" class="cl-input" aria-label="偏好标签" maxlength="200" :disabled="editorBusy || writeUncertain || !!conflictServer" placeholder="逗号分隔，最多 8 个，每项 20 字" /></view><text v-if="formError" class="cl-error" role="alert">{{ formError }}</text><view v-if="conflictServer" class="conflict-box"><text class="cl-field-title">服务器当前版本 {{ conflictServer.version }}</text><text class="cl-hint">{{ conflictServer.categoryName }} · {{ conflictServer.description || '无说明' }} · {{ conflictServer.preferredTags.join('、') || '无标签' }}</text><LoopButton class="cl-btn" @click="useServerVersion">使用服务器内容重新编辑</LoopButton></view><view v-if="writeUncertain" class="cl-notice"><text>当前输入仍保留，但不能直接重放。重新读取列表后请核对是否已有对应变化。</text><LoopButton class="cl-btn" :disabled="editorBusy" @click="recoverUncertain">重新读取并结束本次提交</LoopButton></view><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="editorBusy || writeUncertain || !!conflictServer || !!categoriesError">{{ editorBusy ? '保存中…' : form.id ? '保存修改' : '创建需求' }}</LoopButton></form>
       <view class="cl-panel offer-panel"><view class="editor-head"><view><text class="cl-section-title">我有什么</text><text class="cl-hint">只显示服务端确认属于本人、AVAILABLE 且未占用的物品。</text></view><text class="cl-tag">已选 {{ selectedItemIds.length }} / 100</text></view><view v-if="selectedDetails.length" class="selected-list"><view v-for="item in selectedDetails" :key="item.itemId" class="selected-item"><text>{{ item.title || `物品 #${item.itemId}` }}</text><text v-if="item.offerable===false" class="cl-error">关联已失效</text><LoopButton class="cl-icon-btn" aria-label="移除关联物品" :disabled="editorBusy || writeUncertain || !!conflictServer" @click="removeSelected(item.itemId)">×</LoopButton></view></view><view v-if="offerableLoading" class="cl-empty compact"><text class="cl-label">正在读取本人可提供物品…</text></view><view v-else-if="offerableError" class="inline-state" role="alert"><text class="cl-error">{{ offerableError }}</text><LoopButton class="cl-btn" @click="loadOfferable()">重试</LoopButton></view><view v-else-if="!offerable.length" class="cl-empty compact"><text>当前没有可提供物品</text><text class="cl-hint">需求仍可保存和管理；发布 AVAILABLE 物品后再关联，当前暂不能组成交换环。</text><LoopButton class="cl-btn" @click="publish">发布物品</LoopButton></view><view v-else class="offerable-list"><LoopButton v-for="item in offerable" :key="item.itemId" class="offerable-item" :class="{selected:selectedItemIds.includes(item.itemId)}" :aria-pressed="selectedItemIds.includes(item.itemId)" :disabled="editorBusy || writeUncertain || !!conflictServer" @click="toggleItem(item)"><view><text class="cl-field-title">{{ item.title }}</text><text class="cl-hint">成色 {{ item.conditionLevel }} / 5 · AVAILABLE</text></view><text>{{ selectedItemIds.includes(item.itemId) ? '已关联 ✓' : '选择' }}</text></LoopButton></view><view v-if="offerablePages>1" class="pagination"><LoopButton class="cl-btn" :disabled="offerableLoading || offerablePage<=1" @click="loadOfferable(offerablePage-1)">上一页</LoopButton><text class="cl-label">{{ offerablePage }} / {{ offerablePages }}</text><LoopButton class="cl-btn" :disabled="offerableLoading || offerablePage>=offerablePages" @click="loadOfferable(offerablePage+1)">下一页</LoopButton></view></view>
     </view>
   </LoopLayout>

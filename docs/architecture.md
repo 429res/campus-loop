@@ -117,6 +117,8 @@ B-01实际模型已随PR #4合入，V4是需求结构来源。B-02不新增迁�
 
 状态：`AWAITING_CONFIRMATION → READY → COMPLETED`；AWAITING_CONFIRMATION/READY 未交接时可到 `CANCELLED/EXPIRED`；交接阶段异常到 `DISPUTED`（登记停止已实现，裁决到其他状态未实现）。创建、确认/取消、交接与参与者争议登记已接通共用持久事务，自动超时扫描由A-04接通；管理员裁决仍未实现。B-03提供的命令、领域验证、查询被共用，没有第二套创建或状态机。
 
+创建还必须确保每条所选需求没有AWAITING_CONFIRMATION/READY/DISPUTED引用，在已有用户及需求锁内只读检查，不反向锁exchange；不同物品不能绕过需求的单一进行中引用，幂等重放仍优先。物品至少留两次version递增余量（占用与退出），需求至少留一次（完成关闭），否则409整笔拒绝，避免创建一个无法释放或完成的交换。
+
 ## 履历可信度
 
 `SELF_REPORTED`：发布者自述，记录作者与声明时间；`BOTH_CONFIRMED`：关联交换及各参与者独立确认时间；`ADMIN_VERIFIED`：记录核验管理员、证据、范围及时间。用户只能提交声明，不能自行设置可信度；后续审核产生新事件，不覆盖原始声明。维修时间与录入时间分别存储，时间未知允许注明未知，不伪造历史。
@@ -144,7 +146,7 @@ READY未交接且原24h截止前，任一参与者可取消；全员独立确认
 
 ## A-04 扫描与恢复
 
-ExchangeExpiryScanner按数据库UTC读取有界候选批次，复用ExchangeLifecycleService和ExchangeLifecycleRules决定到期与条件释放；没有第二套超时状态机。exchange首锁SKIP LOCKED只跳过忙行，后续用户/需求/物品顺序不变。失败整笔回滚后以条件SQL保存expiry_retry_at/count/failure_code，30秒起指数退避、上限1小时；正常候选继续处理。业务终态不被迟到重试覆盖，成功转换清除退避标记。
+ExchangeExpiryScanner在独立短事务中按数据库UTC以FOR UPDATE SKIP LOCKED读取有界候选批次，避免最早的忙行持续占满批次；提交释放候选锁后，逐条复用ExchangeLifecycleService和ExchangeLifecycleRules决定到期与条件释放。正式处理仍以exchange首锁SKIP LOCKED跳过新竞争，后续用户/需求/物品顺序不变。失败整笔回滚后以条件SQL保存expiry_retry_at/count/failure_code，30秒起指数退避、上限1小时；正常候选继续处理。业务终态不被迟到重试覆盖，成功转换清除退避标记。
 
 持久待办来源是原expires_at、活动状态与重试时间，调度器只负责唤醒；任意实例重启自动重新发现，重复处理不释放新交换占用。交接事实非空、终态或缺少V8依据的旧记录排除自动扫描。V10只增加运维字段/索引，不改已有状态与截止。配置、B/C/D语义和真实恢复证据见[A-04](a04-exchange-expiry.md)。
 

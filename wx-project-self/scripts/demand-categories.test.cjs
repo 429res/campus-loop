@@ -5,7 +5,7 @@ const path = require('node:path')
 const { ref, reactive, computed } = require('vue')
 const source = fs.readFileSync(path.join(__dirname, '../src/pages/demands/demands.vue'), 'utf8')
 const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
-const setup = new Function('ref', 'reactive', 'computed', 'onShow', 'http', 'uni', 'TOKEN_KEY', 'showAppModal', `${script}
+const setup = new Function('ref', 'reactive', 'computed', 'onShow', 'onUnload', 'http', 'uni', 'TOKEN_KEY', 'showAppModal', `${script}
 return { loadCategories, applyDemand, saveDemand, categories, categoriesError, selectedCategory, form, formError };`)
 const available = [{id:1,name:'Books'},{id:2,name:'Tools'}]
 const demand = {id:11,version:3,categoryId:1,description:'Keep my description',preferredTags:[],offeredItems:[]}
@@ -16,7 +16,7 @@ function harness() {
     patch: (url,body) => new Promise((resolve,reject) => writes.push({url,body,resolve,reject})),
     post: (url,body) => new Promise((resolve,reject) => writes.push({url,body,resolve,reject})),
   }
-  const app = setup(ref, reactive, computed, () => {}, http, {getStorageSync:()=>'ui-fixture'}, 'token', () => {})
+  const app = setup(ref, reactive, computed, () => {}, () => {}, http, {getStorageSync:()=>'ui-fixture'}, 'token', () => {})
   app.categories.value = available
   app.applyDemand(demand)
   return {app,reads,writes}

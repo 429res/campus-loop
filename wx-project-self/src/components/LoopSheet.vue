@@ -1,7 +1,9 @@
 <script setup>
+import LoopIcon from './LoopIcon.vue'
 import LoopButton from './LoopButton.vue'
 import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useOverlayLock } from '../composables/useOverlayLock'
+import { isAppModalOpen } from '../common/modal'
 const props = defineProps({modelValue:Boolean,title:{type:String,default:'详情'}})
 const emit = defineEmits(['update:modelValue'])
 const panel = ref(null)
@@ -11,7 +13,7 @@ useOverlayLock(() => props.modelValue)
 let previousFocus = null
 let focusTimer = null
 const keydown = event => {
-  if (!props.modelValue) return
+  if (!props.modelValue || isAppModalOpen()) return
   if (event.key === 'Escape') { event.preventDefault();close();return }
   if (event.key !== 'Tab') return
   const element = panel.value?.$el || panel.value
@@ -34,7 +36,7 @@ watch(() => props.modelValue, async open => {
     await nextTick()
     const element = panel.value?.$el || panel.value
     focusTimer = setTimeout(() => {
-      if(!props.modelValue) return
+      if(!props.modelValue || isAppModalOpen()) return
       ;(element?.querySelector('input:not([disabled]),textarea:not([disabled]),select:not([disabled])') || element)?.focus?.()
     }, 0)
   } else {
@@ -46,7 +48,8 @@ watch(() => props.modelValue, async open => {
 onBeforeUnmount(() => { clearTimeout(focusTimer);document.removeEventListener('keydown',keydown) })
 // #endif
 </script>
-<template><view class="sheet-root" :class="{open:modelValue}" :aria-hidden="!modelValue" :inert="!modelValue"><view class="sheet-mask" @click="close"/><view ref="panel" class="sheet-panel cl-glass" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1"><view class="sheet-header"><text class="cl-section-title">{{ title }}</text><LoopButton class="cl-icon-btn" aria-label="关闭抽屉" @click="close">×</LoopButton></view><view class="sheet-body"><slot/></view></view></view></template>
+<template><view class="sheet-root" :class="{open:modelValue}" :aria-hidden="!modelValue" :inert="!modelValue"><view class="sheet-mask" @click="close"/><view ref="panel" class="sheet-panel cl-glass" role="dialog" aria-modal="true" :aria-label="title" tabindex="-1"><view class="sheet-header"><text class="cl-section-title">{{ title }}</text><LoopButton class="cl-icon-btn" aria-label="关闭抽屉" @click="close"><LoopIcon name="close"/></LoopButton></view><view class="sheet-body"><slot/></view></view></view></template>
 <style scoped>
 .sheet-root{position:fixed;inset:0;z-index:2000;visibility:hidden;pointer-events:none;transition:visibility var(--cl-motion-panel)}.sheet-mask{position:absolute;inset:0;background:var(--cl-overlay);opacity:0;transition:opacity var(--cl-motion-panel) ease}.sheet-panel{position:absolute;right:0;top:0;bottom:0;width:min(420px,92vw);border-radius:24px 0 0 24px;transform:translateX(100%);transition:transform var(--cl-motion-panel) var(--cl-ease);display:flex;flex-direction:column;overflow:hidden}.sheet-root.open{visibility:visible;pointer-events:auto}.open .sheet-mask{opacity:1}.open .sheet-panel{transform:translateX(0)}.sheet-header{display:flex;align-items:center;justify-content:space-between;padding:24px;gap:16px;border-bottom:1px solid var(--cl-border)}.sheet-body{padding:24px;overflow-y:auto;flex:1;background:var(--cl-surface)}
+.sheet-header {flex:none;padding:20px;gap:12px}.sheet-header .cl-section-title {min-width:0;line-height:1.45;overflow-wrap:anywhere}.sheet-body {min-height:0;padding:20px 20px max(24px,env(safe-area-inset-bottom));overscroll-behavior:contain}.sheet-panel {max-height:100dvh}.sheet-header .cl-icon-btn {flex:none}
 </style>

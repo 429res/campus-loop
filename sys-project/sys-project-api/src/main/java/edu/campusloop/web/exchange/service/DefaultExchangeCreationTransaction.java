@@ -72,6 +72,11 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
             var demand=demands.selectForUpdate(id);
             if (demand!=null) lockedDemands.put(id,demand);
         }
+        // Completion closes the selected demand. A second live exchange could not complete safely
+        // after that closure, even if it offered a different item linked to the same demand.
+        for(var flow:command.flows()) {
+            if (demands.activeExchangeReferences(flow.demandId())>0) throw stale();
+        }
         for(long id:ids) {
             var item=items.selectForUpdate(id);
             if (item==null || !ownerIds.contains(item.getOwnerId())) throw stale();

@@ -43,7 +43,7 @@ onMounted(load);
     <div>
       <b>推荐方案 ≠ 正式交换</b>
       <p>
-        当前读取不会占用物品。创建、确认、交接及取消将在后续迭代中接入事务与并发校验。
+        当前页面用于查看推荐，暂未接入正式交换操作。推荐不会占用物品，也不表示参与者已经同意。
       </p>
     </div>
     <span class="pill">规则可解释 · 无需外部 AI</span>
@@ -64,7 +64,7 @@ onMounted(load);
     <article v-for="match in shown" :key="match.id" class="panel match-card">
       <header>
         <span class="match-label"
-          ><span class="match-icon">↻</span
+          ><span class="match-icon"><el-icon><Connection /></el-icon></span
           >{{ match.length === 2 ? "双方交换" : "三方循环" }}</span
         ><el-tag :type="match.length === 2 ? 'primary' : 'success'" round
           >匹配得分 {{ match.score }}</el-tag

@@ -1,0 +1,28 @@
+<script setup>
+import {onMounted,onBeforeUnmount,ref} from 'vue';
+import http from '@/http';
+import SysDialog from '@/components/SysDialog.vue';
+const records=ref([]),total=ref(0),page=ref(1),status=ref('PENDING'),busy=ref(false),error=ref('');
+const detail=ref(null),open=ref(false),saving=ref(false),reason=ref(''),scope=ref(''),decision=ref('REJECTED'),pending=ref(null),images=ref({});
+let sequence=0,detailSequence=0;
+const labels={PENDING:'待核验',APPROVED:'已核验',REJECTED:'未通过',SUPERSEDED:'已有修正'};
+function clearImages(){Object.values(images.value).forEach(URL.revokeObjectURL);images.value={}}
+async function load(){const ticket=++sequence;busy.value=true;error.value='';try{const {data}=await http.get('/api/admin/history-verifications',{params:{page:page.value,size:10,status:status.value||undefined}});if(ticket===sequence){records.value=data.records;total.value=data.total}}catch{if(ticket===sequence)error.value='核验列表读取失败'}finally{if(ticket===sequence)busy.value=false}}
+async function show(row){clearImages();detail.value=null;open.value=true;pending.value=null;reason.value='';scope.value='';error.value='';const ticket=++detailSequence;try{const {data}=await http.get(`/api/admin/history-verifications/${row.eventId}`);if(ticket===detailSequence){detail.value=data;decision.value=data.allowedActions.includes('APPROVE')?'APPROVED':'REJECTED'}}catch{if(ticket===detailSequence)error.value='详情读取失败'}}
+async function image(entry){const ticket=detailSequence;try{const blob=await http.get(`/api/history-evidence/${entry.uploadId}`,{responseType:'blob'});if(ticket===detailSequence&&open.value){if(images.value[entry.uploadId])URL.revokeObjectURL(images.value[entry.uploadId]);images.value[entry.uploadId]=URL.createObjectURL(blob)}}catch{error.value='证据不存在或不可访问'}}
+async function submit(){
+ if(saving.value||!detail.value)return;
+ if(!pending.value&&(!reason.value.trim()||!scope.value.trim())){error.value='请填写核验范围和理由';return}
+ saving.value=true;error.value='';const ticket=detailSequence,id=detail.value.eventId;
+ if(!pending.value)pending.value={version:detail.value.version,snapshotHash:detail.value.snapshotHash,idempotencyKey:crypto.randomUUID(),decision:decision.value,scope:scope.value.trim(),reason:reason.value.trim()};
+ try{const {data}=await http.post(`/api/admin/history-verifications/${id}/decision`,pending.value);if(ticket!==detailSequence)return;detail.value=data;pending.value=null;await load()}
+ catch(cause){if(ticket!==detailSequence)return;if(cause.response&&cause.response.status<500){pending.value=null;error.value='状态或证据已变化，请关闭并重新读取后决定。'}else error.value='结果无法确认，请保持窗口并重试原请求。'}finally{if(ticket===detailSequence)saving.value=false}
+}
+onMounted(load);onBeforeUnmount(()=>{sequence++;detailSequence++;clearImages()});
+</script>
+<template>
+ <div class="page-heading"><div><h1>履历核验</h1><p>核验单条履历的指定范围，保留原作者与参与者来源。</p></div></div>
+ <section class="panel"><div class="filter-bar"><el-select v-model="status" aria-label="核验状态" @change="page=1;load()"><el-option v-for="(label,value) in labels" :key="value" :value="value" :label="label"/></el-select><el-button :loading="busy" @click="load">刷新</el-button></div><el-alert v-if="error&&!open" :title="error" type="error"/><el-table :data="records" v-loading="busy"><el-table-column prop="eventId" label="履历" width="100"/><el-table-column prop="itemId" label="物品" width="100"/><el-table-column label="内容" min-width="250"><template #default="{row}">{{row.content.statement}}</template></el-table-column><el-table-column label="状态" width="110"><template #default="{row}">{{labels[row.status]}}</template></el-table-column><el-table-column label="操作" width="100"><template #default="{row}"><el-button link type="primary" @click="show(row)">查看核验</el-button></template></el-table-column></el-table><el-pagination v-model:current-page="page" :page-size="10" :total="total" layout="prev,pager,next" @current-change="load"/></section>
+ <SysDialog :visible="open" title="履历核验" :width="680" :height="550" :loading="saving" :confirm-disabled="saving||!detail||!detail.allowedActions.length" @on-close="()=>{if(!saving&&!pending){open=false;detailSequence++;clearImages()}}" @on-confirm="submit"><template #content><el-alert v-if="error" :title="error" type="error"/><template v-if="detail"><h3>履历 #{{detail.eventId}} · 物品 #{{detail.itemId}}</h3><p class="statement">{{detail.content.statement}}</p><p>作者 #{{detail.content.authorId}} · {{detail.content.recordedEvidenceLevel}}</p><p>发生：{{detail.content.occurredAt||'时间未知'}} · 记录：{{detail.content.recordedAt}}</p><div v-for="entry in detail.content.evidence" :key="entry.uploadId"><el-button @click="image(entry)">查看私有证据</el-button><img v-if="images[entry.uploadId]" :src="images[entry.uploadId]" alt="核验证据" style="max-width:100%"/></div><p v-if="detail.verification">结果：{{detail.verification.decision}} · {{detail.verification.scope}} · {{detail.verification.reason}}</p><el-form v-if="detail.allowedActions.length" label-position="top"><el-form-item label="决定"><el-select v-model="decision" :disabled="saving||!!pending"><el-option v-if="detail.allowedActions.includes('APPROVE')" value="APPROVED" label="核验通过"/><el-option value="REJECTED" label="核验未通过"/></el-select></el-form-item><el-form-item label="核验范围"><el-input v-model="scope" maxlength="500" :disabled="saving||!!pending"/></el-form-item><el-form-item label="判断依据"><el-input v-model="reason" type="textarea" maxlength="2000" :disabled="saving||!!pending"/></el-form-item></el-form><el-alert v-if="pending" title="结果待确认，点击确定只重试原请求。" type="warning"/></template></template></SysDialog>
+</template>
+<style scoped>.statement{white-space:pre-wrap;overflow-wrap:anywhere}.el-pagination{margin-top:20px}</style>

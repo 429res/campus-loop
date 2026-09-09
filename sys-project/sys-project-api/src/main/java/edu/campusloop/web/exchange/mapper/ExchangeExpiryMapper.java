@@ -11,7 +11,7 @@ public interface ExchangeExpiryMapper {
         "AND e.rule_version='independent-v2' AND e.request_digest IS NOT NULL AND e.creation_snapshot IS NOT NULL " +
         "AND NOT EXISTS(SELECT 1 FROM cl_exchange_participant p WHERE p.exchange_id=e.id " +
         "AND (p.handed_off_at IS NOT NULL OR p.received_at IS NOT NULL)) " +
-        "ORDER BY e.expires_at,e.id LIMIT #{limit}")
+        "ORDER BY e.expires_at,e.id LIMIT #{limit} FOR UPDATE SKIP LOCKED")
     List<Long> due(@Param("now") LocalDateTime now,@Param("limit") int limit);
 
     // Run only after the failed lifecycle transaction has rolled back. Concurrent terminal transitions win.

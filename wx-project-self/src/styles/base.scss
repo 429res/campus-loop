@@ -73,3 +73,21 @@ uni-tabbar .uni-tabbar__item { min-height:58px; }
   .cl-top-actions { gap:5px; }
   .cl-top-actions .cl-btn { padding:9px 11px; }
 }
+
+/* Content may wrap; icon and action hit areas never compress. */
+.cl-brand {min-width:0;flex-shrink:1;color:var(--cl-text);letter-spacing:-.5px;line-height:1.2}
+.cl-brand-mark {flex:none}.cl-top-actions {flex:none}
+.cl-btn {white-space:normal;max-width:100%;height:auto;line-height:1.5;text-align:center}
+.cl-icon-btn {width:44px;height:44px;min-width:44px;min-height:44px;flex:none;padding:0}
+.cl-row {min-width:0;flex-wrap:wrap}.cl-field-title,.cl-subtitle,.cl-hint {overflow-wrap:anywhere}
+.cl-panel,.cl-grid-2>view {min-width:0}.cl-section-heading {flex-wrap:wrap;align-items:flex-start}
+.cl-tag {max-width:100%;white-space:normal;overflow-wrap:anywhere}
+.cl-footer-note {line-height:1.6}.cl-top .cl-brand-note{white-space:nowrap}
+/* #ifdef H5 */
+.cl-shell {padding-bottom:calc(110px + env(safe-area-inset-bottom))}
+.cl-app {min-height:100dvh}
+/* UniApp inserts a span inside uni-form; let the form's gap reach its fields. */
+uni-form.cl-form > span,uni-form.report-form > span {display:contents}
+/* #endif */
+@media(max-width:700px){.cl-brand{font-size:20px;gap:9px}.cl-title{font-size:26px}.cl-panel{padding:20px}.cl-top{padding:18px 0}.cl-top .cl-brand-note{display:none}}
+@media(max-width:360px){.cl-brand{font-size:18px}.cl-shell{width:calc(100% - 28px)}.cl-top{gap:8px}}

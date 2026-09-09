@@ -7,6 +7,7 @@ import {
   Box,
   CollectionTag,
   Connection,
+  Sort,
   MagicStick,
   Grid,
   Sunny,
@@ -16,6 +17,8 @@ import {
   User,
   SwitchButton,
   Warning,
+  DocumentChecked,
+  Flag,
 } from "@element-plus/icons-vue";
 import Brand from "@/components/Brand.vue";
 import http from "@/http";
@@ -31,7 +34,10 @@ const links = [
   { path: "/users", label: "账号管理", icon: User },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/disputes", label: "交换争议", icon: Warning },
-  { path: "/reports", label: "举报队列", icon: Warning },
+  { path: "/history-verifications", label: "履历核验", icon: DocumentChecked },
+  { path: "/reports", label: "举报队列", icon: Flag },
+
+  { path: "/exchanges", label: "交换记录", icon: Sort },
   { path: "/planned", label: "后续业务", icon: Grid },
   { path: "/controls", label: "控件实验室", icon: MagicStick },
 ];
@@ -49,6 +55,7 @@ function toggleTheme() {
   localStorage.setItem("campus-loop.theme", theme);
 }
 async function logout() {
+  const token = auth.token;
   if (auth.token) {
     try {
       await http.post("/api/auth/logout");
@@ -56,6 +63,7 @@ async function logout() {
       return;
     }
   }
+  if (auth.token !== token) return;
   auth.clear();
   router.push("/login");
 }
@@ -90,6 +98,7 @@ onBeforeUnmount(() => {
       id="main-navigation"
     >
       <router-link to="/" class="brand-link"><Brand caption /></router-link>
+      <div class="sidebar-scroll">
       <div class="workspace-label">校园管理工作台 <span>ADMIN</span></div>
       <nav class="side-nav" aria-label="主导航">
         <span
@@ -104,13 +113,8 @@ onBeforeUnmount(() => {
           }}<span v-if="link.path === '/matches'" class="mini-dot"
         /></router-link>
       </nav>
-      <div class="sidebar-note">
-        <span class="tiny-label">CIRCULAR CAMPUS</span>
-        <p>每一次交换，<br />都是一个新开始。</p>
-        <div class="note-loop" aria-hidden="true">↗<span>↙</span></div>
-        <small>发现需求 · 连接同学 · 延续价值</small>
       </div>
-      <div class="sidebar-foot"><i /> Campus Loop · 起步版本</div>
+      <div class="sidebar-foot"><i /> 让闲置，继续有用</div>
     </aside>
     <button
       v-if="menuOpen"
@@ -133,7 +137,7 @@ onBeforeUnmount(() => {
           ><strong>{{ route.meta.title }}</strong>
         </div>
         <div class="topbar-actions">
-          <span class="environment"><i /> 本地开发</span
+          <span class="environment">校园循环工作台</span
           ><el-tooltip :content="dark ? '切换浅色' : '切换深色'"
             ><el-button
               :icon="dark ? Sunny : Moon"

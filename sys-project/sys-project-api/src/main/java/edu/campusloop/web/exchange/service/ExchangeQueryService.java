@@ -6,6 +6,7 @@ import edu.campusloop.common.*;
 import edu.campusloop.web.exchange.entity.*;
 import edu.campusloop.web.exchange.mapper.ExchangeMapper;
 import edu.campusloop.web.exchange.vo.ExchangeView;
+import edu.campusloop.web.exchange.vo.AdminExchangeDetail;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.*;
 import java.time.*;
@@ -18,13 +19,31 @@ public class ExchangeQueryService {
     public static final Set<String> STATUSES=Set.of("AWAITING_CONFIRMATION","READY","COMPLETED","CANCELLED","EXPIRED","DISPUTED");
     private final ExchangeMapper exchanges;
     private final ExchangeDatabaseClock clock;
+    private final AdminExchangeSnapshotReader creationSnapshots;
     private final edu.campusloop.exchange.ExchangeLifecycleRules rules=new edu.campusloop.exchange.ExchangeLifecycleRules();
-    public ExchangeQueryService(ExchangeMapper exchanges,ExchangeDatabaseClock clock) { this.exchanges=exchanges;this.clock=clock; }
+    public ExchangeQueryService(ExchangeMapper exchanges,ExchangeDatabaseClock clock,AdminExchangeSnapshotReader creationSnapshots) {
+        this.exchanges=exchanges;this.clock=clock;this.creationSnapshots=creationSnapshots;
+    }
 
     public PageResult<ExchangeView> mine(long userId,int page,int size,String status) {
+        return page(visible(userId),userId,page,size,status);
+    }
+    public PageResult<ExchangeView> adminPage(int page,int size,String status) {
+        return page(new QueryWrapper<>(),null,page,size,status);
+    }
+    public AdminExchangeDetail adminDetail(long id) {
+        if (id<1) throw new ApiException(400,"交换ID须为正整数");
+        ExchangeRecord found=exchanges.selectById(id);
+        if (found==null) throw new ApiException(404,"交换不存在或不可见");
+        ExchangeView exchange=views(List.of(found),null).get(0);
+        var events=exchanges.events(id).stream().map(event -> new AdminExchangeDetail.Event(event.getId(),event.getEventType(),
+            event.getActorId(),event.getActorDisplayName(),event.getPreviousStatus(),event.getNewStatus(),
+            event.getPreviousVersion(),event.getNewVersion(),event.getReason(),utc(event.getOccurredAt()))).toList();
+        return new AdminExchangeDetail(exchange,events,creationSnapshots.read(found,exchange));
+    }
+    private PageResult<ExchangeView> page(QueryWrapper<ExchangeRecord> query,Long userId,int page,int size,String status) {
         if (page<1 || size<1 || size>100 || (status!=null && !STATUSES.contains(status)))
             throw new ApiException(400,"分页或交换状态参数不正确");
-        QueryWrapper<ExchangeRecord> query=visible(userId);
         if (status!=null) query.eq("status",status);
         query.orderByDesc("created_at","id");
         Page<ExchangeRecord> result=exchanges.selectPage(new Page<>(page,size),query);
@@ -41,15 +60,15 @@ public class ExchangeQueryService {
         return new QueryWrapper<ExchangeRecord>().exists("SELECT 1 FROM cl_exchange_participant p " +
             "WHERE p.exchange_id=cl_exchange.id AND p.user_id={0}",userId);
     }
-    List<ExchangeView> adminViews(List<ExchangeRecord> rows) { return views(rows,0); }
-    private List<ExchangeView> views(List<ExchangeRecord> rows,long userId) {
+    List<ExchangeView> adminViews(List<ExchangeRecord> rows) { return views(rows,null); }
+    private List<ExchangeView> views(List<ExchangeRecord> rows,Long userId) {
         if (rows.isEmpty()) return List.of();
         Map<Long,List<ExchangeParticipantRecord>> grouped=exchanges.participants(rows.stream().map(ExchangeRecord::getId).toList())
             .stream().collect(Collectors.groupingBy(ExchangeParticipantRecord::getExchangeId));
         Instant now=utc(clock.now());
         return rows.stream().map(row -> view(row,grouped.getOrDefault(row.getId(),List.of()),userId,now)).toList();
     }
-    private ExchangeView view(ExchangeRecord row,List<ExchangeParticipantRecord> people,long userId,Instant now) {
+    private ExchangeView view(ExchangeRecord row,List<ExchangeParticipantRecord> people,Long userId,Instant now) {
         if (people.size()<2 || people.size()>3) throw incomplete();
         Map<Long,ExchangeParticipantRecord> byUser=new HashMap<>();
         Map<Long,Long> incoming=new HashMap<>();
@@ -64,13 +83,14 @@ public class ExchangeQueryService {
         List<ExchangeParticipantRecord> ordered=new ArrayList<>();
         var p=people.stream().min(Comparator.comparingLong(ExchangeParticipantRecord::getOfferedItemId)).orElseThrow();
         for (int i=0;i<people.size();i++) { ordered.add(p); p=byUser.get(p.getRecipientUserId()); }
+        var facts=ExchangeLifecycleFacts.supported(row)?ExchangeLifecycleFacts.snapshot(row,people):null;
         return new ExchangeView(row.getId(),row.getInitiatorId(),row.getStatus(),row.getVersion(),
             utc(row.getCreatedAt()),utc(row.getExpiresAt()),ordered.stream().map(person -> new ExchangeView.Participant(
                 person.getUserId(),person.getDisplayName(),person.getOfferedItemId(),incoming.get(person.getUserId()),
                 person.getConfirmedAt()==null?"PENDING":"CONFIRMED",utc(person.getConfirmedAt()),
-                utc(person.getHandedOffAt()),utc(person.getReceivedAt()),userId==0?null:person.getHandedOffNote(),userId==0?null:person.getReceivedNote())).toList(),
+                utc(person.getHandedOffAt()),utc(person.getReceivedAt()),userId==null?null:person.getHandedOffNote(),userId==null?null:person.getReceivedNote())).toList(),
             ordered.stream().map(person -> new ExchangeView.Flow(person.getOfferedItemId(),person.getUserId(),person.getRecipientUserId())).toList(),
-            userId!=0 && ExchangeLifecycleFacts.supported(row)?rules.permittedActions(ExchangeLifecycleFacts.snapshot(row,people),ExchangeLifecycleFacts.handover(people),userId,now)
+            userId!=null && facts!=null?rules.permittedActions(facts,ExchangeLifecycleFacts.handover(people),userId,now)
                 .stream().map(Enum::name).toList():List.of(),
             row.getCancelledBy(),row.getCancellationReason(),utc(row.getCancelledAt()),row.getDisputedBy(),row.getDisputeReason(),utc(row.getDisputedAt()));
     }

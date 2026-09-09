@@ -14,6 +14,8 @@ uni-modal .uni-modal,uni-actionsheet .uni-actionsheet,uni-toast .uni-toast,uni-t
   color:var(--cl-text); background:var(--cl-surface); border:1px solid var(--cl-border); border-radius:20px;
   box-shadow:0 20px 55px rgba(25,35,51,.18),inset 0 1px 0 var(--cl-highlight); overflow:hidden;
 }
+// UniApp defaults its modal root to 999; sheets use 2000. Lift the root stacking context.
+body uni-modal { z-index:3000; }
 uni-modal .uni-modal { width:min(380px,calc(100vw - 40px)); }
 uni-modal .uni-modal__hd,uni-modal .uni-modal__bd,uni-modal .uni-modal__ft,
 uni-actionsheet .uni-actionsheet__menu,uni-actionsheet .uni-actionsheet__cell,uni-actionsheet .uni-actionsheet__action { color:var(--cl-text); background:transparent; }

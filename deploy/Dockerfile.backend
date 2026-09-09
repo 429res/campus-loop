@@ -1,0 +1,15 @@
+FROM eclipse-temurin:17-jdk-jammy AS build
+WORKDIR /build
+COPY sys-project/ ./
+RUN chmod +x mvnw && ./mvnw -B -ntp -DskipTests package
+
+FROM eclipse-temurin:17-jre-jammy
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+    && groupadd --gid 10001 campus && useradd --uid 10001 --gid campus campus \
+    && mkdir -p /app /data/uploads /data/uploads-evidence && chown -R campus:campus /app /data
+WORKDIR /app
+COPY --from=build --chown=campus:campus /build/sys-project-api/target/sys-project-api-*.jar /app/app.jar
+USER campus
+EXPOSE 8088
+HEALTHCHECK --interval=10s --timeout=5s --start-period=90s --retries=12 CMD curl -fsS http://127.0.0.1:8088/api/health > /dev/null || exit 1
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]

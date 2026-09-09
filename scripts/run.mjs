@@ -53,6 +53,7 @@ try {
     case 'h5': await run('npm',['run','dev:h5','--','--host','127.0.0.1'],resolve(root,'wx-project-self')); break
     case 'wechat': await run('npm',['run','build:mp-weixin'],resolve(root,'wx-project-self')); break
     case 'test':
+      await run('npm',['test'],resolve(root,'project-self'))
       await run('npm',['test'],resolve(root,'wx-project-self'))
       await run(wrapper,['-B','-ntp','test'],backend)
       break
@@ -64,6 +65,7 @@ try {
       await run('node',['scripts/backup-restore-test.mjs'])
       break
     case 'build':
+      await run('npm',['test'],resolve(root,'project-self'))
       await run('npm',['test'],resolve(root,'wx-project-self'))
       await run('npm',['run','build'],resolve(root,'project-self'))
       await run('npm',['run','build:h5'],resolve(root,'wx-project-self'))

@@ -75,7 +75,7 @@ async function confirm() {
   <div class="page-heading">
     <div>
       <span class="eyebrow">ONE SYSTEM, EVERY CONTROL</span>
-      <h1>控件实验室 <span class="heading-spark">✳</span></h1>
+      <h1>控件实验室</h1>
       <p>统一材质、连贯反馈，让每个交互都有熟悉的手感。</p>
     </div>
     <el-switch

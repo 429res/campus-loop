@@ -4,6 +4,7 @@ import { useRouter } from "vue-router";
 import {
   RefreshRight,
   ArrowRight,
+  Connection,
 } from "@element-plus/icons-vue";
 import http from "@/http";
 import { imageUrl } from "@/api/uploadApi";
@@ -59,7 +60,7 @@ onBeforeUnmount(() => requests.cancel());
   <div class="page-heading">
     <div>
       <span class="eyebrow">YOUR CAMPUS, IN A LOOP</span>
-      <h1>让好东西，继续发光 <span class="heading-spark">✳</span></h1>
+      <h1>让好东西，继续发光</h1>
       <p>发现真实需求，连接校园里的每一份闲置。</p>
     </div>
     <el-button :icon="RefreshRight" :loading="loading" @click="load"
@@ -77,25 +78,14 @@ onBeforeUnmount(() => requests.cancel());
         >探索交换推荐<el-icon><ArrowRight /></el-icon
       ></el-button>
     </div>
-    <div
-      class="hero-diagram"
-      aria-label="虚构示例：书籍交换相机，相机交换台灯，台灯交换书籍"
-    >
-      <div class="orbit" />
-      <span class="orbit-word">EVERYTHING<br /><b>COMES AROUND.</b></span>
-      <div class="mini-item mini-book">
-        <img src="/demo/book.svg" alt="书籍" /><span>书籍</span>
+    <div class="hero-diagram" aria-label="虚构示例：书籍、相机、台灯循环交换">
+      <div class="diagram-caption"><el-icon><Connection /></el-icon><span>三方循环 · 概念示意</span></div>
+      <div class="diagram-items">
+        <div v-for="item in [{name:'书籍',image:'book'},{name:'相机',image:'camera'},{name:'台灯',image:'lamp'}]" :key="item.image" class="mini-item">
+          <img :src="`/demo/${item.image}.svg`" :alt="item.name"/><span>{{ item.name }}</span>
+        </div>
       </div>
-      <div class="mini-item mini-camera">
-        <img src="/demo/camera.svg" alt="相机" /><span>相机</span>
-      </div>
-      <div class="mini-item mini-lamp">
-        <img src="/demo/lamp.svg" alt="台灯" /><span>台灯</span>
-      </div>
-      <span class="orbit-arrow first">↘</span
-      ><span class="orbit-arrow second">↙</span
-      ><span class="orbit-arrow third">↑</span
-      ><small>概念示意 · 虚构物品</small>
+      <p class="diagram-note">每一份闲置，都有下一位需要它的人。</p>
     </div>
   </section>
   <BusinessStatsPanel
@@ -110,7 +100,7 @@ onBeforeUnmount(() => requests.cancel());
     <div class="section-heading">
       <div>
         <h2>最近发布</h2>
-        <p>来自当前开发数据库的真实记录</p>
+        <p>查看最近发布的物品与审核状态</p>
       </div>
       <el-button text @click="router.push('/items')"
         >查看全部<el-icon><ArrowRight /></el-icon

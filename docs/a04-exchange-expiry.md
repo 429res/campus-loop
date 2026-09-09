@@ -1,12 +1,14 @@
 # A-04：交换超时扫描与恢复
 
-本分支 `feature/a04-exchange-expiry` 基于 B-03.2 的 `6025f27`，包含 A-03 [PR #32](https://github.com/429res/campus-loop/pull/32) 和 B-03.2 [PR #31](https://github.com/429res/campus-loop/pull/31) 已提交实现；两者在本次开始时均未合入main。A-04以B分支为PR基线，合并顺序为A-03→B-03.2→A-04。原工作区未提交改动保留。
+原交付分支 `feature/a04-exchange-expiry` 基于 B-03.2 的 `6025f27`，包含 A-03 [PR #32](https://github.com/429res/campus-loop/pull/32) 和 B-03.2 [PR #31](https://github.com/429res/campus-loop/pull/31)；原任务开始时两者均未合入 main，A-04 因而以 B 分支为 PR 基线。
+
+2026-09-08 阶段二审查状态：A-03/B-03.2 已合入 main；审查期间 [PR #36](https://github.com/429res/campus-loop/pull/36) 将 A-04 与 B-04 合入 main `a7cdba5`，本修复分支已对齐该基线。以下机制已同步本轮候选扫描修复；原交付验证证据单独保留，不当作本轮重跑结果。
 
 ## 唯一事务边界
 
-`ExchangeExpiryScheduler → ExchangeExpiryScanner.scanBatch() → ExchangeLifecycleService.expireForScan(id)`。确认、取消、内部expire和扫描expireForScan共享同一个applyLocked、ExchangeLifecycleRules、ExchangeTransactionExecutor与ExchangeDatabaseClock。新增的扫描入口只把exchange首锁改成 `FOR UPDATE SKIP LOCKED`，不复制状态判断或释放代码。
+`ExchangeExpiryScheduler → ExchangeExpiryScanner.scanBatch() → ExchangeLifecycleService.expireForScan(id)`。确认、取消、交接、内部expire和扫描expireForScan共享同一个applyLocked、ExchangeLifecycleRules、ExchangeTransactionExecutor与ExchangeDatabaseClock。候选选择先用独立短事务执行 `FOR UPDATE SKIP LOCKED`，结束后释放候选锁；逐条正式处理仍进入共同生命周期事务，以同样的 exchange 首锁跳过竞争行，再重锁、重读并核验业务事实，不复制状态判断或释放代码。
 
-exchange锁在前，随后参与用户ID升序→需求ID升序→物品/占用ID升序；所有必要锁取得后重新读取数据库UTC，按纯规则决定能否变更。原创建快照、参与者、owner、RESERVED状态、物品version、完整占用集合和每条占用exchange_id均须一致。仅删除 `item_id=? AND exchange_id=?`，条件恢复AVAILABLE/version+1；状态/version、EXPIRED审计事件、全部占用释放与物品恢复同事务提交。任一环节失败全部回滚。确认和取消沿用B现有真实HTTP入口；交接写入尚未实现，未来必须沿用此exchange首锁与交接事实规则。
+exchange锁在前，随后参与用户ID升序→需求ID升序→物品/占用ID升序；所有必要锁取得后重新读取数据库UTC，按纯规则决定能否变更。原创建快照、参与者、owner、RESERVED状态、物品version、完整占用集合和每条占用exchange_id均须一致。仅删除 `item_id=? AND exchange_id=?`，条件恢复AVAILABLE/version+1；状态/version、EXPIRED审计事件、全部占用释放与物品恢复同事务提交。任一环节失败全部回滚。确认和取消沿用B现有真实HTTP入口；原 A-04 交付时尚未实现的交接写入，已由 [B-04](b04-exchange-handoff.md) 沿用此 exchange 首锁与交接事实规则，并随 PR #36 合入 main。
 
 ## 截止与结果：B/C/D共同契约
 
@@ -25,7 +27,9 @@ B继续用同一生命周期服务，重放旧取消/超时不会释放后来新
 
 ## 批次、重试与持久恢复
 
-每次无锁查询只取一个有上限的批次，按expires_at/id排序；查询时间来自数据库。候选只是线索，生命周期事务再次核查状态、截止、交接和占用。单条处理独立事务，前一条失败不撤销其他已成功条目。忙碌exchange用SKIP LOCKED跳过，后续轮询重新发现；多实例可以同时扫描，exchange锁与事件唯一约束保证只有一次有效转换。
+每次候选选择在独立短事务内按 expires_at/id 排序，以 `LIMIT` 限制批次并执行 `FOR UPDATE SKIP LOCKED`，时间来自数据库。查询阶段即跳过正被锁定的旧记录，使可用的后续到期记录仍能进入有上限的批次；避免最旧的一整批长期忙碌时，反复选中同批再逐条跳过而饿死后续记录。短事务提交并释放全部候选锁后，才逐条进入正式处理事务，不把整批候选锁带入用户、需求和物品锁序。
+
+候选只是线索，逐条生命周期事务重新锁定 exchange，并再次核查状态、截止、交接和占用；候选选出后可能已被其他动作改变，不能据候选结果直接释放。单条处理独立事务，前一条失败不撤销其他已成功条目。再次遇到忙碌 exchange 仍用 SKIP LOCKED 跳过，后续轮询重新发现；多实例可以同时扫描，exchange 锁与事件唯一约束保证只有一次有效转换。
 
 生命周期沿用瞬态冲突最多3次完整事务重试、每次20秒事务预算。失败回滚后另开事务，仅更新技术字段：
 
@@ -61,9 +65,9 @@ ORDER BY expires_at,id;
 
 重试数持续增加说明需要排查具体状态/占用完整性或数据库可用性；不能靠删除占用或强制AVAILABLE跳过领域检查。上面查询包含交接中和旧记录，须结合状态矩阵区分自动候选；它们本来就不会被普通超时释放。对已明确修复的问题，等待持久retry_at后由常规扫描重试，不重置业务version或截止。
 
-## 本次证据
+## 原 A-04 交付历史证据（2026-09-08）
 
-2026-09-08最终验证：
+以下为原 A-04 交付时记录的最终验证，尚未包含本轮候选短事务修复或本地整合 B-04 后的重跑结果；本轮综合证据由阶段二审查报告单独记录：
 
 - `node scripts/run.mjs test`：用户端49项通过；公共纯规则单元69项通过，API/功能119项中107通过、12项MySQL专用明确跳过，无失败。
 - `CAMPUS_TEST_PORT=3335 node scripts/mysql-test.mjs`：全新MySQL8.4.11，后端69+119共188项全部通过，共用交换套件38项；其中8项是本轮新增扫描/重试/恢复测试。实际输出确认两个独立JVM自动恢复且仅一条EXPIRED事件；本轮新进程同时恢复普通到期与已持久化失败重试记录。
