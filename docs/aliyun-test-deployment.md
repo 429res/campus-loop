@@ -85,3 +85,15 @@ sudo systemctl list-timers campus-loop-backup.timer --no-pager
 - 公网两端入口 JS 哈希与本地发布产物一致。Chrome 线上确认新首页、详情直接交换选物以及返回；真实用户的物品仅作读取和方案预览，没有替用户发出邀请。交换创建与指定评论回复的实际写入验证在隔离 MySQL 中完成。
 
 访问：[用户端](https://amoewell.top)、[管理端](https://admin.amoewell.top)。分支已提交，主分支合并仍按成员审核要求执行。
+
+## 个人主页与自主交换上线（2026-09-09 16:38 CST）
+
+应用提交 `9d5ae2885bd21880b8c5306fcc8914667351fd0d`，功能分支 `feature/member-trading`，PR [#59](https://github.com/429res/campus-loop/pull/59)。九项功能和验收范围见[个人主页与交易体验](member-trading.md)。
+
+- 发布包 SHA-256：`bd7562cfcee215868619e99de4c3ce4823c17b1f5394b06c82c9f1dc217d47f7`，服务器校验成功后构建并切换。
+- 发布前备份：`.local/backups/20260909T083718Z`；保留 `f9e33b6` 镜像、源码和原配置。无需新增迁移，数据库仍为 Flyway V19。
+- 后端/Web 镜像为 `9d5ae28`，MySQL 8.4.11，三个容器健康，备份定时器 active。
+- 公网两端 HTTPS/数据库健康、现有管理员账号目录/运营/动态、现有普通用户资料/推荐/订单/动态读取均通过。
+- 新个人主页与物品分页读取通过，隐私字段未公开；公共目录仅 AVAILABLE / RESERVED 且含 ownerAvatarUrl；动态含 itemStatus，订单含 ruleVersion、物品标题和图片字段。
+- 线上入口 JS 哈希与发布构建一致。API 检查创建的登录会话已退出，没有修改真实用户的物品或交换。
+- 应用提交的管理端、H5、微信、后端、MySQL、Windows 六项 CI 全部成功；主分支合并仍等待成员审核。
