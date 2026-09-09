@@ -1,5 +1,6 @@
 package edu.campusloop.config;
 import edu.campusloop.common.*;
+import edu.campusloop.ratelimit.RateLimitExceededException;
 import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -12,6 +13,12 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+    @ExceptionHandler(RateLimitExceededException.class) public ResponseEntity<ResultVo<Void>> rateLimited(RateLimitExceededException e) {
+        return ResponseEntity.status(429)
+            .header("Retry-After", Long.toString(e.getRetryAfterSeconds()))
+            .header("X-RateLimit-Reset", e.getResetAt().toString())
+            .body(ResultVo.error(429, e.getMessage()));
+    }
     @ExceptionHandler(ApiException.class) public ResponseEntity<ResultVo<Void>> api(ApiException e) { return error(e.getStatus(), e.getMessage()); }
     @ExceptionHandler(MethodArgumentNotValidException.class) public ResponseEntity<ResultVo<Void>> validation(MethodArgumentNotValidException e) {
         return error(400, e.getBindingResult().getFieldErrors().stream().findFirst().map(x -> x.getField() + ": " + x.getDefaultMessage()).orElse("参数不正确"));

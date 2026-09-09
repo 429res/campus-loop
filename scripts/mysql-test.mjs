@@ -5,7 +5,9 @@ import { randomBytes } from 'node:crypto'
 import { root } from './env.mjs'
 import { resolve } from 'node:path'
 const upgradeOnly = process.argv.includes('--item-review-upgrade')
-if (process.argv.slice(2).some(arg => arg !== '--item-review-upgrade')) throw new Error('Unknown test option')
+const rateLimitOnly = process.argv.includes('--rate-limit')
+if (upgradeOnly && rateLimitOnly) throw new Error('Test options are mutually exclusive')
+if (process.argv.slice(2).some(arg => !['--item-review-upgrade','--rate-limit'].includes(arg))) throw new Error('Unknown test option')
 const container = `campus-loop-test-${randomBytes(4).toString('hex')}`
 const port = process.env.CAMPUS_TEST_PORT || '3319'
 if (!/^\d+$/.test(port)) throw new Error('Invalid test port')
@@ -30,6 +32,11 @@ try {
   if(!healthy)throw new Error('MySQL test startup timeout')
   env.TEST_DB_URL=`jdbc:mysql://127.0.0.1:${port}/campus_loop_ci_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC`
   env.TEST_DB_USERNAME=env.MYSQL_USER;env.TEST_DB_PASSWORD=env.MYSQL_PASSWORD
-  await run(process.platform==='win32'?'mvnw.cmd':'./mvnw',['-B','-ntp','-Dcampus.mysql-test=true',...(upgradeOnly?['-Dtest=ItemReviewMigrationCheck','-Dsurefire.failIfNoSpecifiedTests=false']:[]),'test'],resolve(root,'sys-project'))
+  const selection = upgradeOnly
+    ? ['-Dtest=ItemReviewMigrationCheck','-Dsurefire.failIfNoSpecifiedTests=false']
+    : rateLimitOnly
+      ? ['-Dtest=RateLimitCoreTest,RateLimitHttpIntegrationTest','-Dsurefire.failIfNoSpecifiedTests=false']
+      : []
+  await run(process.platform==='win32'?'mvnw.cmd':'./mvnw',['-B','-ntp','-Dcampus.mysql-test=true',...selection,'test'],resolve(root,'sys-project'))
 } catch(error){console.error(error.message);process.exitCode=1}
 finally{if(started)await run('docker',['stop',container])}
