@@ -388,3 +388,7 @@ COMMUNITY 管理权限：`GET /api/admin/community/posts?page&size&reported&keyw
 - `GET /api/assistant/status` 返回配置可用标记；`POST /api/assistant/item-draft {description}` 返回 title/description/categoryId/tags/decision/reason/checks/model 草稿。状态只说明已配置，不能替代供应商真实连通验证。
 - `POST /api/admin/items/{id}/assist-review`、`POST /api/admin/community/posts/{id}/assist-review`、`POST /api/admin/reports/{id}/assist-review` 各沿用对应管理权限。受限 agent 先读取授权对象/分类，再返回 JSON 建议；最多两次模型请求，账号10秒间隔。没有写入工具，供应商失败返回503；当前分析文字，图片须人工查看。
 - 账户安全邮件提醒默认关闭，仅 ACCOUNT_SECURITY 事件在用户开启后入 outbox，30秒轮询，失败最多5次、5分钟间隔；不影响原业务事务。SMTP 接受不等于最终投递到收件箱。V21 清除历史业务邮件待发任务，worker 同时按安全类型过滤；商品审核、交换、评论不发送邮件。成功登录记录上次地址，变更仅提示网络地址变化，不宣称已确认账号被盗。
+
+## 自动审核
+
+启用后服务端异步处理待审物品及未受理的物品/动态举报，明确结论自动执行；不确定、服务不可用、图片缺失或内容版本改变时保留管理员处理。`GET /api/admin/items/{id}/auto-review`、`/api/admin/community/posts/{id}/auto-review`、`/api/admin/reports/{id}/auto-review` 返回当前开关与该对象最近一次审核状态、reason、decision、confidence、model。人工审核接口不变；自动结果复用原有事务及站内通知，详见 `docs/ai-auto-review.md`。
