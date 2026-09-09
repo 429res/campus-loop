@@ -43,6 +43,23 @@ campus:
   bootstrap-only: ${CAMPUS_BOOTSTRAP_ONLY:false}
   demo-enabled: ${CAMPUS_DEMO_ENABLED:true}
 
+  rate-limit:
+    enabled: ${CAMPUS_RATE_LIMIT_ENABLED:true}
+    max-keys: ${CAMPUS_RATE_LIMIT_MAX_KEYS:10000}
+    trusted-proxies: ${CAMPUS_RATE_LIMIT_TRUSTED_PROXIES:}
+    login:
+      limit: ${CAMPUS_RATE_LIMIT_LOGIN_LIMIT:10}
+      window: ${CAMPUS_RATE_LIMIT_LOGIN_WINDOW:1m}
+    registration:
+      limit: ${CAMPUS_RATE_LIMIT_REGISTRATION_LIMIT:5}
+      window: ${CAMPUS_RATE_LIMIT_REGISTRATION_WINDOW:10m}
+    password:
+      limit: ${CAMPUS_RATE_LIMIT_PASSWORD_LIMIT:5}
+      window: ${CAMPUS_RATE_LIMIT_PASSWORD_WINDOW:10m}
+    upload:
+      limit: ${CAMPUS_RATE_LIMIT_UPLOAD_LIMIT:20}
+      window: ${CAMPUS_RATE_LIMIT_UPLOAD_WINDOW:1m}
+
   exchange-expiry:
     enabled: ${CAMPUS_EXCHANGE_EXPIRY_ENABLED:true}
     batch-size: ${CAMPUS_EXCHANGE_EXPIRY_BATCH_SIZE:50}

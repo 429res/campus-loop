@@ -1,6 +1,6 @@
 # API 契约 v1
 
-API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态或版本冲突、422候选或推荐规模超限、501明确待开发、500内部错误。不要把非200包裹成成功。
+API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…", "data": … }`。错误HTTP状态与code一致，data可为空；400参数错误、401未登录/会话无效、403权限不足、404不存在、409业务状态或版本冲突、422候选或推荐规模超限、429请求频率超限、501明确待开发、500内部错误。不要把非200包裹成成功。
 
 认证头 `Authorization: Bearer <本机登录返回令牌>`，不得写入文档样例或日志。时间以UTC ISO8601返回，前端按本地时区显示。id为数据库整数；当前规模可用JSON number，超过JS安全整数前统一迁移为字符串契约。
 
@@ -41,6 +41,8 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 | GET /admin/users/{id}/status-audits | ADMIN | query `page=1&size=20` → 该账号启停审计分页 |
 | GET /admin/stats | ADMIN | `{users,items,availableItems,recommendations,recommendationsStatus}`；推荐计数规则见下文 |
 | GET /matches | 公开 | 2/3循环推荐数组；无副作用 |
+
+认证与高成本上传写接口使用可配置单实例固定窗口限流：登录10次/分钟/来源地址，开发注册5次/10分钟/来源地址，改密5次/10分钟/用户，公开和私有证据上传合计20次/分钟/用户。所有处理结果均计数；超限返回HTTP/code 429、统一`msg`和`data:null`，`Retry-After`给出向上取整的恢复秒数，`X-RateLimit-Reset`给出UTC ISO-8601窗口结束时间。窗口结束自动恢复，不改变账号、口令或会话。匿名主体默认只使用TCP直连地址并忽略客户端转发头；只有部署配置明确列入的直连代理才解析从右向左的`X-Forwarded-For`。配置、C/D恢复行为及单/多实例边界见[A-05限流说明](a05-auth-upload-rate-limit.md)。
 
 本人资料写入只接受 `displayName`，去除首尾空白后长度为1–64字符。用户身份、`id`、`username`、`role`、`status` 和密码哈希均由服务端会话与数据库确定；请求出现未声明字段或试图写入受保护字段返回400，且不产生部分更新。成功结果沿用登录用户公开结构，消费端可直接替换本地用户资料。
 

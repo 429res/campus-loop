@@ -8,6 +8,8 @@ spring:
   flyway:
     clean-disabled: true
 campus:
+  rate-limit:
+    enabled: false
   bootstrap-enabled: false
   bootstrap-only: false
   demo-enabled: false
