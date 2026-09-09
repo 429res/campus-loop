@@ -88,6 +88,7 @@ const router = createRouter({
       component: () => import("@/views/Planned.vue"),
       meta: { title: "后续业务" },
     },
+    {path:"/history-verifications",component:()=>import("@/views/HistoryVerifications.vue"),meta:{title:"履历核验"}},
     ...developmentRoutes,
     { path: "/:pathMatch(.*)*", redirect: "/" },
   ],

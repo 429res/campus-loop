@@ -62,9 +62,30 @@ class ReportIntegrationTest {
     @Autowired MockMvc mvc;@Autowired ObjectMapper json;@Autowired JdbcTemplate jdbc;@Autowired UserMapper users;
     @Autowired ItemMapper items;@Autowired PasswordService passwords;@Autowired ReportService reports;@Autowired LocalUploadService uploads;
     Account reporter,other,adminOne,adminTwo;
+    private final List<Long> createdUsers=new ArrayList<>();
 
     @BeforeEach void accounts() throws Exception {
         reporter=account("USER","提交同学");other=account("USER","目标同学");adminOne=account("ADMIN","陈管理员");adminTwo=account("ADMIN","林管理员");
+    }
+
+    @AfterEach void removeOnlyOwnFixtures() {
+        for(long user:createdUsers) {
+            for(long report:jdbc.queryForList("SELECT id FROM cl_report WHERE reporter_id=?",Long.class,user)) {
+                jdbc.update("DELETE FROM cl_report_audit WHERE report_id=?",report);
+                jdbc.update("DELETE FROM cl_report_evidence WHERE report_id=?",report);
+                jdbc.update("DELETE FROM cl_report WHERE id=?",report);
+            }
+            for(long exchange:jdbc.queryForList("SELECT id FROM cl_exchange WHERE initiator_id=?",Long.class,user)) {
+                jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchange);
+                jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchange);
+            }
+        }
+        for(long user:createdUsers) {
+            jdbc.update("DELETE FROM cl_upload WHERE owner_id=?",user);
+            jdbc.update("DELETE FROM cl_item WHERE owner_id=?",user);
+            jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",user);
+        }
+        for(long user:createdUsers) jdbc.update("DELETE FROM cl_user WHERE id=?",user);
     }
 
     @Test void realSubmissionAdminWorkflowMineReadbackAndAuditArePrivate() throws Exception {
@@ -209,7 +230,7 @@ class ReportIntegrationTest {
     private Account account(String role,String displayName) throws Exception {
         String username="report_"+UUID.randomUUID().toString().replace("-","").substring(0,14),password=UUID.randomUUID().toString();
         User row=new User();row.setUsername(username);row.setPasswordHash(passwords.encode(password));row.setDisplayName(displayName);
-        row.setRole(role);row.setStatus("ACTIVE");row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(row);
+        row.setRole(role);row.setStatus("ACTIVE");row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(row);createdUsers.add(row.getId());
         return new Account(row.getId(),login(username,password),displayName);
     }
 

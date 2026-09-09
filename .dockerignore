@@ -1,0 +1,14 @@
+**/node_modules
+**/target
+**/dist
+**/.git
+**/.local
+**/.env
+**/.env.*
+**/logs
+**/uploads
+**/*.log
+**/*.pem
+**/*.key
+wx-project-self/src/manifest.json
+**/project.private.config.json

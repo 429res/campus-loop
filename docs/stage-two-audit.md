@@ -48,7 +48,7 @@
 
 数据库均由本轮创建独立临时容器，测试凭据随机且不进入报告；不连接日常库。浏览器对已交付页面的验证不能替代尚未实现的 D-03 全链路 UI 验收。微信开发者工具与真机未运行。
 
-本地证据（不进入Git）：[HTTP/浏览器结果](../.local/stage-two-evidence/results.json)、[20项烟测](../.local/stage-two-evidence/api-smoke.json)、[最终MySQL日志](../.local/stage-two-evidence/campus-stage2-mysql-final.log)、[迁移日志](../.local/stage-two-evidence/campus-stage2-migration.log)、[手机交换页](../.local/stage-two-evidence/exchanges-375.png)、[会话失效提示](../.local/stage-two-evidence/matches-expired.png)、[管理推荐页](../.local/stage-two-evidence/admin-matches.png)。临时服务与容器均已停止和清理。
+本地证据（不进入Git）：HTTP/浏览器结果（原验收机器本地文件 `../.local/stage-two-evidence/results.json`，不随仓库分发）、20项烟测（原验收机器本地文件 `../.local/stage-two-evidence/api-smoke.json`，不随仓库分发）、最终MySQL日志（原验收机器本地文件 `../.local/stage-two-evidence/campus-stage2-mysql-final.log`，不随仓库分发）、迁移日志（原验收机器本地文件 `../.local/stage-two-evidence/campus-stage2-migration.log`，不随仓库分发）、手机交换页（原验收机器本地文件 `../.local/stage-two-evidence/exchanges-375.png`，不随仓库分发）、会话失效提示（原验收机器本地文件 `../.local/stage-two-evidence/matches-expired.png`，不随仓库分发）、管理推荐页（原验收机器本地文件 `../.local/stage-two-evidence/admin-matches.png`，不随仓库分发）。临时服务与容器均已停止和清理。
 
 ## 后续验收缺项
 

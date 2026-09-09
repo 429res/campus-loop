@@ -1,0 +1,30 @@
+(campus) {
+    encode gzip
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy same-origin
+    @backend path /api /api/* /uploads /uploads/*
+    handle @backend {
+        reverse_proxy backend:8088 {
+            # Caddy owns X-Forwarded-For/Host/Proto. Never relay alternate client overrides.
+            header_up -Forwarded
+            header_up -X-Forwarded-Prefix
+            header_up -X-Forwarded-Port
+            header_up -X-Forwarded-Ssl
+        }
+    }
+    handle {
+        root * {args[0]}
+        route {
+            try_files {path} /index.html
+            header /index.html Cache-Control "no-cache"
+        }
+        file_server
+    }
+}
+
+{$ADMIN_SITE:http://localhost:8080} {
+    import campus /srv/admin
+}
+{$USER_SITE:http://localhost:8081} {
+    import campus /srv/user
+}

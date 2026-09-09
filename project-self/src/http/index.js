@@ -16,6 +16,7 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (response) => {
     if (staleSession(response.config)) return Promise.reject(new axios.CanceledError("会话已切换"));
+    if (response.config?.responseType === "blob") return response.data;
     if (response.data?.code !== 200) {
       const error = new Error(response.data?.msg || "服务返回异常");
       if (!response.config?.silent) ElMessage.error(error.message);

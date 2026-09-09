@@ -32,6 +32,7 @@ const links = [
   { path: "/users", label: "账号管理", icon: User },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/disputes", label: "交换争议", icon: Warning },
+  { path: "/history-verifications", label: "履历核验", icon: CollectionTag },
   { path: "/reports", label: "举报队列", icon: Warning },
 
   { path: "/exchanges", label: "交换记录", icon: Sort },
@@ -52,6 +53,7 @@ function toggleTheme() {
   localStorage.setItem("campus-loop.theme", theme);
 }
 async function logout() {
+  const token = auth.token;
   if (auth.token) {
     try {
       await http.post("/api/auth/logout");
@@ -59,6 +61,7 @@ async function logout() {
       return;
     }
   }
+  if (auth.token !== token) return;
   auth.clear();
   router.push("/login");
 }

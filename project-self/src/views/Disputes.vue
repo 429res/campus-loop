@@ -1,4 +1,5 @@
 <script setup>
+import Exchanges from "@/views/Exchanges.vue";
 import { computed, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import { RefreshRight, Search } from "@element-plus/icons-vue";
@@ -58,6 +59,8 @@ function applyScenario(){loading.value=scenario.value==="loading";failed.value=s
 </script>
 
 <template>
+  <Exchanges v-if="!fixture" initial-status="DISPUTED" />
+  <template v-else>
   <div class="page-heading dispute-heading"><div><span class="eyebrow">EXCHANGE TRACE</span><h1>交换争议追溯</h1><p>查看交接事实与持久流向；裁决必须由 B 的同一交换领域事务实现。</p></div><span class="count-pill">{{ fixture ? `夹具 ${total} 条` : "管理读取待开发" }}</span></div>
   <el-alert class="contract-alert" :title="fixture?'开发组件夹具，不是正式争议队列':'管理员争议读取与裁决尚未实现'" :description="fixture?'固定虚构数据只验证只读追溯和错误状态，不调用 API、不改变交换。':'现有接口只允许参与者登记争议，普通管理员不能读取参与者详情；本页不会调用参与者接口冒充管理权限。'" type="warning" :closable="false" show-icon />
   <section class="impact-panel panel"><div><span class="eyebrow">CURRENT DOMAIN EFFECT</span><h2>DISPUTED 的已实现影响</h2></div><ul><li v-for="fact in disputeImpactFacts({status:'DISPUTED'})" :key="fact">{{ fact }}</li></ul><el-button disabled>裁决接口待 B/A 实现</el-button></section>
@@ -71,6 +74,7 @@ function applyScenario(){loading.value=scenario.value==="loading";failed.value=s
   <el-drawer v-model="drawer" :lock-scroll="false" title="交换争议事实" size="min(720px, 100vw)" destroy-on-close>
     <template v-if="detail"><div class="detail-tags"><el-tag type="danger">DISPUTED</el-tag><el-tag>交换 #{{detail.id}}</el-tag><el-tag>版本 {{detail.version}}</el-tag></div><h2>争议登记</h2><dl class="detail-data"><div><dt>登记人</dt><dd>{{detail.disputedByName}}</dd></div><div><dt>登记时间</dt><dd>{{time(detail.disputedAt)}}</dd></div><div class="detail-wide"><dt>争议理由</dt><dd class="long-text">{{detail.disputeReason}}</dd></div></dl><ExchangeTrace :exchange="detail"/><h3>交换事件</h3><div v-for="event in detail.events" :key="event.id" class="event-card"><strong>{{event.type}} · {{event.actor}}</strong><p>{{event.from}} → {{event.to}} · v{{event.fromVersion}} → v{{event.toVersion}}</p><p class="long-text">{{event.reason||'无附加说明'}}</p><small>{{time(event.at)}}</small></div><h3>证据与裁决</h3><el-alert title="B-04 当前凭据仅为参与者交出/收到声明、说明和时间；没有争议附件契约。" type="info" :closable="false"/><ul class="impact-list"><li v-for="fact in disputeImpactFacts(detail)" :key="fact">{{fact}}</li></ul><el-button type="danger" disabled>管理员裁决待 B/A 定义</el-button><p class="pending-note">未定义决定枚举、版本/幂等请求、证据授权与原子后果前，不提供提交入口。</p></template>
   </el-drawer>
+  </template>
 </template>
 
 <style scoped>

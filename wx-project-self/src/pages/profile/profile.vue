@@ -1,7 +1,8 @@
 <script setup>
+import LoopInput from '../../components/LoopInput.vue'
 import LoopButton from '../../components/LoopButton.vue'
 import { reactive, ref } from 'vue'
-import { onShow } from '@dcloudio/uni-app'
+import { onShow, onHide } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import http, { TOKEN_KEY, USER_KEY, clearSession } from '../../common/http'
 import { showAppModal } from '../../common/modal'
@@ -11,16 +12,22 @@ const profileBusy = ref(false), profileError = ref(''), profileSuccess = ref('')
 const passwordBusy = ref(false), passwordError = ref(''), showPasswordForm = ref(false)
 const profileForm = reactive({ displayName:'' })
 const passwordForm = reactive({ currentPassword:'', newPassword:'', confirmPassword:'' })
+let loadedToken = '', readSequence = 0
+const sameSession = token => !!token && token === uni.getStorageSync(TOKEN_KEY)
+function resetAccount() {
+  user.value = null; profileForm.displayName = ''; profileUncertain.value = false
+  profileError.value = ''; profileSuccess.value = ''; passwordError.value = ''
+  profileBusy.value = false; passwordBusy.value = false; clearPasswords(); showPasswordForm.value = false
+}
 
 const login = reason => uni.navigateTo({url:`/pages/login/login${reason ? `?reason=${reason}` : ''}`})
 const gallery = () => uni.navigateTo({url:'/pages/controls/controls'})
 const publish = () => uni.switchTab({url:'/pages/publish/publish'})
-const favorites = () => uni.navigateTo({url:'/pages/favorites/favorites'})
 const myItems = () => uni.navigateTo({url:'/pages/my-items/my-items'})
-
-const demands = () => uni.navigateTo({url:'/pages/demands/demands'})
+const favorites = () => uni.navigateTo({url:'/pages/favorites/favorites'})
 const exchanges = () => uni.navigateTo({url:'/pages/exchanges/exchanges'})
 const governance = () => uni.navigateTo({url:'/pages/governance/governance'})
+const demands = () => uni.navigateTo({url:'/pages/demands/demands'})
 
 function applyUser(value) {
   user.value = value
@@ -29,20 +36,29 @@ function applyUser(value) {
 }
 
 async function load({ recovery = false } = {}) {
+  const token = uni.getStorageSync(TOKEN_KEY), current = ++readSequence
+  if (token !== loadedToken) { resetAccount(); loadedToken = token }
   error.value = ''; profileError.value = ''; profileSuccess.value = ''
-  if (!uni.getStorageSync(TOKEN_KEY)) { user.value = null; clearPasswords(); showPasswordForm.value = false; return }
+  if (!token) { loading.value = false; resetAccount(); return }
   loading.value = true
   try {
-    applyUser(await http.get('/api/auth/me',{}, {silent:true}))
+    const loaded = await http.get('/api/auth/me',{}, {silent:true})
+    if (!sameSession(token) || current !== readSequence) return
+    applyUser(loaded)
     if (recovery) { profileUncertain.value = false; profileSuccess.value = '已从服务器重新读取当前资料。' }
   } catch(e) {
+    if (current !== readSequence || (token !== uni.getStorageSync(TOKEN_KEY) && e.status !== 401)) return
+    if (e.status === 401 && uni.getStorageSync(TOKEN_KEY) && !sameSession(token)) return
     error.value = e.message
     if (e.status === 401) { user.value = null; clearPasswords(); showPasswordForm.value = false }
-  } finally { loading.value = false }
+  } finally { if (current === readSequence) loading.value = false }
 }
 
 async function saveProfile() {
-  if (profileBusy.value || profileUncertain.value) return
+  if (profileBusy.value || profileUncertain.value || !user.value) return
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (!sameSession(token)) return
+  readSequence++
   profileError.value = ''; profileSuccess.value = ''
   const displayName = profileForm.displayName.trim()
   if (!displayName || displayName.length > 64) { profileError.value = '显示名称须为 1–64 个字符'; return }
@@ -50,13 +66,15 @@ async function saveProfile() {
   profileBusy.value = true
   try {
     const updated = await http.patch('/api/auth/me',{displayName},{silent:true,uncertainOnFailure:true})
+    if (!sameSession(token)) return
     applyUser(updated)
     profileSuccess.value = '显示名称已保存并从服务器回读。'
   } catch(e) {
+    if (token !== uni.getStorageSync(TOKEN_KEY) && (e.status !== 401 || uni.getStorageSync(TOKEN_KEY))) return
     profileError.value = e.uncertain ? '未收到服务器响应，保存结果无法确认。请先查询当前资料，不要直接重复提交。' : e.message
     profileUncertain.value = !!e.uncertain
     if (e.status === 401) { user.value = null; login('session-expired') }
-  } finally { profileBusy.value = false }
+  } finally { if (loadedToken === token) profileBusy.value = false }
 }
 
 function utf8Length(value) {
@@ -81,6 +99,8 @@ function togglePasswordForm() {
 
 async function changePassword() {
   if (passwordBusy.value) return
+  const token = uni.getStorageSync(TOKEN_KEY)
+  if (!sameSession(token)) return
   passwordError.value = ''
   if (!passwordForm.currentPassword) { passwordError.value = '请输入旧密码'; return }
   if (passwordForm.currentPassword.length > 72) { passwordError.value = '旧密码长度不能超过 72 个字符'; return }
@@ -88,14 +108,16 @@ async function changePassword() {
     passwordError.value = '新密码须为 12–64 个字符，且 UTF-8 编码不超过 72 字节'; return
   }
   if (passwordForm.newPassword !== passwordForm.confirmPassword) { passwordError.value = '两次输入的新密码不一致'; return }
-  const confirmation = await showAppModal({title:'确认修改密码',content:'成功后本账号所有设备都会退出，需要使用新密码重新登录。'})
-  if (!confirmation.confirm) return
   passwordBusy.value = true
+  const confirmation = await showAppModal({title:'确认修改密码',content:'成功后本账号所有设备都会退出，需要使用新密码重新登录。'})
+  if (!confirmation.confirm || !sameSession(token)) { if (loadedToken === token) passwordBusy.value = false; return }
   try {
     await http.post('/api/auth/password',{currentPassword:passwordForm.currentPassword,newPassword:passwordForm.newPassword},{silent:true,uncertainOnFailure:true})
-    clearPasswords(); clearSession(); user.value = null
+    if (!sameSession(token)) return
+    readSequence++; clearPasswords(); clearSession(); user.value = null
     login('password-changed')
   } catch(e) {
+    if (token !== uni.getStorageSync(TOKEN_KEY) && (e.status !== 401 || uni.getStorageSync(TOKEN_KEY))) return
     clearPasswords()
     if (e.uncertain) {
       clearSession(); user.value = null
@@ -105,18 +127,21 @@ async function changePassword() {
     } else {
       passwordError.value = e.message
     }
-  } finally { passwordBusy.value = false }
+  } finally { if (loadedToken === token) passwordBusy.value = false }
 }
 
 function logout() {
+  const token = uni.getStorageSync(TOKEN_KEY)
   showAppModal({title:'退出登录',content:'退出当前账号？主题设置会保留。',danger:true,async success(result){
-    if(!result.confirm) return
+    if(!result.confirm || !sameSession(token)) return
     try {await http.post('/api/auth/logout',{})} catch(e) {if(e.status !== 401) return}
-    clearPasswords();showPasswordForm.value=false;clearSession();user.value=null
+    if (token !== uni.getStorageSync(TOKEN_KEY) && uni.getStorageSync(TOKEN_KEY)) return
+    readSequence++; clearPasswords();showPasswordForm.value=false;clearSession();user.value=null
   }})
 }
 
 onShow(load)
+onHide(() => { readSequence++; clearPasswords(); showPasswordForm.value = false })
 </script>
 
 <template>
@@ -129,17 +154,17 @@ onShow(load)
       <view class="account-grid">
         <form class="cl-panel cl-form" @submit="saveProfile">
           <view><text class="cl-section-title">本人资料</text><text class="cl-hint section-hint">资料始终由服务器读取；当前仅支持修改显示名称。</text></view>
-          <view class="cl-field"><text class="cl-field-title">用户名</text><input class="cl-input" :value="user.username" aria-label="用户名（不可修改）" disabled /></view>
-          <view class="cl-field"><text class="cl-field-title">显示名称</text><input v-model="profileForm.displayName" class="cl-input" aria-label="显示名称" :aria-invalid="!!profileError" maxlength="64" :disabled="profileBusy || profileUncertain" /></view>
+          <view class="cl-field"><text class="cl-field-title">用户名</text><LoopInput class="cl-input" :model-value="user.username" aria-label="用户名（不可修改）" disabled /></view>
+          <view class="cl-field"><text class="cl-field-title">显示名称</text><LoopInput v-model="profileForm.displayName" class="cl-input" aria-label="显示名称" :aria-invalid="!!profileError" maxlength="64" :disabled="profileBusy || profileUncertain" /></view>
           <text v-if="profileError" class="cl-error" role="alert">{{ profileError }}</text><text v-if="profileSuccess" class="cl-success" role="status">{{ profileSuccess }}</text>
           <view class="form-actions"><LoopButton class="cl-btn cl-btn--primary" form-type="submit" :disabled="profileBusy || profileUncertain">{{ profileBusy ? '保存中…' : '保存显示名称' }}</LoopButton><LoopButton v-if="profileUncertain" class="cl-btn" :disabled="loading" @click="load({recovery:true})">查询当前资料</LoopButton></view>
         </form>
         <view class="cl-panel password-panel">
           <view class="section-row"><view><text class="cl-section-title">账号密码</text><text class="cl-hint section-hint">修改成功会撤销本账号所有设备的旧会话。</text></view><LoopButton class="cl-btn" :disabled="passwordBusy" @click="togglePasswordForm">{{ showPasswordForm ? '收起' : '修改密码' }}</LoopButton></view>
           <form v-if="showPasswordForm" class="cl-form password-form" @submit="changePassword">
-            <view class="cl-field"><text class="cl-field-title">旧密码</text><input v-model="passwordForm.currentPassword" class="cl-input" aria-label="旧密码" password maxlength="72" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="current-password" /></view>
-            <view class="cl-field"><text class="cl-field-title">新密码</text><input v-model="passwordForm.newPassword" class="cl-input" aria-label="新密码" password maxlength="64" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="new-password" /></view>
-            <view class="cl-field"><text class="cl-field-title">确认新密码</text><input v-model="passwordForm.confirmPassword" class="cl-input" aria-label="确认新密码" password maxlength="64" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="new-password" confirm-type="done" @confirm="changePassword" /></view>
+            <view class="cl-field"><text class="cl-field-title">旧密码</text><LoopInput v-model="passwordForm.currentPassword" class="cl-input" aria-label="旧密码" password maxlength="72" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="current-password" /></view>
+            <view class="cl-field"><text class="cl-field-title">新密码</text><LoopInput v-model="passwordForm.newPassword" class="cl-input" aria-label="新密码" password maxlength="64" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="new-password" /></view>
+            <view class="cl-field"><text class="cl-field-title">确认新密码</text><LoopInput v-model="passwordForm.confirmPassword" class="cl-input" aria-label="确认新密码" password maxlength="64" :aria-invalid="!!passwordError" :disabled="passwordBusy" autocomplete="new-password" confirm-type="done" @confirm="changePassword" /></view>
             <text class="cl-hint">新密码为 12–64 个字符，UTF-8 编码不超过 72 字节。</text><text v-if="passwordError" class="cl-error" role="alert">{{ passwordError }}</text>
             <LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="passwordBusy">{{ passwordBusy ? '修改中…' : '确认修改密码' }}</LoopButton>
           </form>
@@ -148,7 +173,7 @@ onShow(load)
       <view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="publish"><text class="profile-action-icon">＋</text><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="demands"><text class="profile-action-icon blue">◎</text><text class="profile-action-title">我的需求</text><text class="cl-hint">独立管理想要与可提供物品</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="favorites"><text class="profile-action-icon blue">♡</text><text class="profile-action-title">我的收藏</text><text class="cl-hint">跨设备读取与管理收藏</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="exchanges"><text class="profile-action-icon">↻</text><text class="profile-action-title">我的交换</text><text class="cl-hint">查看服务端状态并登记交接争议</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="governance"><text class="profile-action-icon blue">!</text><text class="profile-action-title">举报与争议</text><text class="cl-hint">区分通用举报与实物交接争议</text><text class="profile-action-arrow">↗</text></LoopButton><LoopButton class="cl-panel profile-action" @click="gallery"><text class="profile-action-icon blue">◫</text><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><text class="profile-action-arrow">↗</text></LoopButton></view>
     </template>
     <view v-else class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>登录后管理本人资料</text><text class="cl-hint">注册、头像、联系方式与角色修改暂未开放。</text><LoopButton class="cl-btn cl-btn--primary" @click="login()">登录</LoopButton></view>
-    <view class="cl-section-heading"><text class="cl-section-title">我的物品</text><text class="cl-tag cl-tag--muted">审核进度</text></view><view class="cl-panel cl-empty"><LoopButton class="cl-btn" @click="myItems">查看我的物品</LoopButton><text class="cl-hint">从具体物品详情进入真实履历、自述、修正与参与者确认。</text></view><view class="cl-section-heading"><text class="cl-section-title">接下来，一起完善</text><text class="cl-tag cl-tag--muted">待开发</text></view><view class="cl-panel pending-grid"><view v-for="module in [{name:'个人资料',desc:'头像、联系方式与校园身份'},{name:'举报处理',desc:'通用举报提交、本人结果与处理闭环'},{name:'争议裁决',desc:'管理员决定与服务端业务后果'}]" :key="module.name" class="pending-module"><text class="cl-field-title">{{ module.name }}</text><text class="cl-hint">{{ module.desc }}</text><text class="pending-label">规划中 · 尚未开放</text></view></view>
+    <view class="cl-section-heading"><text class="cl-section-title">我的物品</text><text class="cl-tag cl-tag--muted">审核进度</text></view><view class="cl-panel cl-empty"><LoopButton class="cl-btn" @click="myItems">查看我的物品</LoopButton><text class="cl-hint">从具体物品详情进入真实履历、自述、修正与参与者确认。</text></view><view class="cl-section-heading"><text class="cl-section-title">接下来，一起完善</text><text class="cl-tag cl-tag--muted">待开发</text></view><view class="cl-panel pending-grid"><view v-for="module in [{name:'个人资料',desc:'头像、联系方式与校园身份'},{name:'争议裁决',desc:'管理员决定与服务端业务后果'}]" :key="module.name" class="pending-module"><text class="cl-field-title">{{ module.name }}</text><text class="cl-hint">{{ module.desc }}</text><text class="pending-label">规划中 · 尚未开放</text></view></view>
   </LoopLayout>
 </template>
 

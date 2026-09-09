@@ -21,15 +21,17 @@ test('D-04 registers real history reads, self reports, evidence, and confirmatio
 
 test('participant dispute uses persisted version and server allowedActions', () => {
   assert.match(exchanges,/\/api\/exchanges\/mine/)
-  assert.match(exchanges,/allowedActions\?\.includes\('DISPUTE'\)/)
+  assert.match(exchanges,/allowedActions\.includes\(action\)/)
+  assert.match(read('src/common/exchange-workflow.mjs'),/DISPUTE/)
   assert.match(exchanges,/version:detail\.value\.version/)
   assert.match(exchanges,/uncertainOnFailure:true/)
 })
 
-test('unimplemented reports remain disabled and never call a report API', () => {
-  assert.match(governance,/POST \/api\/reports 尚未实现/)
-  assert.match(governance,/提交举报 · 待开发/)
-  assert.doesNotMatch(governance,/http\.(post|get).*reports/)
+test('reports use real private routes and retain the idempotent request before submission', () => {
+  assert.match(governance,/http\.post\('\/api\/reports',pending\.value/)
+  assert.match(governance,/http\.get\('\/api\/reports\/mine'/)
+  assert.match(governance,/uni\.setStorageSync\(storageKey,payload\)/)
+  assert.match(governance,/uncertainOnFailure:true/)
 })
 
 test('detail and route manifest expose the D-04 entry points', () => {

@@ -6,12 +6,14 @@ import { SESSION_KEY, useAuth } from "@/stores/auth";
 import { useOverlayLock } from "@/composables/useOverlayLock";
 import { createAdminExchangeReader, exchangeStatuses, statusLabel, statusType, eventLabel, formatExchangeTime } from "@/features/exchanges/adminExchangeReader";
 
+const props=defineProps({initialStatus:{type:String,default:""}});
 const auth = useAuth();
 const reader = createAdminExchangeReader({
   get: (url, options) => http.get(url, options),
   readSession: () => auth.token === sessionStorage.getItem(SESSION_KEY) ? auth.token : "",
 });
 const { state } = reader;
+state.status=props.initialStatus;
 const exchange = computed(() => state.detail?.exchange);
 const creation = computed(() => state.detail?.creation);
 const events = computed(() => state.detail?.events || []);

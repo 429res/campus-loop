@@ -1,27 +1,130 @@
 {
   "pages": [
-    { "path": "pages/home/home", "style": { "navigationBarTitleText": "Campus Loop", "enablePullDownRefresh": true } },
-    { "path": "pages/matches/matches", "style": { "navigationBarTitleText": "交换灵感" } },
-    { "path": "pages/publish/publish", "style": { "navigationBarTitleText": "发布闲置" } },
-    { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的循环" } },
-    { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
-    { "path": "pages/favorites/favorites", "style": { "navigationBarTitleText": "我的收藏" } },
-    { "path": "pages/demands/demands", "style": { "navigationBarTitleText": "我的需求" } },
-    { "path": "pages/exchanges/exchanges", "style": { "navigationBarTitleText": "我的交换" } },
-    { "path": "pages/history/history", "style": { "navigationBarTitleText": "物品履历", "enablePullDownRefresh": true } },
-    { "path": "pages/governance/governance", "style": { "navigationBarTitleText": "举报与争议" } },
-    { "path": "pages/my-items/my-items", "style": { "navigationBarTitleText": "我的物品", "enablePullDownRefresh": true } },
-    { "path": "pages/detail/detail", "style": { "navigationBarTitleText": "物品详情", "enablePullDownRefresh": true } },
-    { "path": "pages/controls/controls", "style": { "navigationBarTitleText": "控件实验室" } }
+    {
+      "path": "pages/home/home",
+      "style": {
+        "navigationBarTitleText": "Campus Loop",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/matches/matches",
+      "style": {
+        "navigationBarTitleText": "交换灵感"
+      }
+    },
+    {
+      "path": "pages/publish/publish",
+      "style": {
+        "navigationBarTitleText": "发布闲置"
+      }
+    },
+    {
+      "path": "pages/profile/profile",
+      "style": {
+        "navigationBarTitleText": "我的循环"
+      }
+    },
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/favorites/favorites",
+      "style": {
+        "navigationBarTitleText": "我的收藏"
+      }
+    },
+    {
+      "path": "pages/demands/demands",
+      "style": {
+        "navigationBarTitleText": "我的需求"
+      }
+    },
+    {
+      "path": "pages/exchanges/exchanges",
+      "style": {
+        "navigationBarTitleText": "我的交换"
+      }
+    },
+    {
+      "path": "pages/history/history",
+      "style": {
+        "navigationBarTitleText": "物品履历",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/governance/governance",
+      "style": {
+        "navigationBarTitleText": "举报与争议"
+      }
+    },
+    {
+      "path": "pages/my-items/my-items",
+      "style": {
+        "navigationBarTitleText": "我的物品",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/detail/detail",
+      "style": {
+        "navigationBarTitleText": "物品详情",
+        "enablePullDownRefresh": true
+      }
+    },
+    {
+      "path": "pages/controls/controls",
+      "style": {
+        "navigationBarTitleText": "控件实验室"
+      }
+    },
+    {
+      "path": "pages/register/register",
+      "style": {
+        "navigationBarTitleText": "注册"
+      }
+    }
   ],
-  "globalStyle": { "navigationBarTextStyle": "black", "navigationBarTitleText": "Campus Loop", "navigationBarBackgroundColor": "#ffffff", "backgroundColor": "#f4f6fa" },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "Campus Loop",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f4f6fa"
+  },
   "tabBar": {
-    "color": "#596578", "selectedColor": "#ca376f", "backgroundColor": "#ffffff", "borderStyle": "white",
+    "color": "#596578",
+    "selectedColor": "#ca376f",
+    "backgroundColor": "#ffffff",
+    "borderStyle": "white",
     "list": [
-      { "pagePath": "pages/home/home", "text": "发现", "iconPath": "static/nav-home.png", "selectedIconPath": "static/nav-home-active.png" },
-      { "pagePath": "pages/matches/matches", "text": "交换灵感", "iconPath": "static/nav-match.png", "selectedIconPath": "static/nav-match-active.png" },
-      { "pagePath": "pages/publish/publish", "text": "发布", "iconPath": "static/nav-add.png", "selectedIconPath": "static/nav-add-active.png" },
-      { "pagePath": "pages/profile/profile", "text": "我的", "iconPath": "static/nav-user.png", "selectedIconPath": "static/nav-user-active.png" }
+      {
+        "pagePath": "pages/home/home",
+        "text": "发现",
+        "iconPath": "static/nav-home.png",
+        "selectedIconPath": "static/nav-home-active.png"
+      },
+      {
+        "pagePath": "pages/matches/matches",
+        "text": "交换灵感",
+        "iconPath": "static/nav-match.png",
+        "selectedIconPath": "static/nav-match-active.png"
+      },
+      {
+        "pagePath": "pages/publish/publish",
+        "text": "发布",
+        "iconPath": "static/nav-add.png",
+        "selectedIconPath": "static/nav-add-active.png"
+      },
+      {
+        "pagePath": "pages/profile/profile",
+        "text": "我的",
+        "iconPath": "static/nav-user.png",
+        "selectedIconPath": "static/nav-user-active.png"
+      }
     ]
   }
 }

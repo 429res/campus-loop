@@ -1,0 +1,17 @@
+FROM node:24.20.0-bookworm-slim@sha256:ba849c60be29959425b8734d57b8b4b7d56f98edd9504c9af091d5281095a71e AS build
+RUN npm install -g npm@12.0.2
+WORKDIR /build
+COPY project-self/package*.json ./project-self/
+COPY wx-project-self/package*.json ./wx-project-self/
+RUN cd project-self && npm ci
+RUN cd wx-project-self && npm ci
+COPY shared/ ./shared/
+COPY project-self/ ./project-self/
+COPY wx-project-self/ ./wx-project-self/
+RUN cd project-self && npm run build
+RUN cd wx-project-self && npm run build:h5
+
+FROM caddy:2-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648
+COPY --from=build /build/project-self/dist /srv/admin
+COPY --from=build /build/wx-project-self/dist/build/h5 /srv/user
+COPY deploy/Caddyfile /etc/caddy/Caddyfile

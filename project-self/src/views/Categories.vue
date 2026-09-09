@@ -3,9 +3,11 @@ import { computed, onMounted, ref } from "vue";
 import { Edit, Plus, RefreshRight, Search } from "@element-plus/icons-vue";
 import CategoryFormDialog from "@/components/categories/CategoryFormDialog.vue";
 import http from "@/http";
+import { ElMessageBox, ElMessage } from "element-plus";
 
 const PAGE_SIZE = 10;
-const showFixture = import.meta.env.DEV;
+const showFixture = import.meta.env.DEV && location.pathname === "/fixtures/categories";
+const editing = ref(null), editorVisible = ref(false), mutationBusy = ref(false);
 const categories = ref([]);
 const keyword = ref("");
 const page = ref(1);
@@ -99,6 +101,24 @@ async function handleFixtureConflict() {
   await load({ preservePage: true });
 }
 
+function openEditor(category = null) { editing.value = category ? {...category} : null; editorVisible.value = true; }
+async function saveCategory(payload, category) {
+  if (category) return http.patch(`/api/admin/categories/${category.id}`, {...payload, version: category.version});
+  return http.post('/api/admin/categories', payload);
+}
+const refreshCategory=async id=>(await http.get(`/api/admin/categories/${id}`)).data;
+async function savedCategory() { editorVisible.value = false; await load(); }
+async function changeCategory(row, remove = false) {
+  if (mutationBusy.value) return;
+  mutationBusy.value = true;
+  try {
+    await ElMessageBox.confirm(remove ? '仅未被引用的分类可删除，确认删除？' : `确认${row.status === 'ACTIVE' ? '停用' : '启用'}分类「${row.name}」？`, '分类维护');
+    if (remove) await http.delete(`/api/admin/categories/${row.id}`, {params:{version:row.version}});
+    else await http.patch(`/api/admin/categories/${row.id}`, {version:row.version, status:row.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE'});
+    ElMessage.success('分类已更新'); await load();
+  } catch (cause) { if (cause?.response?.status === 409) await load(); }
+  finally { mutationBusy.value = false; }
+}
 onMounted(() => load());
 </script>
 
@@ -107,13 +127,9 @@ onMounted(() => load());
     <div>
       <span class="eyebrow">CATEGORY DIRECTORY</span>
       <h1>分类维护</h1>
-      <p>可查看全部分类、顺序和可用状态；维护操作暂未开放。</p>
+      <p>维护分类名称和可用状态，历史引用由服务端保护。</p>
     </div>
-    <el-tooltip content="维护操作暂未开放" placement="bottom">
-      <span class="disabled-action-wrap">
-        <el-button type="primary" :icon="Plus" disabled>新增分类</el-button>
-      </span>
-    </el-tooltip>
+    <el-button type="primary" :icon="Plus" @click="openEditor()">新增分类</el-button>
   </div>
 
   <el-alert
@@ -160,20 +176,11 @@ onMounted(() => load());
           <span class="muted-cell">{{ row.sortOrder ?? 0 }} · {{ row.status === "INACTIVE" ? "已停用" : "可用" }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="160" fixed="right">
-        <template #default>
-          <el-tooltip content="维护操作暂未开放" placement="top">
-            <span class="disabled-action-wrap">
-              <el-button type="primary" link :icon="Edit" disabled
-                >编辑</el-button
-              >
-            </span>
-          </el-tooltip>
-          <el-tooltip content="维护操作暂未开放" placement="top">
-            <span class="disabled-action-wrap">
-              <el-button type="danger" link disabled>停用/删除</el-button>
-            </span>
-          </el-tooltip>
+      <el-table-column label="操作" width="230" fixed="right">
+        <template #default="{ row }">
+          <el-button type="primary" link :disabled="mutationBusy" @click="openEditor(row)">编辑</el-button>
+          <el-button link :disabled="mutationBusy" @click="changeCategory(row)">{{ row.status === 'ACTIVE' ? '停用' : '启用' }}</el-button>
+          <el-button type="danger" link :disabled="mutationBusy" @click="changeCategory(row, true)">删除</el-button>
         </template>
       </el-table-column>
       <template #empty>
@@ -230,6 +237,7 @@ onMounted(() => load());
     </p>
   </section>
 
+  <CategoryFormDialog :visible="editorVisible" :category="editing" :submit-request="saveCategory" :refresh-request="refreshCategory" @refreshed="editing=$event" @close="editorVisible=false" @saved="savedCategory" @conflict="load()" />
   <CategoryFormDialog
     :visible="fixtureVisible"
     :category="fixtureCategory"

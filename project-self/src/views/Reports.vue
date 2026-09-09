@@ -1,14 +1,20 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onBeforeUnmount, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import { RefreshRight, Search } from "@element-plus/icons-vue";
 import ReportActionDialog from "@/components/reports/ReportActionDialog.vue";
 import { REPORT_ACTIONS } from "@/features/reports/reportForm";
+import http from "@/http";
 import { useOverlayLock } from "@/composables/useOverlayLock";
 
 const route = useRoute();
 const fixture = import.meta.env.DEV && route.path === "/fixtures/reports";
-const apiReady = false;
+const apiReady = true;
+const serverRecords=ref([]), serverTotal=ref(0), audits=ref([]), detailError=ref('');
+let sequence=0, detailSequence=0;
+const evidenceUrls=ref({});
+function clearEvidence(){for(const url of Object.values(evidenceUrls.value)) URL.revokeObjectURL(url);evidenceUrls.value={}}
+onBeforeUnmount(()=>{sequence++;detailSequence++;clearEvidence()});
 const filters = reactive({ keyword: "", status: "", targetType: "", page: 1, size: 8 });
 const loading = ref(false), failed = ref(false), drawer = ref(false);
 const actionVisible = ref(false), action = ref(REPORT_ACTIONS.ACCEPT), actionTarget = ref(null);
@@ -31,12 +37,30 @@ const filtered = computed(() => {
   const keyword = filters.keyword.trim().toLowerCase();
   return fixtureReports.filter((item) => (!filters.status || item.status === filters.status) && (!filters.targetType || item.targetType === filters.targetType) && (!keyword || `${item.id} ${item.targetSummary}`.toLowerCase().includes(keyword)));
 });
-const records = computed(() => filtered.value.slice((filters.page-1)*filters.size, filters.page*filters.size));
-const total = computed(() => filtered.value.length);
+const records = computed(() => fixture ? filtered.value.slice((filters.page-1)*filters.size, filters.page*filters.size) : serverRecords.value);
+const total = computed(() => fixture ? filtered.value.length : serverTotal.value);
 
-function search(){filters.page=1;}
+async function load() {
+ if(fixture)return;
+ const ticket=++sequence;loading.value=true;failed.value=false;
+ try {const {data}=await http.get('/api/admin/reports',{params:{...filters, status:filters.status||undefined,targetType:filters.targetType||undefined}});if(ticket===sequence){serverRecords.value=data.records;serverTotal.value=data.total}}
+ catch {if(ticket===sequence)failed.value=true} finally{if(ticket===sequence)loading.value=false}
+}
+function search(){filters.page=1;load();}
 function reset(){filters.keyword="";filters.status="";filters.targetType="";search();}
-function show(row){detail.value=row;drawer.value=true;}
+async function show(row){
+ clearEvidence();detail.value=null;audits.value=[];detailError.value='';drawer.value=true;
+ if(fixture){detail.value=row;return}
+ const ticket=++detailSequence;
+ try{const [{data:record},{data:events}]=await Promise.all([http.get(`/api/admin/reports/${row.id}`),http.get(`/api/admin/reports/${row.id}/audits`,{params:{size:100}})]);if(ticket===detailSequence){detail.value=record;audits.value=events.records}}
+ catch{if(ticket===detailSequence)detailError.value='详情读取失败，请关闭后重试'}
+}
+async function viewEvidence(evidence){
+ const id=detail.value?.id,ticket=detailSequence;
+ try{const blob=await http.get(`/api/admin/reports/${id}/evidence/${evidence.id}/content`,{responseType:'blob'});if(ticket!==detailSequence || !drawer.value)return; if(evidenceUrls.value[evidence.id])URL.revokeObjectURL(evidenceUrls.value[evidence.id]);evidenceUrls.value[evidence.id]=URL.createObjectURL(blob)}catch{detailError.value='证据读取失败或已不可访问'}
+}
+const refreshReport=async id=>(await http.get(`/api/admin/reports/${id}`)).data;
+const submitReport=(payload,report,action)=>http.post(`/api/admin/reports/${report.id}/${action===REPORT_ACTIONS.ACCEPT?'accept':'decision'}`,payload);
 function openAction(row,nextAction){actionTarget.value=row;action.value=nextAction;captured.value="";actionVisible.value=true;}
 function fixtureError(status){const error=new Error("fixture");error.status=status;return error;}
 function submitFixture(payload){
@@ -47,7 +71,7 @@ function submitFixture(payload){
   if(outcome.value==="pending") return new Promise((resolve)=>{pendingFinish.value=()=>resolve({fixture:true,payload});});
   return Promise.resolve({fixture:true,payload});
 }
-function saved({payload}){captured.value=`已捕获请求体：${JSON.stringify(payload)}；未调用 API，未改变举报状态。`;actionVisible.value=false;pendingFinish.value=null;}
+function saved({payload}){if(!fixture){actionVisible.value=false;load();if(drawer.value)show(actionTarget.value);return;}captured.value=`已捕获请求体：${JSON.stringify(payload)}；未调用 API，未改变举报状态。`;actionVisible.value=false;pendingFinish.value=null;}
 function finishPending(){pendingFinish.value?.();pendingFinish.value=null;}
 async function refreshFixture(id){
   conflictRefreshes.value+=1;
@@ -58,18 +82,18 @@ const statusLabel=(value)=>({SUBMITTED:"待受理",IN_REVIEW:"处理中",RESOLVE
 const statusType=(value)=>({SUBMITTED:"warning",IN_REVIEW:"primary",RESOLVED:"success"})[value]||"info";
 const decisionLabel=(value)=>({UPHELD:"举报成立",DISMISSED:"举报不成立"})[value]||"尚未处理";
 const dateTime=(value)=>value?.replace("T"," ").replace("Z"," UTC")||"—";
-onMounted(()=>{ if(fixture) detail.value=fixtureReports[0]; });
+onMounted(()=>{ if(fixture) detail.value=fixtureReports[0]; else load(); });
 </script>
 
 <template>
-  <div class="page-heading reports-heading"><div><span class="eyebrow">TRUST &amp; SAFETY</span><h1>举报处理队列</h1><p>受理通用举报并保留处理理由；交换争议的业务后果不在本页面执行。</p></div><span class="count-pill">{{ fixture ? `夹具共 ${total} 条` : "后端待接入" }}</span></div>
-  <el-alert class="contract-alert" :title="fixture ? '开发组件夹具，不是正式举报队列' : '举报后端尚未实现'" :description="fixture ? '数据已匿名化且仅在开发路由中存在；提交只捕获请求体，不更新本地数组。' : 'A 尚未提供举报权限、持久化、证据授权和审计 API。正式页面不会请求不存在的接口，也不会显示伪成功。'" type="warning" :closable="false" show-icon />
+  <div class="page-heading reports-heading"><div><span class="eyebrow">TRUST &amp; SAFETY</span><h1>举报处理队列</h1><p>受理通用举报并保留处理理由；交换争议的业务后果不在本页面执行。</p></div><span class="count-pill">{{ fixture ? `夹具共 ${total} 条` : `共 ${total} 条` }}</span></div>
+  <el-alert class="contract-alert" :title="fixture ? '开发组件夹具，不是正式举报队列' : '举报受理与处理'" :description="fixture ? '数据已匿名化且仅在开发路由中存在；提交只捕获请求体，不更新本地数组。' : '处理结果保存到服务器；举报成立不会自动下架物品或改变交换所有权。'" type="warning" :closable="false" show-icon />
   <section class="panel">
     <form class="filter-bar reports-filter" @submit.prevent="search">
-      <el-input v-model="filters.keyword" aria-label="搜索举报" clearable placeholder="举报编号或目标摘要" :prefix-icon="Search" :disabled="!fixture" />
-      <el-select v-model="filters.status" aria-label="举报状态" clearable placeholder="全部状态" :disabled="!fixture"><el-option v-for="state in ['SUBMITTED','IN_REVIEW','RESOLVED']" :key="state" :label="statusLabel(state)" :value="state" /></el-select>
-      <el-select v-model="filters.targetType" aria-label="目标类型" clearable placeholder="全部目标" :disabled="!fixture"><el-option label="物品" value="ITEM" /></el-select>
-      <el-button type="primary" native-type="submit" :loading="loading" :disabled="!fixture">搜索</el-button><el-button :icon="RefreshRight" :disabled="!fixture" @click="reset">重置</el-button>
+      <el-input v-model="filters.keyword" aria-label="搜索举报" clearable placeholder="举报编号或目标摘要" :prefix-icon="Search" :disabled="loading" />
+      <el-select v-model="filters.status" aria-label="举报状态" clearable placeholder="全部状态" :disabled="loading"><el-option v-for="state in ['SUBMITTED','IN_REVIEW','RESOLVED']" :key="state" :label="statusLabel(state)" :value="state" /></el-select>
+      <el-select v-model="filters.targetType" aria-label="目标类型" clearable placeholder="全部目标" :disabled="loading"><el-option label="物品" value="ITEM" /></el-select>
+      <el-button type="primary" native-type="submit" :loading="loading" :disabled="loading">搜索</el-button><el-button :icon="RefreshRight" :disabled="loading" @click="reset">重置</el-button>
     </form>
     <el-alert v-if="failed" title="举报读取失败，当前列表未被替换。" type="error" :closable="false" show-icon />
     <el-table :data="records" v-loading="loading" row-key="id" style="width:100%">
@@ -81,13 +105,13 @@ onMounted(()=>{ if(fixture) detail.value=fixtureReports[0]; });
       <el-table-column label="操作" width="215" fixed="right"><template #default="{row}"><el-button type="primary" link @click="show(row)">详情</el-button><el-button v-if="row.status==='SUBMITTED'" type="primary" link @click="openAction(row,REPORT_ACTIONS.ACCEPT)">受理</el-button><el-button v-if="row.status==='IN_REVIEW'" type="danger" link @click="openAction(row,REPORT_ACTIONS.DECIDE)">处理</el-button></template></el-table-column>
       <template #empty><el-empty :description="apiReady ? '没有符合条件的举报' : '举报 API 待 A 实现，正式队列未开放'" :image-size="72" /></template>
     </el-table>
-    <div class="pagination-row"><span>长文本仅按文本渲染；证据不接受服务端路径或任意外链</span><el-pagination v-model:current-page="filters.page" :page-size="filters.size" :total="total" :pager-count="5" layout="prev, pager, next" background :disabled="!fixture" /></div>
+    <div class="pagination-row"><span>长文本仅按文本渲染；证据不接受服务端路径或任意外链</span><el-pagination v-model:current-page="filters.page" @current-change="load" :page-size="filters.size" :total="total" :pager-count="5" layout="prev, pager, next" background :disabled="loading" /></div>
   </section>
   <section v-if="fixture" class="panel fixture-panel"><div class="section-heading"><div><span class="eyebrow">LOCAL COMPONENT FIXTURE</span><h2>受理与处理错误恢复</h2><p>切换响应以检查防重入、权限失败和 409 回读。</p></div><el-tag type="warning" round>非正式入口</el-tag></div><div class="fixture-controls"><el-select v-model="outcome" aria-label="举报夹具响应场景"><el-option label="捕获请求体（不写入）" value="preview"/><el-option label="409 冲突并回读" value="conflict"/><el-option label="403 权限不足" value="forbidden"/><el-option label="请求失败" value="failure"/><el-option label="保持处理中（验证防重入）" value="pending"/></el-select><el-button :disabled="!records[0]" @click="openAction(fixtureReports[0],REPORT_ACTIONS.ACCEPT)">受理夹具</el-button><el-button type="danger" @click="openAction(fixtureReports[1],REPORT_ACTIONS.DECIDE)">处理夹具</el-button></div><el-alert v-if="captured" :title="captured" type="info" :closable="false"/><p v-if="conflictRefreshes" class="fixture-note">409 已回读 {{ conflictRefreshes }} 次；未覆盖服务端结果，也未自动重试提交。</p></section>
   <el-drawer v-model="drawer" :lock-scroll="false" title="举报、目标与证据详情" size="min(600px, 100vw)" destroy-on-close>
-    <template v-if="detail"><div class="detail-tags"><el-tag>{{ detail.targetType }}</el-tag><el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag><el-tag :type="detail.targetAvailable?'success':'danger'">{{ detail.targetAvailable?'目标可访问':'目标已失效' }}</el-tag></div><h2>{{ detail.targetSummary }}</h2><dl class="detail-data"><div><dt>举报编号</dt><dd>#{{ detail.id }}</dd></div><div><dt>并发版本</dt><dd>{{ detail.version }}</dd></div><div><dt>提交人</dt><dd>{{ detail.reporterDisplayName }}</dd></div><div><dt>提交时间</dt><dd>{{ dateTime(detail.createdAt) }}</dd></div><div><dt>受理人</dt><dd>{{ detail.acceptedBy?.displayName||'未受理' }}</dd></div><div><dt>受理时间</dt><dd>{{ dateTime(detail.acceptedAt) }}</dd></div></dl><h3>举报理由</h3><p class="long-text">{{ detail.reason }}</p><h3>授权证据</h3><el-empty v-if="!detail.evidence.length" description="未提交证据" :image-size="56"/><div v-for="evidence in detail.evidence" :key="evidence.id" class="evidence-card"><strong>{{ evidence.displayName }}</strong><small>{{ evidence.contentType||'类型不可用' }} · {{ evidence.size ? `${evidence.size} bytes`:'大小不可用' }}</small><p v-if="evidence.text" class="long-text">{{ evidence.text }}</p><el-alert v-else-if="evidence.accessStatus!=='AVAILABLE'" title="证据已失效或当前账号不可访问" type="warning" :closable="false"/><el-button v-else disabled>受保护内容端点待 A 实现</el-button></div><h3>处理结果</h3><dl class="detail-data"><div><dt>决定</dt><dd>{{ decisionLabel(detail.decision) }}</dd></div><div><dt>处理人</dt><dd>{{ detail.decidedBy?.displayName||'—' }}</dd></div><div><dt>处理时间</dt><dd>{{ dateTime(detail.decidedAt) }}</dd></div><div class="detail-wide"><dt>处理理由</dt><dd class="long-text">{{ detail.decisionReason||'尚未处理' }}</dd></div></dl><h3>处理审计（组件夹具）</h3><div v-for="audit in fixtureAudits[detail.id] || []" :key="audit.id" class="audit-event"><strong>{{ audit.action }} · {{ audit.actor }}</strong><p>{{ audit.previousStatus || '新举报' }} → {{ audit.newStatus }} · v{{ audit.previousVersion ?? '—' }} → v{{ audit.newVersion }}</p><p class="long-text">{{ audit.reason }}</p><small>{{ dateTime(audit.createdAt) }}</small></div><el-alert v-if="!fixture" title="审计端点待 A 实现" type="info" :closable="false" /></template>
+    <el-alert v-if="detailError" :title="detailError" type="error"/><template v-if="detail"><div class="detail-tags"><el-tag>{{ detail.targetType }}</el-tag><el-tag :type="statusType(detail.status)">{{ statusLabel(detail.status) }}</el-tag><el-tag :type="detail.targetAvailable?'success':'danger'">{{ detail.targetAvailable?'目标可访问':'目标已失效' }}</el-tag></div><h2>{{ detail.targetSummary }}</h2><dl class="detail-data"><div><dt>举报编号</dt><dd>#{{ detail.id }}</dd></div><div><dt>并发版本</dt><dd>{{ detail.version }}</dd></div><div><dt>提交人</dt><dd>{{ detail.reporterDisplayName }}</dd></div><div><dt>提交时间</dt><dd>{{ dateTime(detail.createdAt) }}</dd></div><div><dt>受理人</dt><dd>{{ detail.acceptedBy?.displayName||'未受理' }}</dd></div><div><dt>受理时间</dt><dd>{{ dateTime(detail.acceptedAt) }}</dd></div></dl><h3>举报理由</h3><p class="long-text">{{ detail.reason }}</p><h3>授权证据</h3><el-empty v-if="!detail.evidence.length" description="未提交证据" :image-size="56"/><div v-for="evidence in detail.evidence" :key="evidence.id" class="evidence-card"><strong>{{ evidence.displayName }}</strong><small>{{ evidence.contentType||'类型不可用' }} · {{ evidence.size ? `${evidence.size} bytes`:'大小不可用' }}</small><p v-if="evidence.text" class="long-text">{{ evidence.text }}</p><el-alert v-else-if="evidence.accessStatus!=='AVAILABLE'" title="证据已失效或当前账号不可访问" type="warning" :closable="false"/><template v-else><el-button :disabled="fixture" @click="viewEvidence(evidence)">查看证据</el-button><img v-if="evidenceUrls[evidence.id]" :src="evidenceUrls[evidence.id]" alt="举报证据" style="max-width:100%" /></template></div><h3>处理结果</h3><dl class="detail-data"><div><dt>决定</dt><dd>{{ decisionLabel(detail.decision) }}</dd></div><div><dt>处理人</dt><dd>{{ detail.decidedBy?.displayName||'—' }}</dd></div><div><dt>处理时间</dt><dd>{{ dateTime(detail.decidedAt) }}</dd></div><div class="detail-wide"><dt>处理理由</dt><dd class="long-text">{{ detail.decisionReason||'尚未处理' }}</dd></div></dl><h3>处理审计</h3><div v-for="audit in (fixture ? fixtureAudits[detail.id] || [] : audits)" :key="audit.id" class="audit-event"><strong>{{ audit.action }} · {{ audit.actor?.displayName || audit.actor }}</strong><p>{{ audit.previousStatus || '新举报' }} → {{ audit.newStatus }} · v{{ audit.previousVersion ?? '—' }} → v{{ audit.newVersion }}</p><p class="long-text">{{ audit.reason }}</p><small>{{ dateTime(audit.createdAt) }}</small></div></template>
   </el-drawer>
-  <ReportActionDialog :visible="actionVisible" :report="actionTarget" :action="action" :fixture="fixture" :submit-request="fixture?submitFixture:null" :refresh-request="fixture?refreshFixture:null" @close="actionVisible=false" @saved="saved" @conflict="()=>{}" @refreshed="actionTarget=$event"><template #default/><template #fixture-controls><el-button v-if="outcome==='pending'" :disabled="!pendingFinish" @click="finishPending">完成夹具请求</el-button></template></ReportActionDialog>
+  <ReportActionDialog :visible="actionVisible" :report="actionTarget" :action="action" :fixture="fixture" :submit-request="fixture?submitFixture:submitReport" :refresh-request="fixture?refreshFixture:refreshReport" @close="actionVisible=false" @saved="saved" @conflict="()=>{}" @refreshed="actionTarget=$event"><template #default/><template #fixture-controls><el-button v-if="outcome==='pending'" :disabled="!pendingFinish" @click="finishPending">完成夹具请求</el-button></template></ReportActionDialog>
 </template>
 
 <style scoped>

@@ -52,3 +52,10 @@ test('an obsolete route guard cannot clear a replacement session after refresh c
   const pending=guard({meta:{title:'Items'},fullPath:'/items'});auth.token='session-b';rejectRefresh(new Error('session replaced'));
   assert.equal(await pending,false);assert.equal(cleared,false);
 });
+
+test('private evidence remains binary and is discarded after session replacement',async()=>{
+  const h=harness(), config=h.request({headers:{},responseType:'blob'}), data=new Blob(['test-image']);
+  assert.equal(h.success({config,data}),data);
+  h.setToken('session-b');
+  await assert.rejects(h.success({config,data}),e=>e.cancelled);
+});
