@@ -62,7 +62,8 @@ class FavoritesIntegrationTest {
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id=?", itemId);
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item WHERE id=?", itemId);
         for (long userId : userIds) {
-            jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?", userId);
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",userId);
+            jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",userId);
             jdbc.update("DELETE FROM cl_user WHERE id=?", userId);
         }
     }
@@ -95,7 +96,7 @@ class FavoritesIntegrationTest {
         call("PUT", favorite(first), viewer.token(), null, 200);
         call("PUT", favorite(first), owner.token(), null, 200);
         call("PUT", favorite(second), owner.token(), null, 200);
-        jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?", owner.id());
+        jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?", owner.id());
         assertEquals(1, page(viewer.token(), 1, 12).path("total").asInt());
         assertEquals(2, page(owner.token(), 1, 12).path("total").asInt());
         call("DELETE", favorite(first), owner.token(), null, 200);

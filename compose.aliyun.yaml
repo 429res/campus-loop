@@ -19,7 +19,7 @@ services:
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1024m"
     logging: *log
   web:
-    image: campus-loop-web:4e09367-test4
+    image: campus-loop-web:${CAMPUS_WEB_IMAGE_TAG:-4e09367-test4}
     mem_limit: 512m
     volumes:
       - ./deploy/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro

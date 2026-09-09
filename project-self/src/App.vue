@@ -1,4 +1,5 @@
 <script setup>
+import {canVisit} from "@/common/permissions";
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "@/stores/auth";
@@ -27,7 +28,7 @@ const route = useRoute(),
   auth = useAuth();
 const menuOpen = ref(false),
   dark = ref(document.documentElement.dataset.theme === "dark");
-const links = [
+const allLinks = [
   { path: "/", label: "循环概览", icon: DataBoard },
   { path: "/items", label: "物品审核", icon: Box },
   { path: "/categories", label: "分类维护", icon: CollectionTag },
@@ -38,13 +39,14 @@ const links = [
   { path: "/reports", label: "举报队列", icon: Flag },
 
   { path: "/exchanges", label: "交换记录", icon: Sort },
-  { path: "/planned", label: "后续业务", icon: Grid },
-  { path: "/controls", label: "控件实验室", icon: MagicStick },
+  { path: "/planned", label: "运营中心", icon: Grid },
+  ...(import.meta.env.DEV ? [{ path: "/controls", label: "控件实验室", icon: MagicStick }] : []),
 ];
+const links = computed(()=>allLinks.filter(link=>canVisit(auth.user,link.path)));
 const activeIndex = computed(() =>
   Math.max(
     0,
-    links.findIndex((x) => x.path === route.path),
+    links.value.findIndex((x) => x.path === route.path),
   ),
 );
 function toggleTheme() {

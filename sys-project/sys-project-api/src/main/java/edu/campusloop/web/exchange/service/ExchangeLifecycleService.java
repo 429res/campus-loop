@@ -27,12 +27,14 @@ public class ExchangeLifecycleService {
     private final DemandMapper demands;
     private final ItemMapper items;
     private final ObjectMapper json;
+    private final ExchangeResolutionMapper resolutions;
+    private final edu.campusloop.web.notification.service.NotificationService notifications;
     private final ExchangeLifecycleRules rules=new ExchangeLifecycleRules();
     private enum Operation { CONFIRM, CANCEL, EXPIRE, HANDED_OFF, RECEIVED, DISPUTE }
     public ExchangeLifecycleService(ExchangeTransactionExecutor transactions,ExchangeDatabaseClock clock,ExchangeLifecycleMapper writes,
-        ExchangeMapper exchanges,UserMapper users,DemandMapper demands,ItemMapper items,ObjectMapper json) {
+        ExchangeMapper exchanges,UserMapper users,DemandMapper demands,ItemMapper items,ObjectMapper json,ExchangeResolutionMapper resolutions,edu.campusloop.web.notification.service.NotificationService notifications) {
         this.transactions=transactions;this.clock=clock;this.writes=writes;this.exchanges=exchanges;this.users=users;
-        this.demands=demands;this.items=items;this.json=json;
+        this.demands=demands;this.items=items;this.json=json;this.resolutions=resolutions;this.notifications=notifications;
     }
     public long confirm(long actor,long id,int version) { change(actor,id,version,null,Operation.CONFIRM);return id; }
     public long cancel(long actor,long id,int version,String reason) { change(actor,id,version,reason,Operation.CANCEL);return id; }
@@ -116,7 +118,36 @@ public class ExchangeLifecycleService {
         } else if(decision.releaseExchangeId()!=null) for(var item:lockedItems) {
             if(writes.release(item.getId(),id)!=1 || writes.restore(item.getId(),item.getOwnerId(),item.getVersion())!=1) throw incomplete();
         }
+        for(var person:people) if(!Objects.equals(actor,person.getUserId())) notifications.send(person.getUserId(),"EXCHANGE","交换进度更新",switch(row.getStatus()) {case "READY"->"交换已就绪，请查看交接进度。";case "COMPLETED"->"交换已完成，物品履历已更新。";case "DISPUTED"->"有参与者提出争议，交接已暂停。";case "CANCELLED"->"交换已取消。";case "EXPIRED"->"交换已超时，物品已恢复可交换。";default->"有参与者确认了交换邀请。";},"/pages/exchanges/exchanges?id="+id,"EXCHANGE:"+id+":"+(current.version()+1));
         return true;
+    }
+    public long resolve(long actor,long id,edu.campusloop.web.exchange.dto.ResolveDisputeRequest request) {
+        if(id<1)throw new ApiException(400,"交换ID不正确");
+        return transactions.execute("争议处理",()->{
+            var row=writes.lock(id);if(row==null)throw new ApiException(404,"交换不存在");
+            var people=exchanges.participants(List.of(id));
+            var userIds=new TreeSet<Long>();people.forEach(p->userIds.add(p.getUserId()));userIds.add(actor);
+            for(long userId:userIds){var user=users.selectByIdForUpdate(userId);if(user==null)throw incomplete();if(userId==actor)edu.campusloop.auth.AdminPermissions.require(user,"EXCHANGES");}
+            String reason=request.reason().trim();
+            if(reason.isEmpty()||reason.length()>1000||request.version()<0||request.version()==Integer.MAX_VALUE||!Set.of("RESUME","CANCEL").contains(request.decision()))throw new ApiException(400,"争议处理参数不正确");
+            var previous=resolutions.previous(id,request.version());
+            if(previous!=null){if(previous.actorUserId()==actor&&previous.decision().equals(request.decision())&&previous.reason().equals(reason)&&previous.returnConfirmed()==request.returnConfirmed())return id;throw new ApiException(409,"此版本已有其他处理决定");}
+            if(!supported(row)||!"DISPUTED".equals(row.getStatus())||!row.getVersion().equals(request.version()))throw new ApiException(409,"争议状态已更新，请刷新后重试");
+            snapshot(row,people);
+            if("CANCEL".equals(request.decision())&&!request.returnConfirmed())throw new ApiException(400,"取消前需要确认全部物品已归还原主");
+            if("RESUME".equals(request.decision())&&request.returnConfirmed())throw new ApiException(400,"恢复交接不接受归还确认");
+            var demandIds=writes.demandIds(id);if(demandIds.size()!=people.size())throw incomplete();
+            for(long demandId:demandIds)if(demands.selectForUpdate(demandId)==null)throw incomplete();
+            var offers=lockOffers(row,people);if(offers.stream().anyMatch(i->i.getVersion()==Integer.MAX_VALUE))throw incomplete();
+            var now=clock.now();boolean cancel="CANCEL".equals(request.decision());String next=cancel?"CANCELLED":"READY";
+            var deadline=cancel?row.getExpiresAt():now.plusDays(1);
+            if(resolutions.resolve(id,row.getVersion(),next,deadline)!=1)throw incomplete();
+            if(cancel){for(var item:offers)if(writes.release(item.getId(),id)!=1||writes.restore(item.getId(),item.getOwnerId(),item.getVersion())!=1)throw incomplete();}
+            else if(resolutions.extend(id,deadline)!=offers.size())throw incomplete();
+            if(resolutions.append(id,actor,request.decision(),reason,request.returnConfirmed(),row.getVersion(),now)!=1||writes.event(id,actor,cancel?"ADMIN_CANCELLED":"DISPUTE_RESUMED","DISPUTED",next,row.getVersion(),reason,now)!=1)throw incomplete();
+            for(var person:people)notifications.send(person.getUserId(),"DISPUTE",cancel?"争议已处理，交换已取消":"争议已处理，可以继续交接",reason,"/pages/exchanges/exchanges?id="+id,"EXCHANGE:"+id+":"+(row.getVersion()+1));
+            return id;
+        });
     }
     private Decision decide(Operation operation,Snapshot current,List<ExchangeParticipantRecord> people,ExchangeRecord row,Long actor,Integer version,String reason,LocalDateTime now) {
         Instant utc=now.toInstant(ZoneOffset.UTC);

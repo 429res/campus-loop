@@ -1,12 +1,16 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from "vue";
 import { RefreshRight, Search, UserFilled } from "@element-plus/icons-vue";
+import UserAccessDialog from "@/components/users/UserAccessDialog.vue";
 import UserStatusDialog from "@/components/users/UserStatusDialog.vue";
 import { useOverlayLock } from "@/composables/useOverlayLock";
 import { useAuth } from "@/stores/auth";
 import http from "@/http";
 
 const auth = useAuth();
+const accessVisible=ref(false),accessTarget=ref(null);
+const canAssign=computed(()=>auth.user?.permissions?.includes("ALL"));
+function openAccess(user){accessTarget.value=user;accessVisible.value=true}
 const filters = reactive({ keyword: "", role: null, status: null, page: 1, size: 12 });
 const users = ref([]);
 const total = ref(0);
@@ -115,7 +119,7 @@ async function submitStatus(payload, user) {
 
 async function handleSaved({ result }) {
   statusVisible.value = false;
-  resultNotice.value = `账号 ${result.username} 已由服务端确认为${statusLabel(result.status)}。`;
+  resultNotice.value = `账号 ${result.username} 已${statusLabel(result.status)}。`;
   await loadUsers({ preservePage: true });
   const refreshed = users.value.find((user) => user.id === result.id);
   detail.value = refreshed || result;
@@ -143,7 +147,7 @@ function changeAuditPage(page) {
 
 const statusLabel = (status) =>
   ({ ACTIVE: "启用", DISABLED: "停用" })[status] || status;
-const roleLabel = (role) => ({ ADMIN: "管理员", USER: "普通用户" })[role] || role;
+const roleLabel = (role,permissions=[]) => role==='ADMIN'&&permissions.includes('ALL')?'超级管理员':({ ADMIN: "管理员", USER: "普通用户" })[role] || role;
 function formatTime(value) {
   if (!value) return "—";
   const source = /(?:Z|[+-]\d{2}:\d{2})$/.test(value) ? value : `${value}Z`;
@@ -160,8 +164,8 @@ onMounted(() => loadUsers());
   <div class="page-heading users-heading">
     <div>
       <span class="eyebrow">ACCOUNT DIRECTORY</span>
-      <h1>账号查询与启停</h1>
-      <p>查询安全公开字段；权限、并发和管理员保护始终由服务端裁定。</p>
+      <h1>账号管理</h1>
+      <p>管理平台账号、状态与管理权限。</p>
     </div>
     <span class="count-pill">本页启用 {{ activeCount }} · 共 {{ total }} 个账号</span>
   </div>
@@ -218,7 +222,7 @@ onMounted(() => loadUsers());
       </el-table-column>
       <el-table-column label="角色" min-width="110">
         <template #default="{ row }">
-          <el-tag :type="row.role === 'ADMIN' ? 'warning' : 'info'" effect="light" round>{{ roleLabel(row.role) }}</el-tag>
+          <el-tag :type="row.role === 'ADMIN' ? 'warning' : 'info'" effect="light" round>{{ roleLabel(row.role,row.permissions) }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="状态" min-width="110">
@@ -231,7 +235,7 @@ onMounted(() => loadUsers());
       </el-table-column>
       <el-table-column label="操作" width="200" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="showDetails(row)">详情</el-button>
+          <el-button type="primary" link @click="showDetails(row)">详情</el-button><el-button v-if="canAssign&&row.id!==auth.user?.id" type="primary" link @click="openAccess(row)">权限</el-button>
           <el-button
             :type="row.status === 'ACTIVE' ? 'danger' : 'success'"
             link
@@ -245,7 +249,7 @@ onMounted(() => loadUsers());
     </el-table>
 
     <div class="pagination-row">
-      <span>仅展示接口允许的账号安全字段</span>
+      <span></span>
       <el-pagination
         v-model:current-page="filters.page"
         :page-size="filters.size"
@@ -261,7 +265,7 @@ onMounted(() => loadUsers());
   <el-drawer
     v-model="drawerVisible"
     :lock-scroll="false"
-    title="账号公开资料与启停记录"
+    title="账号资料与启停记录"
     size="min(620px, 100vw)"
     destroy-on-close
   >
@@ -277,9 +281,9 @@ onMounted(() => loadUsers());
         </div>
         <dl class="detail-data">
           <div><dt>账号编号</dt><dd>#{{ detail.id }}</dd></div>
-          <div><dt>角色</dt><dd>{{ roleLabel(detail.role) }}</dd></div>
+          <div><dt>角色</dt><dd>{{ roleLabel(detail.role,detail.permissions) }}</dd></div>
           <div><dt>状态</dt><dd>{{ statusLabel(detail.status) }}</dd></div>
-          <div><dt>并发版本</dt><dd>{{ detail.version }}</dd></div>
+          <div><dt>管理权限</dt><dd>{{ detail.role==='ADMIN' ? (detail.permissions?.includes('ALL') ? '超级管理员' : '分模块授权') : '—' }}</dd></div>
           <div class="detail-wide"><dt>创建时间</dt><dd>{{ formatTime(detail.createdAt) }}</dd></div>
         </dl>
       </section>
@@ -291,12 +295,7 @@ onMounted(() => loadUsers());
           @click="openStatus(detail)"
         >{{ detail.status === "ACTIVE" ? "停用此账号" : "恢复启用" }}</el-button>
       </div>
-      <el-alert
-        title="当前账号自停用、最后可用管理员及并发版本保护均由服务端验证。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
+
 
       <div class="audit-heading">
         <h3>启停记录</h3>
@@ -330,6 +329,7 @@ onMounted(() => loadUsers());
     </template>
   </el-drawer>
 
+  <UserAccessDialog v-model="accessVisible" :user="accessTarget" @saved="loadUsers()"/>
   <UserStatusDialog
     :visible="statusVisible"
     :user="statusTarget"

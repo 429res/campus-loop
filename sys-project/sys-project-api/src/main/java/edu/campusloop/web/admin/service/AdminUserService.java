@@ -52,6 +52,7 @@ public class AdminUserService {
             throw new ApiException(401,"账号不可用");
         if(operatorId==targetId && "DISABLED".equals(request.status())) throw new ApiException(409,"不能停用当前管理员自己的账号");
 
+        edu.campusloop.auth.AdminPermissions.require(operator,"USERS");
         User target=admins.stream().filter(user->Objects.equals(user.getId(),targetId)).findFirst().orElseGet(()->users.selectByIdForUpdate(targetId));
         if(target==null) throw new ApiException(404,"用户不存在");
         if(!Objects.equals(target.getVersion(),request.version())) throw new ApiException(409,"账号状态已变化，请刷新后重试");
@@ -60,6 +61,10 @@ public class AdminUserService {
             && admins.stream().filter(user->"ACTIVE".equals(user.getStatus()) && user.getPasswordHash()!=null).count()<=1)
             throw new ApiException(409,"不能停用最后一个可用管理员");
 
+        if("DISABLED".equals(request.status()) && edu.campusloop.auth.AdminPermissions.has(target,"ALL")
+            && admins.stream().filter(u->"ACTIVE".equals(u.getStatus())&&edu.campusloop.auth.AdminPermissions.has(u,"ALL")).count()<=1)
+            throw new ApiException(409,"不能停用最后一个最高权限管理员");
+        if(edu.campusloop.auth.AdminPermissions.has(target,"ALL")&&!edu.campusloop.auth.AdminPermissions.has(operator,"ALL"))throw new ApiException(403,"不能管理最高权限管理员");
         String previousStatus=target.getStatus();int previousVersion=target.getVersion();
         int updated=users.updateStatusIfVersion(targetId,previousStatus,request.status(),previousVersion);
         if(updated!=1) throw new ApiException(409,"账号状态已变化，请刷新后重试");
@@ -90,7 +95,7 @@ public class AdminUserService {
     }
 
     private AdminUserView view(User user) {
-        return new AdminUserView(user.getId(),user.getUsername(),user.getDisplayName(),user.getRole(),user.getStatus(),user.getVersion(),user.getCreatedAt());
+        return new AdminUserView(user.getId(),user.getUsername(),user.getDisplayName(),user.getRole(),user.getStatus(),user.getVersion(),user.getCreatedAt(),edu.campusloop.auth.AdminPermissions.of(user));
     }
     private void validatePage(int page,int size) {
         if(page<1 || size<1 || size>100) throw new ApiException(400,"分页参数不正确");

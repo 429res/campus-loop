@@ -1,3 +1,4 @@
+import {canVisit,firstAllowed} from "@/common/permissions";
 import { createRouter, createWebHistory } from "vue-router";
 import { useAuth } from "@/stores/auth";
 const developmentRoutes = import.meta.env.DEV
@@ -86,7 +87,7 @@ const router = createRouter({
     {
       path: "/planned",
       component: () => import("@/views/Planned.vue"),
-      meta: { title: "后续业务" },
+      meta: { title: "运营中心" },
     },
     {path:"/history-verifications",component:()=>import("@/views/HistoryVerifications.vue"),meta:{title:"履历核验"}},
     ...developmentRoutes,
@@ -109,6 +110,7 @@ router.beforeEach(async (to) => {
       return { path: "/login", query: { redirect: to.fullPath } };
     }
   }
+  if(!canVisit(auth.user,to.path))return firstAllowed(auth.user);
   return true;
 });
 export default router;

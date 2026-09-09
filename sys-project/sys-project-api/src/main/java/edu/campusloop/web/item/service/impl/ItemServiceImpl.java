@@ -101,7 +101,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     }
     @Override @Transactional(isolation=Isolation.READ_COMMITTED)
     public ItemView edit(long ownerId,long id,EditItemRequest request) {
-        Item item=lockEditable(ownerId,id,request.version(),Set.of("AVAILABLE","PENDING_REVIEW","REJECTED"));
+        Item item=lockEditable(ownerId,id,request.version(),Set.of("AVAILABLE","PENDING_REVIEW","REJECTED","HIDDEN"));
         PublishItemRequest fields=request.fields();
         String image=validateFields(ownerId,fields);
         UpdateWrapper<Item> update=new UpdateWrapper<Item>()
@@ -116,6 +116,12 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     public ItemView withdraw(long ownerId,long id,WithdrawItemRequest request) {
         Item item=lockEditable(ownerId,id,request.version(),Set.of("AVAILABLE"));
         return advanceAndRead(item,new UpdateWrapper<Item>().set("status","HIDDEN"),"WITHDRAW");
+    }
+    @Override @Transactional(isolation=Isolation.READ_COMMITTED)
+    public ItemView relist(long ownerId,long id,WithdrawItemRequest request) {
+        Item item=lockEditable(ownerId,id,request.version(),Set.of("HIDDEN"));
+        categorySelection.requireActive(Arrays.asList(item.getCategoryId(),item.getWantedCategoryId()));
+        return advanceAndRead(item,new UpdateWrapper<Item>().set("status","PENDING_REVIEW").set("review_basis","UNREVIEWED"),"SUBMIT");
     }
     private Item requireOwned(Item item,long ownerId) {
         if(item==null) throw new ApiException(404,"物品不存在");

@@ -27,13 +27,14 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
     private final ItemMutationGuard itemGuard;
     private final ObjectMapper json;
     private final ExchangeDatabaseClock clock;
+    private final edu.campusloop.web.notification.service.NotificationService notifications;
 
     public DefaultExchangeCreationTransaction(ExchangeTransactionExecutor transaction, ExchangeCreationMapper writes,
         ExchangeCandidateMapper candidateItems, ExchangeCandidateReader candidates, UserMapper users,
-        DemandMapper demands, ItemMapper items, ItemMutationGuard itemGuard, ObjectMapper json, ExchangeDatabaseClock clock) {
+        DemandMapper demands, ItemMapper items, ItemMutationGuard itemGuard, ObjectMapper json, ExchangeDatabaseClock clock,edu.campusloop.web.notification.service.NotificationService notifications) {
         this.transaction=transaction;
         this.writes=writes; this.candidateItems=candidateItems; this.candidates=candidates; this.users=users;
-        this.demands=demands; this.items=items; this.itemGuard=itemGuard; this.json=json; this.clock=clock;
+        this.demands=demands; this.items=items; this.itemGuard=itemGuard; this.json=json; this.clock=clock;this.notifications=notifications;
     }
 
     @Override public long create(long initiatorId, ExchangeCreationCommand command) {
@@ -104,6 +105,7 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
             writes.hold(offer.id(),row.getId(),row.getExpiresAt());
             if (writes.reserve(offer.id(),offer.ownerId(),offer.version())!=1) throw stale();
         }
+        for(var flow:flows)if(flow.fromUserId()!=initiatorId)notifications.send(flow.fromUserId(),"EXCHANGE","收到新的交换邀请","有同学邀请你参与物品交换，请查看并确认。","/pages/exchanges/exchanges?id="+row.getId(),"EXCHANGE:"+row.getId()+":0");
         return row.getId();
     }
 

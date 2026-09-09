@@ -6,12 +6,12 @@ function harness(name,expose) {
   const requests=[],cache={},navigation=[],modals=[];
   const request=(url,body)=>new Promise((resolve,reject)=>requests.push({url,body,resolve,reject}));
   const uni={getStorageSync:()=>token,setStorageSync:(k,v)=>cache[k]=v,redirectTo:o=>navigation.push(o.url),navigateTo:o=>navigation.push(o.url),switchTab:o=>navigation.push(o.url),showToast:()=>{}};
-  const args={ref,reactive,computed,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>onLoad=fn,http:{get:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
+  const args={ref,reactive,computed,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>onLoad=fn,http:{get:(url,body)=>url==='/api/notifications/unread-count'?Promise.resolve(0):request(url,body),put:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
   const app=new Function(...Object.keys(args),script(name)+`;return {${expose}};`)(...Object.values(args));
   return {app,requests,cache,navigation,modals,setToken:v=>token=v,token:()=>token,options:o=>onLoad(o),hide:()=>hidden(),unload:()=>unloaded()};
 }
 const profile=()=>harness('profile','load,user,profileForm,saveProfile,passwordForm,changePassword,logout,profileUncertain');
-const user={id:1,displayName:'First user'};
+const user={id:1,displayName:'First user',version:0};
 async function loginProfile(h){const loading=h.app.load();h.requests.at(-1).resolve(user);await loading;}
 for(const token of ['session-b','']) test(`profile response cannot restore old identity after ${token?'account switch':'logout'}`,async()=>{
  const h=profile(),pending=h.app.load();h.setToken(token);h.requests[0].resolve(user);await pending;

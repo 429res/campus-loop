@@ -11,12 +11,19 @@ import { showAppModal } from '../../common/modal'
 const user = ref(null), loading = ref(false), error = ref('')
 const profileBusy = ref(false), profileError = ref(''), profileSuccess = ref(''), profileUncertain = ref(false)
 const passwordBusy = ref(false), passwordError = ref(''), showPasswordForm = ref(false)
-const profileForm = reactive({ displayName:'' })
+const profileForm = reactive({ displayName:'', avatarUrl:'', bio:'', campus:'', contact:'' })
+const avatarBusy=ref(false), unread=ref(0)
+const inbox=()=>uni.navigateTo({url:'/pages/notifications/notifications'})
+function chooseAvatar(){
+ if(avatarBusy.value||profileBusy.value||profileUncertain.value)return
+ const token=uni.getStorageSync(TOKEN_KEY)
+ uni.chooseImage({count:1,success:async result=>{avatarBusy.value=true;try{const uploaded=await http.upload(result.tempFilePaths[0]);if(sameSession(token))profileForm.avatarUrl=uploaded.url}catch(e){if(sameSession(token))profileError.value=e.message}finally{avatarBusy.value=false}}})
+}
 const passwordForm = reactive({ currentPassword:'', newPassword:'', confirmPassword:'' })
 let loadedToken = '', readSequence = 0
 const sameSession = token => !!token && token === uni.getStorageSync(TOKEN_KEY)
 function resetAccount() {
-  user.value = null; profileForm.displayName = ''; profileUncertain.value = false
+  user.value = null; for(const key of Object.keys(profileForm))profileForm[key]=''; unread.value=0; profileUncertain.value = false
   profileError.value = ''; profileSuccess.value = ''; passwordError.value = ''
   profileBusy.value = false; passwordBusy.value = false; clearPasswords(); showPasswordForm.value = false
 }
@@ -33,7 +40,7 @@ const demands = () => uni.navigateTo({url:'/pages/demands/demands'})
 
 function applyUser(value) {
   user.value = value
-  profileForm.displayName = value.displayName || ''
+  for(const key of Object.keys(profileForm))profileForm[key]=value[key]||''
   uni.setStorageSync(USER_KEY,value)
 }
 
@@ -47,7 +54,8 @@ async function load({ recovery = false } = {}) {
     const loaded = await http.get('/api/auth/me',{}, {silent:true})
     if (!sameSession(token) || current !== readSequence) return
     applyUser(loaded)
-    if (recovery) { profileUncertain.value = false; profileSuccess.value = '已从服务器重新读取当前资料。' }
+    if (recovery) { profileUncertain.value = false; profileSuccess.value = '资料已刷新。' }
+    http.get('/api/notifications/unread-count',{}, {silent:true}).then(value=>{if(sameSession(token)&&current===readSequence)unread.value=value}).catch(()=>{})
   } catch(e) {
     if (current !== readSequence || (token !== uni.getStorageSync(TOKEN_KEY) && e.status !== 401)) return
     if (e.status === 401 && uni.getStorageSync(TOKEN_KEY) && !sameSession(token)) return
@@ -64,17 +72,17 @@ async function saveProfile() {
   profileError.value = ''; profileSuccess.value = ''
   const displayName = profileForm.displayName.trim()
   if (!displayName || displayName.length > 64) { profileError.value = '显示名称须为 1–64 个字符'; return }
-  if (displayName === user.value.displayName) { profileSuccess.value = '显示名称没有变化。'; return }
+  if (avatarBusy.value) return
   profileBusy.value = true
   try {
-    const updated = await http.patch('/api/auth/me',{displayName},{silent:true,uncertainOnFailure:true})
+    const updated = await http.put('/api/account/profile',{...profileForm,displayName,version:user.value.version},{silent:true,uncertainOnFailure:true})
     if (!sameSession(token)) return
     applyUser(updated)
-    profileSuccess.value = '显示名称已保存并从服务器回读。'
+    profileSuccess.value = '资料已保存。'
   } catch(e) {
     if (token !== uni.getStorageSync(TOKEN_KEY) && (e.status !== 401 || uni.getStorageSync(TOKEN_KEY))) return
     profileError.value = e.uncertain ? '未收到服务器响应，保存结果无法确认。请先查询当前资料，不要直接重复提交。' : e.message
-    profileUncertain.value = !!e.uncertain
+    profileUncertain.value = !!e.uncertain || e.status===409
     if (e.status === 401) { user.value = null; login('session-expired') }
   } finally { if (loadedToken === token) profileBusy.value = false }
 }
@@ -152,14 +160,18 @@ onHide(() => { readSequence++; clearPasswords(); showPasswordForm.value = false 
     <view v-if="loading" class="cl-empty"><text class="cl-label">正在读取账号…</text></view>
     <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton><LoopButton class="cl-btn" @click="login('session-expired')">重新登录</LoopButton></view>
     <template v-else-if="user">
-      <view class="profile-card cl-panel"><view class="profile-avatar">{{ user.displayName?.slice(0,1) || '同' }}</view><view class="profile-copy"><text class="profile-name">{{ user.displayName }}</text><text class="cl-subtitle">@{{ user.username }} · {{ user.role === 'ADMIN' ? '管理员' : '校园用户' }}</text></view><LoopButton class="cl-btn" @click="logout">退出登录</LoopButton></view>
+      <view class="profile-card cl-panel"><view class="profile-avatar"><image v-if="user.avatarUrl" :src="user.avatarUrl" mode="aspectFill" style="width:100%;height:100%;border-radius:inherit"/><text v-else>{{ user.displayName?.slice(0,1) || '同' }}</text></view><view class="profile-copy"><text class="profile-name">{{ user.displayName }}</text><text class="cl-subtitle">@{{ user.username }} · {{ user.role === 'ADMIN' ? '管理员' : '校园用户' }}</text></view><LoopButton class="cl-btn" @click="logout">退出登录</LoopButton></view>
       <view class="account-grid">
         <form class="cl-panel cl-form" @submit="saveProfile">
           <view><text class="cl-section-title">个人资料</text></view>
           <view class="cl-field"><text class="cl-field-title">用户名</text><LoopInput class="cl-input" :model-value="user.username" aria-label="用户名（不可修改）" disabled /></view>
           <view class="cl-field"><text class="cl-field-title">显示名称</text><LoopInput v-model="profileForm.displayName" class="cl-input" aria-label="显示名称" :aria-invalid="!!profileError" maxlength="64" :disabled="profileBusy || profileUncertain" /></view>
+          <view class="cl-field"><text class="cl-field-title">头像</text><image v-if="profileForm.avatarUrl" :src="profileForm.avatarUrl" mode="aspectFill" style="width:64px;height:64px;border-radius:18px"/><view class="form-actions"><LoopButton class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="chooseAvatar">{{avatarBusy?'上传中…':'选择头像'}}</LoopButton><LoopButton v-if="profileForm.avatarUrl" class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="profileForm.avatarUrl=''">移除</LoopButton></view></view>
+          <view class="cl-field"><text class="cl-field-title">学校 / 校区</text><LoopInput v-model="profileForm.campus" class="cl-input" aria-label="学校或校区" maxlength="100" :disabled="profileBusy||profileUncertain" /></view>
+          <view class="cl-field"><text class="cl-field-title">个人简介</text><textarea v-model="profileForm.bio" class="cl-textarea" aria-label="个人简介" maxlength="300" :disabled="profileBusy||profileUncertain" /></view>
+          <view class="cl-field"><text class="cl-field-title">联系方式</text><LoopInput v-model="profileForm.contact" class="cl-input" aria-label="联系方式" maxlength="160" placeholder="仅自己可见" :disabled="profileBusy||profileUncertain" /></view>
           <text v-if="profileError" class="cl-error" role="alert">{{ profileError }}</text><text v-if="profileSuccess" class="cl-success" role="status">{{ profileSuccess }}</text>
-          <view class="form-actions"><LoopButton class="cl-btn cl-btn--primary" form-type="submit" :disabled="profileBusy || profileUncertain">{{ profileBusy ? '保存中…' : '保存显示名称' }}</LoopButton><LoopButton v-if="profileUncertain" class="cl-btn" :disabled="loading" @click="load({recovery:true})">查询当前资料</LoopButton></view>
+          <view class="form-actions"><LoopButton class="cl-btn cl-btn--primary" form-type="submit" :disabled="profileBusy || profileUncertain || avatarBusy">{{ profileBusy ? '保存中…' : '保存资料' }}</LoopButton><LoopButton v-if="profileUncertain" class="cl-btn" :disabled="loading" @click="load({recovery:true})">查询当前资料</LoopButton></view>
         </form>
         <view class="cl-panel password-panel">
           <view class="section-row"><view><text class="cl-section-title">账号密码</text></view><LoopButton class="cl-btn" :disabled="passwordBusy" @click="togglePasswordForm">{{ showPasswordForm ? '收起' : '修改密码' }}</LoopButton></view>
@@ -172,7 +184,7 @@ onHide(() => { readSequence++; clearPasswords(); showPasswordForm.value = false 
           </form>
         </view>
       </view>
-      <view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="publish"><view class="profile-action-icon"><LoopIcon name="plus" tone="primary"/></view><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="demands"><view class="profile-action-icon"><LoopIcon name="target" tone="primary"/></view><text class="profile-action-title">我的需求</text><text class="cl-hint">独立管理想要与可提供物品</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="favorites"><view class="profile-action-icon"><LoopIcon name="heart" tone="primary"/></view><text class="profile-action-title">我的收藏</text><text class="cl-hint">查看收藏的物品</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="exchanges"><view class="profile-action-icon"><LoopIcon name="exchange" tone="primary"/></view><text class="profile-action-title">我的交换</text><text class="cl-hint">查看交换进度</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="governance"><view class="profile-action-icon"><LoopIcon name="alert" tone="primary"/></view><text class="profile-action-title">举报与争议</text><text class="cl-hint">查看举报与处理进度</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton v-if="showDeveloperTools" class="cl-panel profile-action" @click="gallery"><view class="profile-action-icon"><LoopIcon name="grid" tone="primary"/></view><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton></view>
+      <view class="profile-actions"><LoopButton class="cl-panel profile-action" @click="inbox"><view class="profile-action-icon"><LoopIcon name="alert" tone="primary"/></view><text class="profile-action-title">消息通知 {{unread?`· ${unread} 条未读`:""}}</text><text class="cl-hint">交换邀请、审核结果和处理进度</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="publish"><view class="profile-action-icon"><LoopIcon name="plus" tone="primary"/></view><text class="profile-action-title">发布我的闲置</text><text class="cl-hint">物品与需求一起发布</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="demands"><view class="profile-action-icon"><LoopIcon name="target" tone="primary"/></view><text class="profile-action-title">我的需求</text><text class="cl-hint">独立管理想要与可提供物品</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="favorites"><view class="profile-action-icon"><LoopIcon name="heart" tone="primary"/></view><text class="profile-action-title">我的收藏</text><text class="cl-hint">查看收藏的物品</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="exchanges"><view class="profile-action-icon"><LoopIcon name="exchange" tone="primary"/></view><text class="profile-action-title">我的交换</text><text class="cl-hint">查看交换进度</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton class="cl-panel profile-action" @click="governance"><view class="profile-action-icon"><LoopIcon name="alert" tone="primary"/></view><text class="profile-action-title">举报与争议</text><text class="cl-hint">查看举报与处理进度</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton><LoopButton v-if="showDeveloperTools" class="cl-panel profile-action" @click="gallery"><view class="profile-action-icon"><LoopIcon name="grid" tone="primary"/></view><text class="profile-action-title">控件实验室</text><text class="cl-hint">共同维护的视觉与交互规范</text><LoopIcon class="profile-action-arrow" name="arrow" :size="18"/></LoopButton></view>
     </template>
     <view v-else class="cl-panel cl-empty"><LoopIcon name="user" tone="primary" :size="36"/><text>登录后管理个人资料</text><text class="cl-hint">登录后可查看自己的物品、需求和交换进度。</text><LoopButton class="cl-btn cl-btn--primary" @click="login()">登录</LoopButton></view>
     <view class="cl-section-heading"><text class="cl-section-title">我的物品</text><text class="cl-tag cl-tag--muted">审核进度</text></view><view class="cl-panel cl-empty"><LoopButton class="cl-btn" @click="myItems">查看我的物品</LoopButton><text class="cl-hint">查看物品状态和流转记录。</text></view>

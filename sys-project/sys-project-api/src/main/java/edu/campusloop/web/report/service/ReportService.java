@@ -33,13 +33,13 @@ public class ReportService {
     private final ReportMapper reports;private final ReportEvidenceMapper evidence;private final ReportAuditMapper audits;
     private final UserMapper users;private final ItemMapper items;private final UploadReferenceService references;
     private final LocalUploadService files;private final ReportTransactionExecutor transactions;private final ExchangeDatabaseClock clock;
-    private final ObjectMapper json;
+    private final ObjectMapper json;private final edu.campusloop.web.notification.service.NotificationService notifications;
 
     public ReportService(ReportMapper reports,ReportEvidenceMapper evidence,ReportAuditMapper audits,UserMapper users,
         ItemMapper items,UploadReferenceService references,LocalUploadService files,ReportTransactionExecutor transactions,
-        ExchangeDatabaseClock clock,ObjectMapper json) {
+        ExchangeDatabaseClock clock,ObjectMapper json,edu.campusloop.web.notification.service.NotificationService notifications) {
         this.reports=reports;this.evidence=evidence;this.audits=audits;this.users=users;this.items=items;
-        this.references=references;this.files=files;this.transactions=transactions;this.clock=clock;this.json=json;
+        this.references=references;this.files=files;this.transactions=transactions;this.clock=clock;this.json=json;this.notifications=notifications;
     }
 
     public ReportDetailView create(long actor,CreateReportCommand command) {
@@ -116,7 +116,7 @@ public class ReportService {
             LocalDateTime now=clock.now();
             if(reports.accept(id,command.version(),actor,now)!=1) throw conflict();
             audits.insert(audit(id,administrator,"ACCEPT",row.getStatus(),"IN_REVIEW",row.getVersion(),row.getVersion()+1,
-                command.reason(),null,digest,now));return true;
+                command.reason(),null,digest,now));notifications.send(row.getReporterId(),"REPORT","举报已受理",command.reason(),"/pages/governance/governance","REPORT:"+id+":"+(row.getVersion()+1));return true;
         });
         return adminDetail(actor,id);
     }
@@ -130,7 +130,7 @@ public class ReportService {
             LocalDateTime now=clock.now();
             if(reports.decide(id,command.version(),command.decision(),command.reason(),actor,now)!=1) throw conflict();
             audits.insert(audit(id,administrator,"DECIDE",row.getStatus(),"RESOLVED",row.getVersion(),row.getVersion()+1,
-                command.reason(),command.decision(),digest,now));return true;
+                command.reason(),command.decision(),digest,now));notifications.send(row.getReporterId(),"REPORT","举报已有处理结果",command.reason(),"/pages/governance/governance","REPORT:"+id+":"+(row.getVersion()+1));return true;
         });
         return adminDetail(actor,id);
     }
@@ -263,7 +263,7 @@ public class ReportService {
         if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");return user;
     }
     private static User admin(User user) {
-        active(user);if(!"ADMIN".equals(user.getRole())) throw new ApiException(403,"需要管理员权限");return user;
+        active(user);if(!edu.campusloop.auth.AdminPermissions.has(user,"REPORTS")) throw new ApiException(403,"需要管理员权限");return user;
     }
     private String createDigest(CreateReportCommand command) {
         ObjectNode value=json.createObjectNode();value.put("targetType",command.targetType());value.put("targetId",command.targetId());

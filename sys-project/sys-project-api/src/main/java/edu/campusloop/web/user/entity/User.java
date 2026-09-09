@@ -11,6 +11,12 @@ public class User {
     private String passwordHash;
     private String displayName;
     private String role;
+    private String avatarUrl;
+    private String bio;
+    private String campus;
+    private String contact;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String adminPermissions;
     private String status;
     private Integer version;
     private java.time.LocalDateTime createdAt;

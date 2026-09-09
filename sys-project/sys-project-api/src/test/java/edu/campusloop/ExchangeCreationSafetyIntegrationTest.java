@@ -71,7 +71,7 @@ class ExchangeCreationSafetyIntegrationTest {
             jdbc.update("DELETE FROM cl_demand WHERE owner_id=?", user);
         }
         for (long user : users) jdbc.update("DELETE FROM cl_item WHERE owner_id=?", user);
-        for (long user : users) jdbc.update("DELETE FROM cl_user WHERE id=?", user);
+        for (long user : users) { jdbc.update("DELETE FROM cl_notification WHERE user_id=?",user); jdbc.update("DELETE FROM cl_user WHERE id=?", user); }
         assertEquals(baseline, businessRows(), "Cleanup must preserve all pre-existing business rows");
     }
 

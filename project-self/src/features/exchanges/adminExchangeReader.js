@@ -10,7 +10,7 @@ export const exchangeStatuses = [
 ];
 export const statusLabel = value => exchangeStatuses.find(status => status.value === value)?.label || value || "未记录";
 export const statusType = value => exchangeStatuses.find(status => status.value === value)?.type || "info";
-export const eventLabel = value => ({ CONFIRMED: "确认邀请", CANCELLED: "取消交换", EXPIRED: "自动到期", HANDED_OFF: "声明已交出", RECEIVED: "声明已收到", DISPUTED: "登记争议" })[value] || value;
+export const eventLabel = value => ({ CONFIRMED: "确认邀请", CANCELLED: "取消交换", EXPIRED: "自动到期", HANDED_OFF: "声明已交出", RECEIVED: "声明已收到", DISPUTED: "登记争议", DISPUTE_RESUMED: "恢复交接", ADMIN_CANCELLED: "终止交换" })[value] || value;
 export function formatExchangeTime(value) {
   if (!value) return "未记录";
   const date = new Date(value);

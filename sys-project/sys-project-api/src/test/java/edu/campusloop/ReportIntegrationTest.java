@@ -83,6 +83,7 @@ class ReportIntegrationTest {
         for(long user:createdUsers) {
             jdbc.update("DELETE FROM cl_upload WHERE owner_id=?",user);
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?",user);
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",user);
         }
         for(long user:createdUsers) jdbc.update("DELETE FROM cl_user WHERE id=?",user);
