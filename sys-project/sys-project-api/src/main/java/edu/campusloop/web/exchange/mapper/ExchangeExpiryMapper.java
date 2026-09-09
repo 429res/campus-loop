@@ -8,7 +8,7 @@ import java.util.List;
 public interface ExchangeExpiryMapper {
     @Select("SELECT e.id FROM cl_exchange e WHERE e.status IN ('AWAITING_CONFIRMATION','READY') " +
         "AND e.expires_at<=#{now} AND (e.expiry_retry_at IS NULL OR e.expiry_retry_at<=#{now}) " +
-        "AND e.rule_version='independent-v2' AND e.request_digest IS NOT NULL AND e.creation_snapshot IS NOT NULL " +
+        "AND e.rule_version IN ('independent-v2','direct-v1') AND e.request_digest IS NOT NULL AND e.creation_snapshot IS NOT NULL " +
         "AND NOT EXISTS(SELECT 1 FROM cl_exchange_participant p WHERE p.exchange_id=e.id " +
         "AND (p.handed_off_at IS NOT NULL OR p.received_at IS NOT NULL)) " +
         "ORDER BY e.expires_at,e.id LIMIT #{limit} FOR UPDATE SKIP LOCKED")

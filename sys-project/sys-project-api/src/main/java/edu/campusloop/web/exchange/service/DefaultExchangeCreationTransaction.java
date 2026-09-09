@@ -65,9 +65,9 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
 
         // Demand mutations take their owner user lock before any demand/item lock. This stabilizes ALL
         // demand choices, including new rows and unselected alternatives, without an unbounded gap lock.
-        Set<Long> demandIds=new TreeSet<>(writes.associatedDemandIds(ids));
+        Set<Long> demandIds=new TreeSet<Long>(command.direct()?List.of():writes.associatedDemandIds(ids));
         if (demandIds.size()>20000) throw new ApiException(422,"有效需求关联超过20000条");
-        command.flows().forEach(f -> demandIds.add(f.demandId()));
+        if(!command.direct()) command.flows().forEach(f -> demandIds.add(f.demandId()));
         Map<Long,Demand> lockedDemands=new HashMap<>();
         for(long id:demandIds) {
             var demand=demands.selectForUpdate(id);
@@ -76,26 +76,27 @@ public class DefaultExchangeCreationTransaction implements ExchangeCreationTrans
         // Completion closes the selected demand. A second live exchange could not complete safely
         // after that closure, even if it offered a different item linked to the same demand.
         for(var flow:command.flows()) {
-            if (demands.activeExchangeReferences(flow.demandId())>0) throw stale();
+            if (!command.direct() && demands.activeExchangeReferences(flow.demandId())>0) throw stale();
         }
         for(long id:ids) {
             var item=items.selectForUpdate(id);
             if (item==null || !ownerIds.contains(item.getOwnerId())) throw stale();
             itemGuard.requireUnoccupied(item);
         }
-        var snapshot=candidates.snapshot(ids); // Joins this READ_COMMITTED transaction; all business inputs are locked.
+        var snapshot=candidates.snapshot(ids,!command.direct()); // Joins this READ_COMMITTED transaction; all business inputs are locked.
         var validated=new ExchangeCycleValidator().validate(initiatorId,command,snapshot);
         var row=new ExchangeCreationRecord();
         row.setInitiatorId(initiatorId); row.setIdempotencyKey(command.idempotencyKey());
         row.setRequestDigest(command.requestDigest()); row.setRuleVersion(command.ruleVersion());
         row.setStatus(ExchangeCreationPolicy.INITIAL_STATUS);
-        row.setCreationSnapshot(encode(Map.of("command",command.flows(),"recommendation",validated.recommendation())));
+        row.setCreationSnapshot(encode(Map.of("command",command.flows(),"recommendation",validated.recommendation(),"items",candidateItems.items(ids).stream().map(i->Map.of("id",i.getId(),"title",i.getTitle(),"imageUrl",i.getImageUrl()==null?"":i.getImageUrl())).toList())));
         row.setCreatedAt(clock.now()); row.setExpiresAt(row.getCreatedAt().plus(ExchangeCreationPolicy.CONFIRMATION_WINDOW));
         writes.insert(row);
         var flows=validated.recommendation().flows();
         for(int i=0;i<flows.size();i++) {
             var flow=flows.get(i);
             writes.participant(row.getId(),flow.fromUserId(),flow.itemId(),flow.toUserId());
+            if(command.direct())continue;
             Demand demand=lockedDemands.get(flow.demandId());
             long receiverOffer=flows.get((i+1)%flows.size()).itemId();
             writes.demand(row.getId(),demand.getId(),receiverOffer,demand.getVersion(),encode(demand));

@@ -7,7 +7,7 @@ import LoopButton from '../../components/LoopButton.vue'
 import LoopLayout from '../../components/LoopLayout.vue'
 import LoopPicker from '../../components/LoopPicker.vue'
 import LoopSheet from '../../components/LoopSheet.vue'
-import http, { TOKEN_KEY, USER_KEY } from '../../common/http'
+import http, { TOKEN_KEY, USER_KEY, imageUrl } from '../../common/http'
 import { showAppModal } from '../../common/modal'
 import { createLatestRequestGuard } from '../../common/latest-request.mjs'
 import { EXCHANGE_STATUSES, STATUS_LABELS, ACTION_LABELS, createExchangeJournal, actionRequest, expiryText } from '../../common/exchange-workflow.mjs'
@@ -29,7 +29,9 @@ const listGuard=createLatestRequestGuard(token), detailGuard=createLatestRequest
 let active=true, timer, lastIdentity=''
 const statusLabel=value=>STATUS_LABELS[EXCHANGE_STATUSES.indexOf(value)] || value
 const formatTime=value=>value ? new Date(value).toLocaleString() : '尚未提交'
-const itemTitle=id=>itemTitles.value[id] || `物品 #${id}`
+const itemTitle=id=>detail.value?.flows.find(f=>f.itemId===id)?.itemTitle || itemTitles.value[id] || `物品 #${id}`
+const orderTitle=exchange=>exchange.flows.map(f=>f.itemTitle||`物品 #${f.itemId}`).join(' ⇄ ')
+function closeDetail(){if(actionBusy.value)return;retainDraft();detailGuard.invalidate();targetId.value=null;detail.value=null;pending.value=null;editorOpen.value=false;uni.pageScrollTo({scrollTop:0,duration:200})}
 const personName=id=>detail.value?.participants.find(p=>p.userId===id)?.displayName || `同学 #${id}`
 const recommendations=()=>uni.switchTab({url:'/pages/matches/matches'})
 const login=()=>uni.navigateTo({url:`/pages/login/login?redirect=exchanges${targetId.value?`&exchangeId=${targetId.value}`:''}${notice.value?'&reason=session-expired':''}`})
@@ -79,7 +81,7 @@ async function loadDetail(id=targetId.value) {
   } catch(cause) {if(!authFailure(cause,ticket,detailGuard) && active && detailGuard.isCurrent(ticket)) {detail.value=null;detailError.value=cause.message}}
   finally {if(detailGuard.isCurrent(ticket)) detailLoading.value=false}
 }
-function openDetail(id) {if(actionBusy.value)return;detail.value=null;pending.value=null;editorOpen.value=false;loadDetail(id)}
+function openDetail(id) {if(actionBusy.value)return;detail.value=null;pending.value=null;editorOpen.value=false;loadDetail(id);uni.pageScrollTo({scrollTop:0,duration:200})}
 function restoreEditor() {
   if(!pending.value)return
   reason.value=pending.value.request.body.reason || pending.value.request.body.note || ''
@@ -172,21 +174,21 @@ onUnload(()=>{retainDraft();active=false;clearInterval(timer);listGuard.invalida
     <view class="cl-page-heading"><text class="cl-title">我的交换</text><text class="cl-subtitle">从确认参加到实物交接，每一步都由你亲自核对。</text></view>
     <view v-if="!authenticated" class="cl-panel cl-empty"><text>{{ notice || '登录后查看你的交换与邀请' }}</text><LoopButton class="cl-btn cl-btn--primary" @click="login">登录并继续</LoopButton></view>
     <template v-else>
-      <view class="exchange-toolbar"><view class="status-picker"><LoopPicker :range="STATUS_LABELS" :value="filter" aria-label="筛选交换状态" :disabled="loading" @change="changeFilter"><view class="cl-input">{{ STATUS_LABELS[filter] }}</view></LoopPicker></view><LoopButton class="cl-btn" :disabled="loading" @click="loadList()">刷新列表</LoopButton><LoopButton class="cl-btn" @click="recommendations">查看推荐</LoopButton></view>
+      <template v-if="!targetId"><view class="exchange-toolbar"><view class="status-picker"><LoopPicker :range="STATUS_LABELS" :value="filter" aria-label="筛选交换状态" :disabled="loading" @change="changeFilter"><view class="cl-input">{{ STATUS_LABELS[filter] }}</view></LoopPicker></view><LoopButton class="cl-btn" :disabled="loading" @click="loadList()">刷新列表</LoopButton><LoopButton class="cl-btn" @click="recommendations">查看推荐</LoopButton></view>
       <text v-if="notice" class="cl-notice" role="status">{{ notice }}</text>
       <LoopSkeleton v-if="loading" />
       <view v-else-if="listError" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ listError }}</text><LoopButton class="cl-btn" @click="loadList()">重试读取</LoopButton></view>
       <view v-else-if="!records.length" class="cl-panel cl-empty">当前筛选下暂无交换。</view>
-      <view v-else class="exchange-list"><view v-for="exchange in records" :key="exchange.id" class="cl-panel exchange-card"><view class="cl-row"><text class="cl-section-title">交换 #{{ exchange.id }}</text><text class="cl-tag">{{ statusLabel(exchange.status) }}</text></view><text class="cl-hint">{{ exchange.participants.map(p=>p.displayName).join(' · ') }} · {{ exchange.participants.length }} 人</text><text class="cl-hint">发起于 {{ formatTime(exchange.createdAt) }}</text><text class="cl-hint">{{ expiryText(exchange,now) }}</text><LoopButton class="cl-btn cl-btn--primary" @click="openDetail(exchange.id)">查看交换 #{{ exchange.id }}</LoopButton></view></view>
+      <view v-else class="exchange-list"><view v-for="exchange in records" :key="exchange.id" class="cl-panel exchange-card"><view class="cl-row"><text class="cl-section-title order-title">{{orderTitle(exchange)}}</text><text class="cl-tag">{{ statusLabel(exchange.status) }}</text></view><view class="order-images"><view v-for="flow in exchange.flows" :key="flow.itemId"><image :src="imageUrl(flow.imageUrl,flow.itemTitle)" mode="aspectFill"/><text>{{flow.itemTitle||`物品 #${flow.itemId}`}}</text></view></view><text class="cl-hint">{{ exchange.participants.map(p=>p.displayName).join(' · ') }} · {{ exchange.participants.length }} 人</text><text class="cl-hint">发起于 {{ formatTime(exchange.createdAt) }}</text><text class="cl-hint">{{ expiryText(exchange,now) }}</text><LoopButton class="cl-btn cl-btn--primary" @click="openDetail(exchange.id)">查看订单详情</LoopButton></view></view>
       <view class="exchange-pagination"><LoopButton class="cl-btn" :disabled="loading || page<=1" @click="loadList(page-1)">上一页</LoopButton><text class="cl-hint">第 {{ page }} / {{ pages }} 页 · 共 {{ total }} 条</text><LoopButton class="cl-btn" :disabled="loading || page>=pages" @click="loadList(page+1)">下一页</LoopButton></view>
-      <view v-if="targetId" class="cl-panel exchange-detail">
-        <view class="detail-heading"><text class="cl-section-title">交换 #{{ targetId }} 详情</text><LoopButton class="cl-btn" :disabled="detailLoading || actionBusy" @click="loadDetail()">刷新详情</LoopButton></view>
-        <text v-if="detailLoading" class="cl-hint">正在核对服务器记录…</text>
+      </template><view v-if="targetId" class="cl-panel exchange-detail">
+        <view class="detail-heading"><LoopButton class="cl-btn" :disabled="actionBusy" @click="closeDetail">‹ 返回订单列表</LoopButton><text class="cl-section-title">{{detail?orderTitle(detail):'交换详情'}}</text><LoopButton class="cl-btn" :disabled="detailLoading || actionBusy" @click="loadDetail()">刷新详情</LoopButton></view>
+        <LoopSkeleton v-if="detailLoading&&!detail" :count="1"/>
         <text v-if="detailError" class="cl-error" role="alert">{{ detailError }}</text>
         <template v-if="detail">
-          <view class="cl-row"><text class="cl-tag cl-tag--pink">{{ statusLabel(detail.status) }}</text><text class="cl-hint">记录版本 {{ detail.version }}</text></view>
+          <view v-if="detail.ruleVersion==='direct-v1'" class="cl-notice">自主交换：请核对实际物品，需求仅供参考，确认后再安排交接。</view><view class="cl-row"><text class="cl-tag cl-tag--pink">{{ statusLabel(detail.status) }}</text><text class="cl-hint">记录版本 {{ detail.version }}</text></view>
           <text class="cl-hint">原确认截止：{{ formatTime(detail.expiresAt) }}</text><text class="cl-notice">{{ expiryText(detail,now) || '请以下方已记录的结果为准。' }}</text>
-          <view class="detail-flows"><view v-for="flow in detail.flows" :key="flow.itemId" class="detail-flow"><text class="cl-field-title">{{ personName(flow.fromUserId) }} → {{ personName(flow.toUserId) }}</text><text>{{ itemTitle(flow.itemId) }}</text></view></view>
+          <view class="detail-flows"><view v-for="flow in detail.flows" :key="flow.itemId" class="detail-flow"><text class="cl-field-title">{{ personName(flow.fromUserId) }} → {{ personName(flow.toUserId) }}</text><image class="detail-item-image" :src="imageUrl(flow.imageUrl,flow.itemTitle)" mode="aspectFill"/><text>{{ itemTitle(flow.itemId) }}</text></view></view>
           <view v-for="person in detail.participants" :key="person.userId" class="participant-progress"><text class="cl-field-title">{{ person.displayName }}{{ person.userId===currentPerson?.userId?'（你）':'' }}</text><text class="cl-hint">确认参加：{{ formatTime(person.confirmedAt) }}</text><text class="cl-hint">交出 {{ itemTitle(person.offeredItemId) }}：{{ formatTime(person.handedOffAt) }}</text><text v-if="person.handedOffNote" class="cl-hint">交出说明：{{ person.handedOffNote }}</text><text class="cl-hint">收到 {{ itemTitle(person.receivedItemId) }}：{{ formatTime(person.receivedAt) }}</text><text v-if="person.receivedNote" class="cl-hint">收到说明：{{ person.receivedNote }}</text></view>
           <view v-if="detail.cancellationReason" class="cl-notice"><text>取消原因：{{ detail.cancellationReason }} · {{ formatTime(detail.cancelledAt) }}</text></view>
           <view v-if="detail.disputeReason" class="cl-notice"><text>争议原因：{{ detail.disputeReason }} · {{ formatTime(detail.disputedAt) }}</text><text v-if="detail.status==='DISPUTED'" class="cl-hint">正在等待管理员处理，结果会通过站内消息通知。</text></view>
@@ -216,4 +218,5 @@ onUnload(()=>{retainDraft();active=false;clearInterval(timer);listGuard.invalida
 
 <style scoped>
 .exchange-toolbar,.exchange-pagination,.detail-heading,.exchange-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.exchange-toolbar{margin-bottom:20px}.status-picker{min-width:160px;max-width:250px;flex:1}.exchange-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;margin-top:18px}.exchange-card,.exchange-detail,.action-form,.pending-action{display:flex;flex-direction:column;gap:14px;min-width:0}.exchange-card .cl-row{justify-content:space-between}.exchange-pagination{justify-content:center;margin:24px 0}.exchange-detail{margin:28px 0}.detail-heading{justify-content:space-between}.detail-flows{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.detail-flow,.participant-progress{display:flex;flex-direction:column;gap:6px;padding:16px;border:1px solid var(--cl-border);border-radius:14px;background:var(--cl-surface-soft);overflow-wrap:anywhere}.detail-flow{color:var(--cl-blue)}.participant-progress{text-align:left}.acknowledge-button{text-align:left;white-space:normal}.acknowledge-button[aria-pressed=true]{background:var(--cl-primary-soft);border-color:var(--cl-primary)}.action-form .cl-textarea{width:100%;box-sizing:border-box;min-height:120px}.exchange-detail>.cl-notice{display:flex;flex-direction:column;gap:6px}.exchange-actions .cl-btn{flex:1;min-width:120px}@media(max-width:700px){.exchange-list,.detail-flows{grid-template-columns:1fr}.exchange-card,.exchange-detail{padding:20px}.exchange-pagination{gap:8px}}
+.order-title{line-height:1.5;overflow-wrap:anywhere}.order-images{display:flex;gap:12px}.order-images>view{flex:1;min-width:0;display:flex;flex-direction:column;gap:8px}.order-images image{width:100%;height:140px;border-radius:14px}.order-images text{font-size:12px;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.detail-item-image{width:100%;height:170px;border-radius:12px}.detail-heading .cl-section-title{flex:1;min-width:180px;overflow-wrap:anywhere}.exchange-detail{margin-top:0}
 </style>

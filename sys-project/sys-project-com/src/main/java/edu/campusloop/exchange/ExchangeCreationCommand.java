@@ -9,17 +9,21 @@ import java.util.*;
 
 /** Untrusted preconditions, never ownership, confirmation, or authorization. */
 public record ExchangeCreationCommand(String ruleVersion, String idempotencyKey, List<ExpectedFlow> flows) {
+    public static final String DIRECT_RULE = "direct-v1";
+    public boolean direct() { return DIRECT_RULE.equals(ruleVersion); }
     public record ExpectedFlow(long itemId, int itemVersion, long demandId, int demandVersion) {}
 
     public ExchangeCreationCommand {
         if (ruleVersion == null || idempotencyKey == null || !idempotencyKey.matches("[a-z0-9_-]{8,64}") ||
             flows == null || flows.size() < 2 || flows.size() > 3 || flows.stream().anyMatch(Objects::isNull))
             throw new ApiException(400, "创建需要规则版本、8–64位小写幂等键和2或3条有向流向");
-        if (!IndependentDemandMatcher.RULE_VERSION.equals(ruleVersion))
+        if (!IndependentDemandMatcher.RULE_VERSION.equals(ruleVersion) && !DIRECT_RULE.equals(ruleVersion))
             throw new ApiException(409, "推荐规则已失效，请重新获取独立需求推荐");
-        if (flows.stream().anyMatch(f -> f.itemId() < 1 || f.demandId() < 1 || f.itemVersion() < 0 || f.demandVersion() < 0)
+        boolean direct = DIRECT_RULE.equals(ruleVersion);
+        if (flows.stream().anyMatch(f -> f.itemId() < 1 || f.itemVersion() < 0 || (direct ? f.demandId()!=0 || f.demandVersion()!=0 : f.demandId()<1 || f.demandVersion()<0))
+            || direct && flows.size()!=2
             || flows.stream().map(ExpectedFlow::itemId).distinct().count() != flows.size()
-            || flows.stream().map(ExpectedFlow::demandId).distinct().count() != flows.size())
+            || !direct && flows.stream().map(ExpectedFlow::demandId).distinct().count() != flows.size())
             throw new ApiException(400, "流向需要不同的正整数物品/需求ID和非负版本");
         int start = 0;
         for (int i=1; i<flows.size(); i++) if (flows.get(i).itemId() < flows.get(start).itemId()) start=i;

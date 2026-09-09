@@ -6,7 +6,8 @@ const clone = value => JSON.parse(JSON.stringify(value))
 const integer = (value, minimum = 0) => Number.isSafeInteger(value) && value >= minimum
 const journalChanged = () => Object.assign(new Error('保留的请求已在其他页面更新，请重新核对当前记录。'),{code:'JOURNAL_CHANGED'})
 export function creationSnapshot(match) {
-  if (match?.ruleVersion !== 'independent-v2' || ![2,3].includes(match?.participants?.length) || match?.flows?.length !== match.participants.length)
+  const direct = match?.ruleVersion === 'direct-v1'
+  if ((!direct && match?.ruleVersion !== 'independent-v2') || (direct && match?.participants?.length !== 2) || ![2,3].includes(match?.participants?.length) || match?.flows?.length !== match.participants.length)
     throw new Error('推荐缺少正式创建依据，请重新读取推荐。')
   const people = new Map(match.participants.map(p => [p.userId,p]))
   const flows = new Map(match.flows.map(f => [f.fromUserId,f]))
@@ -17,14 +18,14 @@ export function creationSnapshot(match) {
   for(let index = 0; index < people.size; index++) {
     const person = people.get(current?.fromUserId)
     if (!person || seen.has(person.userId) || person.itemId !== current.itemId || !integer(current.itemId,1) || !integer(person.itemVersion)
-      || person.itemVersion > 2147483647 || !integer(current.demandId,1) || !integer(current.demandVersion) || current.demandVersion > 2147483647)
+      || person.itemVersion > 2147483647 || (direct ? current.demandId!==0 || current.demandVersion!==0 : !integer(current.demandId,1)) || !integer(current.demandVersion) || current.demandVersion > 2147483647)
       throw new Error('推荐缺少精确物品或需求版本，请刷新，不能使用默认版本发起。')
     seen.add(person.userId)
     result.push({itemId:current.itemId,itemVersion:person.itemVersion,demandId:current.demandId,demandVersion:current.demandVersion})
     current = flows.get(current.toUserId)
   }
   if (current !== start || new Set(result.map(f => f.itemId)).size !== result.length) throw new Error('推荐不是完整的双方或三方流向。')
-  return {ruleVersion:'independent-v2',flows:result}
+  return {ruleVersion:match.ruleVersion,flows:result}
 }
 export function newExchangeKey() {
   // No platform crypto dependency; keys are identity scoped, not secrets or access tokens.

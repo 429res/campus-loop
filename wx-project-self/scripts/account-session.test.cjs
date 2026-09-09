@@ -11,7 +11,7 @@ function harness(name,expose) {
   const app=new Function(...Object.keys(args),script(name)+`;return {${expose}};`)(...Object.values(args));
   return {app,requests,cache,navigation,modals,setToken:v=>token=v,token:()=>token,options:o=>onLoad(o),hide:()=>hidden(),unload:()=>unloaded()};
 }
-const profile=()=>harness('profile','load,user,profileForm,saveProfile,passwordForm,changePassword,logout,profileUncertain');
+const profile=()=>harness('profile-settings','load,user,profileForm,saveProfile,passwordForm,changePassword,logout,profileUncertain');
 const user={id:1,displayName:'First user',version:0};
 async function loginProfile(h){const loading=h.app.load();h.requests.at(-1).resolve(user);await loading;}
 for(const token of ['session-b','']) test(`profile response cannot restore old identity after ${token?'account switch':'logout'}`,async()=>{

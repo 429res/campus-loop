@@ -57,13 +57,19 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     private PageResult<ItemView> queryPage(int page,int size,String keyword,Long categoryId,boolean admin,String status) {
         if(page<1 || size<1 || size>100 || (keyword!=null && keyword.length()>100) || (categoryId!=null && categoryId<1)) throw new ApiException(400,"分页或搜索参数不正确");
         QueryWrapper<Item> query=new QueryWrapper<>();
-        if(!admin) query.in("status",ItemVisibility.PUBLIC_STATES);
+        if(!admin) query.in("status",Set.of("AVAILABLE","RESERVED")).inSql("owner_id","SELECT id FROM cl_user WHERE status='ACTIVE'");
         if(status!=null && !status.isEmpty()) query.eq("status",status);
-        if(keyword!=null && !keyword.isBlank()) query.like("title",keyword.trim());
+        if(keyword!=null && !keyword.isBlank()) query.and(q -> q.like("title",keyword.trim()).or().like("tags_json",keyword.trim()));
         if(categoryId!=null) query.eq("category_id",categoryId);
         query.orderByDesc("created_at","id");
         Page<Item> result=baseMapper.selectPage(new Page<>(page,size),query);
         return new PageResult<>(views(result.getRecords(),admin),result.getTotal(),page,size);
+    }
+    @Override public PageResult<ItemView> memberPage(long ownerId,int page,int size) {
+        if(page<1||size<1||size>100)throw new ApiException(400,"分页参数不正确");
+        var owner=users.selectById(ownerId);if(owner==null||!"ACTIVE".equals(owner.getStatus()))throw new ApiException(404,"主页不存在或暂不可见");
+        var result=baseMapper.selectPage(new Page<Item>(page,size),new QueryWrapper<Item>().eq("owner_id",ownerId).in("status",Set.of("AVAILABLE","RESERVED")).orderByDesc("created_at","id"));
+        return new PageResult<>(views(result.getRecords()),result.getTotal(),page,size);
     }
     @Override public ItemView detail(long id) {
         Item item=baseMapper.selectById(id);
@@ -92,7 +98,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         if(status!=null && !status.isEmpty() && !OWN_STATES.contains(status)) throw new ApiException(400,"物品状态不正确");
         QueryWrapper<Item> query=new QueryWrapper<Item>().eq("owner_id",ownerId).in("status",OWN_STATES);
         if(status!=null && !status.isEmpty()) query.eq("status",status);
-        if(keyword!=null && !keyword.isBlank()) query.like("title",keyword.trim());
+        if(keyword!=null && !keyword.isBlank()) query.and(q -> q.like("title",keyword.trim()).or().like("tags_json",keyword.trim()));
         if(categoryId!=null) query.eq("category_id",categoryId);
         query.orderByDesc("created_at","id");
         Page<Item> result=baseMapper.selectPage(new Page<>(page,size),query);
@@ -167,15 +173,15 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     private List<ItemView> views(List<Item> items) {return views(items,false);}
     private List<ItemView> views(List<Item> items,boolean includeReview) {
         if(items.isEmpty()) return List.of();
-        Map<Long,String> names=users.selectBatchIds(items.stream().map(Item::getOwnerId).collect(Collectors.toSet())).stream().collect(Collectors.toMap(User::getId,User::getDisplayName));
+        Map<Long,User> owners=users.selectBatchIds(items.stream().map(Item::getOwnerId).collect(Collectors.toSet())).stream().collect(Collectors.toMap(User::getId,u->u));
         Map<Long,String> cats=categories.selectList(null).stream().collect(Collectors.toMap(Category::getId,Category::getName));
         var decisions=includeReview?audits.latestDecisions(items.stream().map(Item::getId).toList()):Map.<Long,edu.campusloop.web.review.entity.ItemReviewAudit>of();
-        return items.stream().map(i->{var decision=decisions.get(i.getId());return new ItemView(i.getId(),i.getOwnerId(),names.get(i.getOwnerId()),i.getTitle(),i.getDescription(),i.getCategoryId(),
+        return items.stream().map(i->{var decision=decisions.get(i.getId());return new ItemView(i.getId(),i.getOwnerId(),owners.containsKey(i.getOwnerId())?owners.get(i.getOwnerId()).getDisplayName():"校园同学",i.getTitle(),i.getDescription(),i.getCategoryId(),
             cats.get(i.getCategoryId()),i.getConditionLevel(),decode(i.getTagsJson()),i.getWantedCategoryId(),cats.get(i.getWantedCategoryId()),
             decode(i.getWantedTagsJson()),i.getImageUrl(),i.getStatus(),i.getVersion(),i.getCreatedAt(),i.getReviewBasis(),
             decision==null?null:decision.getAction(),decision==null?null:decision.getReason(),
             decision==null?null:decision.getOperatorDisplayName(),decision==null?null:decision.getCreatedAt(),
-            decision==null?null:decision.getPreviousVersion());}).toList();
+            decision==null?null:decision.getPreviousVersion(),owners.containsKey(i.getOwnerId())?owners.get(i.getOwnerId()).getAvatarUrl():null);}).toList();
     }
     private String encode(List<String> tags) {
         try {return json.writeValueAsString(tags.stream().map(String::trim).map(s->s.toLowerCase(Locale.ROOT)).distinct().toList());}

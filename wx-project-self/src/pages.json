@@ -99,6 +99,20 @@
       "style": {
         "navigationBarTitleText": "校园讨论"
       }
+    },
+    {
+      "path": "pages/profile-settings/profile-settings",
+      "style": {
+        "navigationBarTitleText": "个人资料",
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/member/member",
+      "style": {
+        "navigationBarTitleText": "个人主页",
+        "navigationStyle": "custom"
+      }
     }
   ],
   "globalStyle": {

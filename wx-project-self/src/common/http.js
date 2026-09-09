@@ -7,7 +7,9 @@ defaultBase = import.meta.env.VITE_MINI_API_BASE_URL || 'http://127.0.0.1:8088'
 const baseUrl = (import.meta.env.VITE_API_BASE_URL || defaultBase).replace(/\/$/, '')
 export const TOKEN_KEY = 'campus-loop-token'
 export const USER_KEY = 'campus-loop-user'
-export const clearSession = () => { uni.removeStorageSync(TOKEN_KEY); uni.removeStorageSync(USER_KEY) }
+const sessionListeners=new Set()
+export const onSessionCleared=listener=>{sessionListeners.add(listener);return ()=>sessionListeners.delete(listener)}
+export const clearSession = () => { uni.removeStorageSync(TOKEN_KEY); uni.removeStorageSync(USER_KEY);for(const listener of sessionListeners)listener() }
 const showError = message => uni.showToast({ title: message || '请求失败，请重试', icon: 'none', duration: 2500 })
 const unpack = (response, token, options = {}) => {
   let result = response.data

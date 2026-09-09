@@ -29,7 +29,7 @@ public class AdminExchangeSnapshotReader {
             Map<Long,AdminExchangeDetail.CreationFlow> byItem=new HashMap<>();
             for (JsonNode flow:flows) {
                 var value=new AdminExchangeDetail.CreationFlow(positive(flow,"itemId"),string(flow,"itemTitle"),
-                    positive(flow,"fromUserId"),positive(flow,"toUserId"),positive(flow,"demandId"),
+                    positive(flow,"fromUserId"),positive(flow,"toUserId"),"direct-v1".equals(ruleVersion)?0:positive(flow,"demandId"),
                     string(flow,"matchedCategoryName"),string(flow,"reason"));
                 if (byItem.put(value.itemId(),value)!=null) throw incomplete();
             }

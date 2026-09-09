@@ -138,6 +138,44 @@ class UsabilityCommunityIntegrationTest {
   call("GET","/api/auth/me",token,null,401);call("POST","/api/auth/login",null,Map.of("username",username,"password",next),200);
   var log=call("GET","/api/admin/users/"+id+"/activity",admin.token(),null,200);assertEquals(3,log.path("total").asInt());assertFalse(log.toString().contains(next));assertTrue(log.findValuesAsText("action").contains("PASSWORD_RESET"));
  }
+
+ @Test void publicMemberExposesOnlyPublicFieldsAndVisibleItemsWithTheirAvatar()throws Exception{
+  String avatar="/uploads/public-avatar-test.png";
+  db.update("UPDATE cl_user SET avatar_url=?,bio='喜欢读书',campus='东校区',contact='不可公开' WHERE id=?",avatar,a.id());
+  long available=item(a,1,2),hidden=item(a,2,1),completed=item(a,1,2);approve(available);approve(completed);
+  db.update("UPDATE cl_item SET status='EXCHANGED' WHERE id=?",completed);
+  var profile=call("GET","/api/members/"+a.id(),null,null,200);
+  assertEquals(avatar,profile.path("avatarUrl").asText());assertEquals(1,profile.path("itemCount").asInt());
+  for(String secret:List.of("contact","username","role","adminPermissions","passwordHash"))assertFalse(profile.has(secret));
+  var items=call("GET","/api/members/"+a.id()+"/items",null,null,200);
+  assertEquals(1,items.path("total").asInt());assertEquals(available,items.at("/records/0/id").asLong());assertEquals(avatar,items.at("/records/0/ownerAvatarUrl").asText());
+  var publicItems=call("GET","/api/items",null,null,200);assertFalse(publicItems.findValuesAsText("status").contains("EXCHANGED"));
+  assertEquals("EXCHANGED",call("GET","/api/items/"+completed,null,null,200).path("status").asText());
+  call("GET","/api/items/"+hidden,null,null,404);
+  db.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",a.id());
+  call("GET","/api/members/"+a.id(),null,null,404);call("GET","/api/members/"+a.id()+"/items",null,null,404);
+ }
+ @Test void directOrdersSnapshotContentsAndCommunityKeepsCurrentItemStatus()throws Exception{
+  long first=item(a,1,1),second=item(b,2,2);approve(first);approve(second);
+  db.update("UPDATE cl_item SET image_url='/uploads/order-original.png' WHERE id=?",first);
+  String original=call("GET","/api/items/"+first,null,null,200).path("title").asText();
+  long post=call("POST","/api/community/posts",a.token(),Map.of("body","看看这件物品","itemId",first,"requestKey",key()),200).path("id").asLong();
+  assertEquals("AVAILABLE",call("GET","/api/community/posts/"+post,null,null,200).path("itemStatus").asText());
+  var flows=List.of(Map.of("itemId",first,"itemVersion",1,"demandId",0,"demandVersion",0),Map.of("itemId",second,"itemVersion",1,"demandId",0,"demandVersion",0));
+  var body=Map.of("ruleVersion","direct-v1","idempotencyKey",key(),"flows",flows);
+  long id=call("POST","/api/exchanges",a.token(),body,200).path("id").asLong();
+  assertEquals(id,call("POST","/api/exchanges",a.token(),body,200).path("id").asLong());
+  assertEquals("RESERVED",call("GET","/api/community/posts/"+post,null,null,200).path("itemStatus").asText());
+  db.update("UPDATE cl_item SET title='后来的标题',image_url='/uploads/later.png' WHERE id=?",first);
+  var order=call("GET","/api/exchanges/"+id,a.token(),null,200);
+  var flow=order.path("flows").get(0);assertEquals(original,flow.path("itemTitle").asText());assertEquals("/uploads/order-original.png",flow.path("imageUrl").asText());assertEquals("direct-v1",order.path("ruleVersion").asText());
+  assertEquals(original,call("GET","/api/exchanges/mine",a.token(),null,200).at("/records/0/flows/0/itemTitle").asText());
+  call("GET","/api/exchanges/"+id,admin.token(),null,404);
+  db.update("UPDATE cl_exchange SET creation_snapshot=NULL WHERE id=?",id);
+  assertEquals("后来的标题",call("GET","/api/exchanges/"+id,a.token(),null,200).at("/flows/0/itemTitle").asText());
+  db.update("UPDATE cl_item SET status='EXCHANGED' WHERE id=?",first);
+  assertEquals("EXCHANGED",call("GET","/api/community/posts/"+post,null,null,200).path("itemStatus").asText());
+ }
  private Account account(String scope)throws Exception{String name="usability_"+key(),password=UUID.randomUUID().toString();long id=call("POST","/api/auth/register",null,Map.of("username",name,"password",password,"displayName","隔离验证"),200).path("id").asLong();ids.add(id);if(scope!=null)db.update("UPDATE cl_user SET role='ADMIN',admin_permissions=? WHERE id=?",scope,id);String token=call("POST","/api/auth/login",null,Map.of("username",name,"password",password),200).path("token").asText();return new Account(id,token,name,password);}
  private LinkedHashMap<String,Object> fields(int category,int wanted){return new LinkedHashMap<>(Map.of("title","校园好物 "+key(),"description","功能验证物品","categoryId",category,"wantedCategoryId",wanted,"conditionLevel",4,"tags",List.of(),"wantedTags",List.of()));}
  private long item(Account actor,int category,int wanted)throws Exception{return call("POST","/api/items",actor.token(),fields(category,wanted),200).path("id").asLong();}
