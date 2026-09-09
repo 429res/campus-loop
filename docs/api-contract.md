@@ -226,35 +226,36 @@ A-03 PR #32创建与本片生命周期共用事务执行器及数据库UTC；本
 
 共同内部expire入口由A-04定时扫描接通，批次与持久退避在重启后继续处理。仅AWAITING_CONFIRMATION/READY、数据库UTC达到原expiresAt且无handedOffAt/receivedAt才EXPIRED；保留原24h截止，不延长、不释放其他交换占用。处理中或失败退避期间，GET可返回已到期活动状态且allowedActions为空，客户端回读结果，不能自行标记完成。无公共expire路径，技术重试字段不返回ExchangeView；运维和恢复证据见[A-04](a04-exchange-expiry.md)。交接及争议登记见B-04。状态矩阵、兼容与D/C样例见[B-03.2说明](b03-invitation-rules.md)。
 
-## 后续接口设计（未实现）
+## 后续接口与已接通切片
 
 | 路径草案 | 语义/并发契约 |
 | --- | --- |
 | POST /exchanges/{id}/handoff | B-04已实现，见下述契约 |
 | GET/POST /items/{id}/history | B-05.1已实现，参与者确认见B-05.2；管理员核验见B-05.3 |
-| POST /reports | 目标、原因、证据，不允许恶意替别人举报 |
+| POST /reports | C-04 通用 ITEM 举报已实现；会话确定举报人，严格字段、私有证据和幂等规则见下节 |
 
-### C-04 举报队列协作草案（未实现，不可调用）
+### C-04 通用举报后端（本片实现）
 
-以下内容仅用于 C 管理端组件夹具以及 A/D 后续评审，不表示接口、枚举或数据库已落地。A 实现权限与持久化时须与 C/D 在同一 PR 固化最终 DTO；在此之前生产端不发送这些请求。
+V15 已落地通用举报、私有证据关联和追加审计；首批目标固定为 ITEM。C 的正式管理页面和 D 的用户表单仍需消费接线，不能将后端切片标记为整个 C-04/D-04 完成。
 
-| 草案路径 | 权限与预期语义 |
+| 路径 | 权限与语义 |
 | --- | --- |
-| POST /api/reports | 登录用户提交本人举报；服务端确定 reporter，只先考虑 ITEM 目标；原因、证据归属及目标有效性由服务端验证 |
-| GET /api/reports/mine、GET /api/reports/mine/{id} | 仅举报人读取本人分页/结果；目标失效返回安全摘要与不可用状态，不泄露他人数据 |
+| POST /api/reports | 登录用户严格提交 `{targetType,targetId,reason,evidenceUploadIds,idempotencyKey}`；服务端确定 reporter |
+| GET /api/reports/mine、GET /api/reports/mine/{id} | 仅举报人读取本人分页/结果；目标失效保留安全摘要并返回 `targetAvailable=false` |
+| GET /api/reports/mine/{reportId}/evidence/{evidenceId}/content | 仅举报人读取本人已关联证据 |
 | GET /api/admin/reports、GET /api/admin/reports/{id} | ADMIN 队列筛选/分页和授权详情；全文原因与证据只进入详情 |
-| POST /api/admin/reports/{id}/accept | ADMIN 受理；草案请求 `{version,reason}`，成功必须数据库回读 |
-| POST /api/admin/reports/{id}/decision | ADMIN 处理；草案请求 `{version,decision,reason}`，成功必须数据库回读 |
+| POST /api/admin/reports/{id}/accept | ADMIN 严格提交 `{version,reason}` 受理，成功数据库回读 |
+| POST /api/admin/reports/{id}/decision | ADMIN 严格提交 `{version,decision,reason}` 处理，成功数据库回读 |
 | GET /api/admin/reports/{id}/audits | ADMIN 追加式审计分页；不提供修改或删除 |
-| GET /api/admin/reports/{reportId}/evidence/{evidenceId}/content | ADMIN 授权内容读取；不得返回服务端文件路径或接受客户端任意外链 |
+| GET /api/admin/reports/{reportId}/evidence/{evidenceId}/content | ADMIN 授权内容读取；不返回服务端文件路径或接受客户端任意外链 |
 
-组件夹具暂用 `SUBMITTED → IN_REVIEW → RESOLVED`、决定 `UPHELD/DISMISSED`、目标 `ITEM` 作为候选枚举，均待 A 确认。列表/详情候选字段为 `id,targetType,targetId,targetAvailable,targetSummary,status,version,createdAt,acceptedBy,acceptedAt,decision,decisionReason,decidedBy,decidedAt`；证据只暴露不透明 `id,displayName,contentType,size,accessStatus` 和受控内容端点。失效或无权读取必须显式表示，不能回传磁盘路径、公开 `/uploads/**` 地址或任意 `http(s)` 内容。
+`targetType` 只接受 ITEM；目标提交时须处于 AVAILABLE/RESERVED/EXCHANGED。`reason` trim 后 1–1000 字，证据为 0–5 个不重复的本人 PRIVATE_EVIDENCE 上传 UUID，幂等键为 1–64 位小写字母、数字或 `._:-`。五个字段必填；reporter、status、decision、处理身份或其他未知字段一律 400。同键同规范化内容返回同一举报的最新回读，同键不同内容 409；同一举报人/目标已有 SUBMITTED 或 IN_REVIEW 时换键仍 409，终局后才可基于新事实再次提交。
 
-版本为非负整数。旧版本或非法状态迁移使用 HTTP 409 且不覆盖；C 收到后重新读取详情和列表，保留未提交理由，不自动换用新版本重放。401/403/404/409 必须保持 HTTP 语义。受理人、处理人及权限来自服务端会话，审计追加记录操作者显示名、理由、前后状态/版本和 UTC 时间。普通举报决定不修改交换状态、所有权或占用；交换争议后果仍由 B 的领域服务定义。
+状态固定为 `SUBMITTED(version=0) → IN_REVIEW(version=1) → RESOLVED(version=2)`，决定为 UPHELD/DISMISSED。任一有效 ADMIN 可决定已受理记录，受理人不独占；acceptedBy/decidedBy 分开留痕。相同管理员完全相同的 actor/action/version/reason/decision 重试返回当前回读且不重复审计；其他旧版本、不同管理员或不同内容 409 且不覆盖。C 收到 409 后重新读取详情和列表，保留未提交理由，不自动换用新版本重放。
 
-D 本人结果只需要安全目标摘要、状态、决定、处理人显示名、处理理由与时间，以及本人有权访问的证据状态；不得返回内部审计快照、处理人用户 ID 或他人材料。真实验收须覆盖 D 提交 → C 队列 → 受理/处理 → D 本人回读，目前全部待 A/D 实现。
+列表字段为 `id,targetType,targetId,targetAvailable,targetSummary,reporterDisplayName,status,version,createdAt,acceptedBy,acceptedAt,decision,decisionReason,decidedBy,decidedAt`，不含全文举报理由或 evidence；详情追加 `reason,evidence`。证据只暴露不透明 `id,displayName,contentType,size,accessStatus`，不返回 uploadId、哈希、路径或公开 URL。本人和 ADMIN 分别通过受控内容端点读取；内容为 PNG、private/no-store/nosniff，文件缺失/变化后拒绝。处理人与审计 actor 只返回 `{displayName}`，不返回用户 ID、请求摘要、幂等键、口令或 token。
 
-交接已由B-04接入；其他尚未注册的路径可能404，不能把本表当成可调用功能。状态机、事务与锁定顺序见 [architecture.md](architecture.md)。字段变化先在PR中取得消费端确认，保持同一提交内服务端与两前端同步。
+分页默认 1/12，`page≥1`、`1≤size≤100`；本人支持 status/targetType，ADMIN 另支持 keyword（举报编号或目标摘要）。未知/重复参数 400。401/403/404/409 保持真实 HTTP 语义。完整字段、失败样例、锁序、C/D 接线与验证见 [通用举报说明](c04-generic-reports.md)。普通举报决定不会改变物品、交换、需求、占用或履历；EXCHANGE 目标 400，B 尚未提供管理员争议后果服务，不能借此接口绕过 B-04 状态机。
 
 
 
@@ -272,7 +273,7 @@ ExchangeView追加disputedBy/disputeReason/disputedAt（无争议null），parti
 
 #### C-04 管理员争议读取（本片实现）
 
-仅ADMIN的 `GET /admin/exchange-disputes`、`GET /admin/exchange-disputes/{id}`、`GET /admin/exchange-disputes/{id}/events` 已接通，只读DISPUTED。分页默认1/12、size≤100，详情沿用ExchangeView但allowedActions为空、私人交接说明为null；事件按版本升序，仅争议理由可见。字段、隐私、错误与C/D样例见[领域读取切片](c04-exchange-domain-read.md)。普通举报与争议裁决仍未实现。
+仅ADMIN的 `GET /admin/exchange-disputes`、`GET /admin/exchange-disputes/{id}`、`GET /admin/exchange-disputes/{id}/events` 已接通，只读DISPUTED。分页默认1/12、size≤100，详情沿用ExchangeView但allowedActions为空、私人交接说明为null；事件按版本升序，仅争议理由可见。字段、隐私、错误与C/D样例见[领域读取切片](c04-exchange-domain-read.md)。ITEM 通用举报已由上节独立实现；交换争议裁决后果仍未实现，二者不能混用。
 
 #### C-04 管理员争议处理草案（未实现，不可调用）
 
