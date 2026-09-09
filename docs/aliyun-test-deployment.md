@@ -13,7 +13,7 @@
 
 - 成都 ECS，Ubuntu 22.04，4 vCPU / 8 GiB / 40 GB；目录 `/opt/campus-loop`。
 - Docker Compose 项目 `campus-loop-test`：MySQL 8.4.11、Java 17 Spring Boot 后端、Caddy 托管管理端与 H5。
-- 基线为已合并的 `main` 提交 `4e09367`；部署补充保存在 `fix/aliyun-classmate-test`。后端镜像 `campus-loop-backend:4e09367`，前端镜像 `campus-loop-web:4e09367-test1`（包含测试注册说明修正）。服务器 `.local/deploy/release.txt` 记录部署配置提交。
+- 基线为已合并的 `main` 提交 `4e09367`；部署补充保存在 `fix/aliyun-classmate-test`。后端镜像 `campus-loop-backend:4e09367`，前端镜像 `campus-loop-web:4e09367-test4`（统一两端品牌资源，精简账号相关页面文案）。服务器 `.local/deploy/release.txt` 记录部署配置提交。
 - 此实例无法直接拉取 Docker Hub；镜像在本机按 `linux/amd64` 构建/拉取后，通过 `docker save`、SSH 传输、`docker load` 导入。后续更新需要预先导入相应镜像，不能假定服务器可以在线构建。
 - 使用 `compose.prod.yaml` 和 `compose.aliyun.yaml` 两份配置；后者设置内存限额、日志轮转及 Cloudflare 专用 Caddy 配置。
 - 两个域名均通过 Cloudflare 代理；当前区域 SSL 模式为 Full，源站也已获得有效的 Let's Encrypt 证书，Caddy 管理续期。未修改其他域名的区域级 TLS 设置。
@@ -55,7 +55,8 @@ sudo systemctl list-timers campus-loop-backup.timer --no-pager
 - 两个公网域名 HTTPS 与数据库健康检查成功；源站证书也通过直接连接校验，HTTP 跳转 HTTPS。
 - 真实云端 API 验证：自助注册、独立用户登录、管理员登录、匿名/学生越权拦截、图片上传与读取、物品发布与审核、独立需求、双方匹配、幂等创建、双方确认、交接申报、归属转移、履历、退出后会话撤销。
 - 实际浏览器验证：用户注册、登录、资料保存与刷新后读取、退出；管理端未登录访问业务页会跳转登录。管理员审核流程通过 HTTPS API 验证，本次未进行管理员登录后的完整浏览器巡检。
-- 新前端镜像构建成功，Caddy 配置验证通过。基线提交的六项 CI（Windows、管理端、H5、小程序、后端、MySQL）均成功；这些 CI 属于基线，本地部署补充未另行运行完整 CI。
+- 新前端镜像构建成功，Caddy 配置验证通过。界面修订后重新通过管理端、H5、小程序构建及 13 项账号相关检查；管理端与 H5 的线上 Logo 文件逐字节一致，小程序产物的 PNG 也与共享资源一致。浏览器核对了管理端登录与侧栏、用户端登录与个人中心，以及注册页桌面、375px 手机宽度、深色模式和空表单校验。
+- 基线提交的六项 CI（Windows、管理端、H5、小程序、后端、MySQL）均成功；这些 CI 属于基线，本地部署补充未另行运行完整 CI。
 - 3 个自动验收账号已停用；2 件明确标注为验收数据的物品保留为 `EXCHANGED`，以及 1 条完成交换和对应履历，以保留一致的验收证据。这些记录仍可能显示在公开列表，但不会参与新的匹配；没有模拟真实线下交接的事实。
 - 本次未验证微信真机、小程序发布、持续压力负载、真实校园身份、争议仲裁或自动异地灾备。当前交付是可访问的同学测试环境。
 

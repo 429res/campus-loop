@@ -17,7 +17,7 @@ const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
   <view class="cl-app" :class="{ 'theme-dark': theme === 'dark', 'cl-reduce-motion': reducedMotion }">
     <view class="cl-shell">
       <view class="cl-top">
-        <LoopButton class="cl-brand cl-btn--quiet" aria-label="Campus Loop 首页" @click="goHome"><view class="cl-brand-mark"><LoopIcon name="loop" tone="white" :size="24"/></view><text>Campus Loop</text><text class="cl-brand-note">让闲置，遇见需要</text></LoopButton>
+        <LoopButton class="cl-brand cl-btn--quiet" aria-label="Campus Loop 首页" @click="goHome"><image class="cl-brand-mark" src="/static/brand-mark.png" mode="aspectFit" aria-hidden="true"/><text class="cl-brand-name">Campus <text class="cl-brand-accent">Loop</text></text><text class="cl-brand-note">让闲置，继续有用</text></LoopButton>
         <view class="cl-top-actions">
           <LoopButton class="cl-icon-btn" :aria-label="theme === 'dark' ? '切换浅色模式' : '切换深色模式'" @click="toggleTheme"><LoopIcon :name="theme === 'dark' ? 'sun' : 'moon'"/></LoopButton>
           <LoopButton class="cl-btn cl-btn--primary cl-desktop-only" @click="goPublish"><LoopIcon name="plus" tone="white" :size="18"/>发布闲置</LoopButton>

@@ -33,3 +33,9 @@ Thumbs.db
 
 # Generated from UniApp public environment
 wx-project-self/src/manifest.json
+
+# Copied from shared brand assets by each Vite configuration
+project-self/public/brand-mark.svg
+project-self/public/brand-mark.png
+wx-project-self/src/static/brand-mark.svg
+wx-project-self/src/static/brand-mark.png

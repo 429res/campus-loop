@@ -11,9 +11,10 @@ const form = reactive({ username: "", password: "" }),
 const auth = useAuth(),
   router = useRouter(),
   route = useRoute();
+const showDeveloperTools = import.meta.env.DEV;
 const rules = {
   username: [
-    { required: true, message: "请输入本地初始化的账号", trigger: "blur" },
+    { required: true, message: "请输入管理员账号", trigger: "blur" },
   ],
   password: [{ required: true, message: "请输入密码", trigger: "blur" }],
 };
@@ -50,7 +51,6 @@ async function submit() {
           <img :src="`/demo/${item.image}.svg`" :alt="item.name"/><figcaption>{{ item.name }}</figcaption>
         </figure>
       </div>
-      <small>基于需求匹配与多方置换的校园闲置物品循环管理系统</small>
     </section>
     <section class="login-panel">
       <div class="login-form">
@@ -92,10 +92,7 @@ async function submit() {
             :loading="busy"
             >进入工作台<el-icon><ArrowRight /></el-icon></el-button
         ></el-form>
-        <p class="login-hint">
-          使用管理员账号登录。首次部署的账号设置方式请查看仓库部署文档。
-        </p>
-        <router-link to="/controls" class="text-link"
+        <router-link v-if="showDeveloperTools" to="/controls" class="text-link"
           >浏览公开控件实验室 ↗</router-link
         >
       </div>
