@@ -4,6 +4,10 @@ server:
     include-message: never
     include-stacktrace: never
 spring:
+  task:
+    scheduling:
+      pool:
+        size: 4
   application:
     name: campus-loop
   datasource:

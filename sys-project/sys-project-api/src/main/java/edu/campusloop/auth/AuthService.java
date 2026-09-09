@@ -53,7 +53,7 @@ public class AuthService {
     @Transactional public LoginResult login(LoginRequest request) {
         User user=users.selectOne(new QueryWrapper<User>().and(q->q.eq("username",request.username().trim()).or().eq("email",request.username().trim().toLowerCase(Locale.ROOT))).last("FOR UPDATE"));
         boolean valid=passwords.matches(request.password(), user == null || user.getPasswordHash() == null ? dummyHash : user.getPasswordHash());
-        if (user == null || user.getPasswordHash() == null || !valid || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null) throw new ApiException(401,"账号或密码不正确");
+        if (user == null || user.getPasswordHash() == null || !valid || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || Boolean.TRUE.equals(user.getSystemAccount())) throw new ApiException(401,"账号或密码不正确");
         Instant now=Instant.now(), expiry=now.plusSeconds(hours * 3600L);
         String id=UUID.randomUUID().toString();
         AuthSession session=new AuthSession(); session.setId(id); session.setUserId(user.getId());
@@ -67,12 +67,12 @@ public class AuthService {
         int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("display_name",request.displayName().trim()).setSql("version=version+1"));
         if(updated!=1) throw new ApiException(401,"账号不可用");
         User user=users.selectById(userId);
-        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
+        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || Boolean.TRUE.equals(user.getSystemAccount()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
         return info(user);
     }
     @Transactional public void changePassword(long userId, ChangePasswordRequest request) {
         User user=users.selectOne(new QueryWrapper<User>().eq("id",userId).last("FOR UPDATE"));
-        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
+        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || Boolean.TRUE.equals(user.getSystemAccount()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
         if(!passwords.matches(request.currentPassword(),user.getPasswordHash())) throw new ApiException(400,"旧密码不正确");
         String passwordHash=passwords.encode(request.newPassword());
         int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("password_hash",passwordHash));
@@ -85,7 +85,7 @@ public class AuthService {
         if (session == null || !session.getExpiresAt().isAfter(LocalDateTime.now(ZoneOffset.UTC))
             || !session.getUserId().toString().equals(claims.getSubject())) throw new ApiException(401,"登录已过期，请重新登录");
         User user=users.selectById(session.getUserId());
-        if (user == null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
+        if (user == null || !"ACTIVE".equals(user.getStatus()) || user.getDeletedAt()!=null || Boolean.TRUE.equals(user.getSystemAccount()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
         return user;
     }
     public void logout(String token) { sessions.deleteById(claims(token).getId()); }

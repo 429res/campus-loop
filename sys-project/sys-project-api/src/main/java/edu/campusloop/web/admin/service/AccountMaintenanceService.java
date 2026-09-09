@@ -61,7 +61,7 @@ public class AccountMaintenanceService {
  }
  private User operator(long id){var admins=users.selectAdminsForUpdate();var actor=admins.stream().filter(u->u.getId()==id).findFirst().orElseThrow(()->new ApiException(403,"需要管理员权限"));AdminPermissions.require(actor,"USERS");return actor;}
  private User target(User actor,long id,int version){var target=require(users.selectByIdForUpdate(id));if("ADMIN".equals(target.getRole()))AdminPermissions.require(actor,"ALL");if(target.getVersion()!=version||version==Integer.MAX_VALUE)throw new ApiException(409,"账号已更新，请刷新后重试");return target;}
- private User require(User user){if(user==null||user.getDeletedAt()!=null)throw new ApiException(404,"账号不存在");return user;}
+ private User require(User user){if(user==null||user.getDeletedAt()!=null||Boolean.TRUE.equals(user.getSystemAccount()))throw new ApiException(404,"账号不存在");return user;}
  private Profile profile(User u){return new Profile(u.getId(),u.getUsername(),u.getDisplayName(),u.getRole(),u.getStatus(),u.getVersion(),u.getCampus(),u.getBio(),u.getAvatarUrl(),AdminPermissions.of(u));}
  private String trim(String value){return value==null?"":value.trim();}
  private void audit(long actor,long id,String action,String reason){db.update("INSERT INTO cl_account_audit(target_user_id,actor_user_id,action,reason,created_at) VALUES(?,?,?,?,?)",id,actor,action,reason.trim(),LocalDateTime.now(ZoneOffset.UTC));}

@@ -8,6 +8,8 @@ public class User {
     private Long id;
     private String username;
     @com.fasterxml.jackson.annotation.JsonIgnore
+    private Boolean systemAccount;
+    @com.fasterxml.jackson.annotation.JsonIgnore
     private String passwordHash;
     private String displayName;
     private String role;

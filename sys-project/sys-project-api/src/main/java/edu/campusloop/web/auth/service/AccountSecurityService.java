@@ -15,7 +15,7 @@ import java.util.*;
  @Transactional public void delete(long actor,long target,int version,String password,String reason){
   // Same admin/user lock order as account maintenance and exchange creation.
   User operator;if(actor!=target){var admins=users.selectAdminsForUpdate();operator=admins.stream().filter(x->x.getId()==actor).findFirst().orElseThrow(()->new ApiException(403,"需要管理员权限"));AdminPermissions.require(operator,"USERS");}else operator=null;
-  var u=users.selectByIdForUpdate(target);if(u==null||u.getDeletedAt()!=null)throw new ApiException(404,"账号不存在");if(u.getVersion()!=version)throw new ApiException(409,"账号已更新，请刷新后重试");
+  var u=users.selectByIdForUpdate(target);if(u==null||u.getDeletedAt()!=null||Boolean.TRUE.equals(u.getSystemAccount()))throw new ApiException(404,"账号不存在");if(u.getVersion()!=version)throw new ApiException(409,"账号已更新，请刷新后重试");
   if(actor==target)requirePassword(u,password);if("ADMIN".equals(u.getRole()))throw new ApiException(409,"管理员账号不能直接注销，请先调整账号职责");
   if(db.queryForObject("SELECT COUNT(*) FROM cl_exchange_participant p JOIN cl_exchange e ON e.id=p.exchange_id WHERE p.user_id=? AND e.status NOT IN ('COMPLETED','CANCELLED','EXPIRED')",Long.class,target)>0)throw new ApiException(409,"还有未结束的交换，请完成或取消后再注销");
   if(db.queryForObject("SELECT COUNT(*) FROM cl_item_hold h JOIN cl_item i ON i.id=h.item_id WHERE i.owner_id=?",Long.class,target)>0)throw new ApiException(409,"物品仍被交换占用，请先处理交换");
@@ -29,5 +29,5 @@ import java.util.*;
   db.update("UPDATE cl_user SET username=?,password_hash=NULL,display_name='已注销用户',email=NULL,email_verified=FALSE,mail_notifications=FALSE,avatar_url=NULL,cover_url=NULL,last_login_address=NULL,bio=NULL,campus=NULL,contact=NULL,status='DISABLED',deleted_at=CURRENT_TIMESTAMP,version=version+1 WHERE id=?","deleted_"+target+"_"+UUID.randomUUID().toString().substring(0,8),target);
   db.update("INSERT INTO cl_account_audit(target_user_id,actor_user_id,action,reason,created_at) VALUES(?,?,'DELETED',?,CURRENT_TIMESTAMP)",target,actor,reason);
  }
- private void requirePassword(User u,String password){if(u==null||u.getDeletedAt()!=null||!"ACTIVE".equals(u.getStatus())||password==null||!passwords.matches(password,u.getPasswordHash()))throw new ApiException(400,"当前密码不正确");}
+ private void requirePassword(User u,String password){if(u==null||u.getDeletedAt()!=null||Boolean.TRUE.equals(u.getSystemAccount())||!"ACTIVE".equals(u.getStatus())||password==null||!passwords.matches(password,u.getPasswordHash()))throw new ApiException(400,"当前密码不正确");}
 }
