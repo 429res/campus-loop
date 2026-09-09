@@ -1,0 +1,26 @@
+# Use with: docker compose -f compose.prod.yaml -f compose.aliyun.yaml
+x-log: &log
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: "3"
+services:
+  mysql:
+    mem_limit: 2g
+    logging: *log
+  backend:
+    mem_limit: 2g
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1024m"
+    logging: *log
+  init:
+    mem_limit: 2g
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx1024m"
+    logging: *log
+  web:
+    image: campus-loop-web:4e09367-test1
+    mem_limit: 512m
+    volumes:
+      - ./deploy/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+    logging: *log

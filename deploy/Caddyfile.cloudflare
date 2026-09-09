@@ -1,0 +1,44 @@
+# Cloudflare CIDRs verified 2026-09-09.
+{
+    servers {
+        trusted_proxies static 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+        trusted_proxies_strict
+        client_ip_headers CF-Connecting-IP
+    }
+}
+
+(campus) {
+    encode gzip
+    header X-Content-Type-Options nosniff
+    header Referrer-Policy same-origin
+    header X-Robots-Tag "noindex, nofollow"
+    request_body {
+        max_size 6MB
+    }
+    @backend path /api /api/* /uploads /uploads/*
+    handle @backend {
+        reverse_proxy backend:8088 {
+            # Caddy owns X-Forwarded-For/Host/Proto. Never relay alternate client overrides.
+            header_up X-Forwarded-For {client_ip}
+            header_up -Forwarded
+            header_up -X-Forwarded-Prefix
+            header_up -X-Forwarded-Port
+            header_up -X-Forwarded-Ssl
+        }
+    }
+    handle {
+        root * {args[0]}
+        route {
+            try_files {path} /index.html
+            header /index.html Cache-Control "no-cache"
+        }
+        file_server
+    }
+}
+
+{$ADMIN_SITE:http://localhost:8080} {
+    import campus /srv/admin
+}
+{$USER_SITE:http://localhost:8081} {
+    import campus /srv/user
+}

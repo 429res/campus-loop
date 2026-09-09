@@ -1,0 +1,11 @@
+[Unit]
+Description=Campus Loop classmate test consistent backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/campus-loop
+ExecStart=/usr/bin/flock -n /run/campus-loop-backup.lock /bin/sh /opt/campus-loop/deploy/aliyun-backup.sh
+UMask=0077
+TimeoutStartSec=300

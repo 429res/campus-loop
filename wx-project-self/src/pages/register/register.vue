@@ -81,9 +81,9 @@ async function register() {
 <template>
   <LoopLayout>
     <view class="register-layout">
-      <view class="cl-page-heading"><text class="register-kicker">DEVELOPMENT ACCESS</text><text class="cl-title">创建开发账号</text><text class="cl-subtitle">仅供已显式开放注册的本地或隔离环境，不代表校园身份已核验。</text></view>
+      <view class="cl-page-heading"><text class="register-kicker">TEST ACCESS</text><text class="cl-title">创建测试账号</text><text class="cl-subtitle">账号仅用于项目测试，不代表校园身份已核验。</text></view>
       <form class="cl-panel cl-form register-panel" @submit="register">
-        <view class="cl-notice"><text>此环境默认不开放注册。若提示无法注册，请使用已有账号或联系项目维护者。</text></view>
+        <view class="cl-notice"><text>请使用独立的测试密码。若环境未开放注册，请联系项目维护者。</text></view>
         <view class="cl-field"><text class="cl-field-title">用户名</text><LoopInput v-model="form.username" class="cl-input" aria-label="注册用户名" placeholder="3–64 位字母、数字、_ . -" maxlength="64" autocomplete="username" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
         <view class="cl-field"><text class="cl-field-title">显示名称</text><LoopInput v-model="form.displayName" class="cl-input" aria-label="显示名称" placeholder="其他同学看到的名称" maxlength="64" autocomplete="name" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
         <view class="cl-field"><text class="cl-field-title">密码</text><LoopInput v-model="form.password" class="cl-input" aria-label="注册密码" placeholder="至少 12 个字符" password maxlength="64" autocomplete="new-password" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
