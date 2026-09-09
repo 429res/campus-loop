@@ -1,4 +1,6 @@
 <script setup>
+import { platformStorage } from '../../common/platform-adapters.js'
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import LoopButton from '../../components/LoopButton.vue'
@@ -21,7 +23,7 @@ const currentPerson=computed(()=>detail.value?.participants.find(p=>p.userId===N
 const isHandoff=computed(()=>['HANDED_OFF','RECEIVED'].includes(pending.value?.action))
 const frozen=computed(()=>pending.value && pending.value.phase!=='draft')
 const actionTitle=computed(()=>ACTION_LABELS[pending.value?.action] || '核对交换操作')
-const journal=()=>createExchangeJournal(uni,Number(uni.getStorageSync(USER_KEY)?.id))
+const journal=()=>createExchangeJournal(platformStorage,Number(uni.getStorageSync(USER_KEY)?.id))
 const token=()=>uni.getStorageSync(TOKEN_KEY)
 const listGuard=createLatestRequestGuard(token), detailGuard=createLatestRequestGuard(token), actionGuard=createLatestRequestGuard(token)
 let active=true, timer, lastIdentity=''
@@ -172,7 +174,7 @@ onUnload(()=>{retainDraft();active=false;clearInterval(timer);listGuard.invalida
     <template v-else>
       <view class="exchange-toolbar"><view class="status-picker"><LoopPicker :range="STATUS_LABELS" :value="filter" aria-label="筛选交换状态" :disabled="loading" @change="changeFilter"><view class="cl-input">{{ STATUS_LABELS[filter] }}</view></LoopPicker></view><LoopButton class="cl-btn" :disabled="loading" @click="loadList()">刷新列表</LoopButton><LoopButton class="cl-btn" @click="recommendations">查看推荐</LoopButton></view>
       <text v-if="notice" class="cl-notice" role="status">{{ notice }}</text>
-      <view v-if="loading" class="cl-empty">正在读取交换…</view>
+      <LoopSkeleton v-if="loading" />
       <view v-else-if="listError" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ listError }}</text><LoopButton class="cl-btn" @click="loadList()">重试读取</LoopButton></view>
       <view v-else-if="!records.length" class="cl-panel cl-empty">当前筛选下暂无交换。</view>
       <view v-else class="exchange-list"><view v-for="exchange in records" :key="exchange.id" class="cl-panel exchange-card"><view class="cl-row"><text class="cl-section-title">交换 #{{ exchange.id }}</text><text class="cl-tag">{{ statusLabel(exchange.status) }}</text></view><text class="cl-hint">{{ exchange.participants.map(p=>p.displayName).join(' · ') }} · {{ exchange.participants.length }} 人</text><text class="cl-hint">发起于 {{ formatTime(exchange.createdAt) }}</text><text class="cl-hint">{{ expiryText(exchange,now) }}</text><LoopButton class="cl-btn cl-btn--primary" @click="openDetail(exchange.id)">查看交换 #{{ exchange.id }}</LoopButton></view></view>

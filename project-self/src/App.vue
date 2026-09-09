@@ -168,7 +168,7 @@ onBeforeUnmount(() => {
           >
         </div>
       </header>
-      <main id="main-content" class="main-content"><router-view /></main>
+      <main id="main-content" class="main-content"><router-view v-slot="{ Component }"><Transition name="page" mode="out-in"><div :key="route.path" class="route-page"><component :is="Component" /></div></Transition></router-view></main>
       <footer class="page-footer">
         Campus Loop <span>让校园里的好东西，遇见下一个需要它的人。</span>
       </footer>

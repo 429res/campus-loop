@@ -11,8 +11,11 @@ export function finishLogin(uni,options={}) {
  if(target.tab)return uni.switchTab({url:target.url})
  return uni.redirectTo({url:target.url})
 }
-export function backWithinApp(uni,stack=[]) {
+export function backWithinApp(uni,stack=[],fallback='home') {
+ const page=tabs.has(fallback)?fallback:'home'
+ const url=`/pages/${page}/${page}`
+ const recover=()=>uni.switchTab({url,fail:()=>uni.reLaunch({url})})
  const previous=stack[stack.length-2]?.route
- if(stack.length>1&&previous&&!/pages\/(login|register)\//.test(previous))return uni.navigateBack({delta:1})
- return uni.switchTab({url:'/pages/home/home'})
+ if(stack.length>1&&previous&&!/pages\/(login|register)\//.test(previous))return uni.navigateBack({delta:1,fail:recover})
+ return recover()
 }

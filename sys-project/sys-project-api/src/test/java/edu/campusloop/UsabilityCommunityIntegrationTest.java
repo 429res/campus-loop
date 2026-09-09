@@ -57,6 +57,33 @@ class UsabilityCommunityIntegrationTest {
   var edited=fields(1,1);edited.put("version",0);call("PUT","/api/items/"+id,a.token(),edited,200);
   var after=call("GET","/api/demands/"+demand,a.token(),null,200);assertEquals(1,after.path("categoryId").asInt());assertEquals(1,after.path("version").asInt());assertEquals(1,db.queryForObject("SELECT COUNT(*) FROM cl_demand WHERE source_item_id=?",Integer.class,id));
  }
+
+ @Test void withdrawnItemPausesAutomaticDemandAndResubmissionRestoresIt()throws Exception{
+  long item=item(a,1,2);approve(item);
+  var demand=call("GET","/api/demands",a.token(),null,200).at("/records/0");long id=demand.path("id").asLong();
+  call("POST","/api/items/"+item+"/withdraw",a.token(),Map.of("version",1),200);
+  assertEquals("INACTIVE",call("GET","/api/demands/"+id,a.token(),null,200).path("status").asText());
+  assertEquals(0,call("GET","/api/demands?status=ACTIVE",a.token(),null,200).path("total").asInt());
+  call("POST","/api/items/"+item+"/relist",a.token(),Map.of("version",2),200);
+  assertEquals("ACTIVE",call("GET","/api/demands/"+id,a.token(),null,200).path("status").asText());
+ }
+ @Test void targetedRepliesValidateParentPreserveIdempotencyAndPreviewVisibility()throws Exception{
+  long id=post(a),other=post(a);String path="/api/community/posts/"+id;
+  long parent=call("POST",path+"/replies",b.token(),Map.of("body","这件物品多大？","requestKey",key()),200).asLong();
+  var reply=Map.of("body","约三十厘米","requestKey",key(),"parentReplyId",parent);
+  long child=call("POST",path+"/replies",a.token(),reply,200).asLong();
+  assertEquals(child,call("POST",path+"/replies",a.token(),reply,200).asLong());
+  call("POST",path+"/replies",a.token(),Map.of("body","约三十厘米","requestKey",reply.get("requestKey")),409);
+  call("POST","/api/community/posts/"+other+"/replies",a.token(),Map.of("body","跨帖目标","requestKey",key(),"parentReplyId",parent),404);
+  var comments=call("GET",path+"/replies",null,null,200);assertEquals(parent,comments.at("/records/1/parentReplyId").asLong());assertEquals("隔离验证",comments.at("/records/1/replyToName").asText());
+  assertEquals(1,call("GET","/api/notifications",b.token(),null,200).path("total").asInt());
+  var preview=call("GET","/api/community/posts?mine=true",a.token(),null,200).at("/records/1/previewReplies");assertEquals(2,preview.size());
+  call("DELETE",path+"/replies/"+parent,b.token(),null,200);
+  assertTrue(call("GET",path+"/replies",null,null,200).at("/records/0/replyToName").isNull());
+  call("POST",path+"/replies",a.token(),Map.of("body","回复撤回评论","requestKey",key(),"parentReplyId",parent),404);
+  db.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",a.id());
+  assertEquals(0,call("GET","/api/community/posts",null,null,200).path("total").asInt());
+ }
  @Test void communityIsPublicIdempotentAndDoesNotAcceptOtherPeoplesItemsOrImages()throws Exception{
   long own=item(a,1,2);approve(own);
   call("POST","/api/community/posts",b.token(),Map.of("body","别人的物品","itemId",own,"requestKey",key()),400);

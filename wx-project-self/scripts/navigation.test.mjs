@@ -13,3 +13,9 @@ test('login replaces a detail entry and switches native tabs; back skips old aut
  backWithinApp(uni,[{route:'pages/login/login'},{route:'pages/detail/detail'}]);backWithinApp(uni,[{route:'pages/home/home'},{route:'pages/detail/detail'}]);backWithinApp(uni,[])
  assert.deepEqual(calls,[['tab','/pages/matches/matches'],['replace','/pages/detail/detail?id=5'],['tab','/pages/home/home'],['back',1],['tab','/pages/home/home']])
 })
+
+test('back failures recover to the page family, including empty deep-link history',()=>{
+ const calls=[],uni={navigateBack:o=>o.fail(),switchTab:o=>{calls.push(o.url);o.fail()},reLaunch:o=>calls.push(o.url)}
+ backWithinApp(uni,[{route:'pages/matches/matches'},{route:'pages/community/community'}],'matches')
+ assert.deepEqual(calls,['/pages/matches/matches','/pages/matches/matches'])
+})

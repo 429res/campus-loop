@@ -1,4 +1,5 @@
 <script setup>
+import { platformNavigation } from '../../common/platform-adapters.js'
 import LoopInput from '../../components/LoopInput.vue'
 import LoopButton from '../../components/LoopButton.vue'
 import { ref } from 'vue'
@@ -20,7 +21,7 @@ onShow(async () => {
   const token=uni.getStorageSync(TOKEN_KEY)
   if(!token||restoring||busy.value)return
   restoring=true
-  try{const user=await http.get('/api/auth/me',{}, {silent:true});if(token===uni.getStorageSync(TOKEN_KEY)){uni.setStorageSync(USER_KEY,user);finishLogin(uni,routeOptions)}}
+  try{const user=await http.get('/api/auth/me',{}, {silent:true});if(token===uni.getStorageSync(TOKEN_KEY)){uni.setStorageSync(USER_KEY,user);finishLogin(platformNavigation,routeOptions)}}
   catch(e){if(e.status!==401)error.value='暂时无法确认登录状态，请检查网络后重试。'}
   finally{restoring=false}
 })
@@ -32,7 +33,7 @@ async function login() {
   try {
     const result = await http.post('/api/auth/login', {username:username.value.trim(),password:password.value},{silent:true,skipAuth:true})
     uni.setStorageSync(TOKEN_KEY,result.token); uni.setStorageSync(USER_KEY,result.user); password.value = ''
-    finishLogin(uni,routeOptions)
+    finishLogin(platformNavigation,routeOptions)
   } catch(e) { error.value = e.message } finally { busy.value = false }
 }
 </script>

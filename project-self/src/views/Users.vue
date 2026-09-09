@@ -237,15 +237,15 @@ onMounted(() => loadUsers());
       <el-table-column label="创建时间" min-width="165">
         <template #default="{ row }">{{ formatTime(row.createdAt) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="290" fixed="right">
-        <template #default="{ row }">
-          <el-button type="primary" link @click="showDetails(row)">详情</el-button><el-button v-if="canManage(row)" type="primary" link @click="openEditor('edit',row)">编辑</el-button><el-button v-if="canAssign&&row.id!==auth.user?.id" type="primary" link @click="openEditor('reset',row)">重置密码</el-button><el-button v-if="canAssign&&row.id!==auth.user?.id" type="primary" link @click="openAccess(row)">权限</el-button>
+      <el-table-column label="操作" width="310" fixed="right">
+        <template #default="{ row }"><div class="user-row-actions">
+          <el-button type="primary" size="small" plain @click="showDetails(row)">详情</el-button><el-button v-if="canManage(row)" type="primary" size="small" plain @click="openEditor('edit',row)">编辑</el-button><el-button v-if="canAssign&&row.id!==auth.user?.id" type="primary" size="small" plain @click="openEditor('reset',row)">重置密码</el-button><el-button v-if="canAssign&&row.id!==auth.user?.id" type="primary" size="small" plain @click="openAccess(row)">权限</el-button>
           <el-button v-if="canManage(row)&&row.id!==auth.user?.id"
             :type="row.status === 'ACTIVE' ? 'danger' : 'success'"
-            link
+            size="small" plain
             @click="openStatus(row)"
           >{{ row.status === "ACTIVE" ? "停用" : "启用" }}</el-button>
-        </template>
+        </div></template>
       </el-table-column>
       <template #empty>
         <el-empty :description="readError ? '读取失败，请重试' : '没有匹配的账号'" :image-size="72" />
@@ -348,6 +348,8 @@ onMounted(() => loadUsers());
 </template>
 
 <style scoped>
+.user-row-actions{display:flex;flex-wrap:wrap;gap:8px;padding:8px 0}.user-row-actions :deep(.el-button){margin:0;min-height:34px;padding:7px 10px}
+
 .heading-actions{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .users-notice {
   margin-bottom: 20px;

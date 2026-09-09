@@ -1,4 +1,5 @@
 <script setup>
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import { ref } from 'vue'
 import { onShow, onUnload, onPullDownRefresh } from '@dcloudio/uni-app'
 import LoopInput from '../../components/LoopInput.vue'
@@ -77,7 +78,7 @@ onUnload(() => {editorEpoch++;sequence++; request?.abort?.(); rows.value = []})
     <view class="cl-page-heading"><text class="cl-title">我的物品</text><text class="cl-subtitle">管理闲置物品，查看审核与交换进度。</text></view>
     <view class="cl-panel cl-stack">
       <LoopPicker :range="labels" :value="selected" :disabled="busy" aria-label="我的物品状态" @change="select"><view class="cl-picker">{{ labels[selected] }} ⌄</view></LoopPicker>
-      <text v-if="busy" class="cl-hint" role="status">正在读取…</text>
+      <LoopSkeleton v-if="busy"/>
       <view v-else-if="error" class="cl-empty" role="alert"><text>{{ error }}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton><LoopButton class="cl-btn" @click="login">登录</LoopButton></view>
       <template v-else>
         <view v-if="!rows.length" class="cl-empty">当前条件下没有物品</view>

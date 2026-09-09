@@ -1,4 +1,5 @@
 <script setup>
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import LoopIcon from '../../components/LoopIcon.vue'
 import { computed, ref } from 'vue'
 import { onShow, onUnload } from '@dcloudio/uni-app'
@@ -56,9 +57,9 @@ onUnload(() => { sequence++; activeRequest?.abort?.() })
   <LoopLayout>
     <view class="cl-page-heading"><text class="cl-title">我的收藏</text><text class="cl-subtitle">收藏由服务端保存；物品状态不代表占用或可交换保证。</text></view>
     <view v-if="!uni.getStorageSync(TOKEN_KEY)" class="cl-panel cl-empty"><LoopIcon name="heart" tone="primary" :size="36"/><text>登录后查看跨设备收藏</text><LoopButton class="cl-btn cl-btn--primary" @click="login">登录</LoopButton></view>
-    <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在读取收藏夹…</text></view>
+    <LoopSkeleton v-else-if="loading" />
     <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton><LoopButton class="cl-btn" @click="login">重新登录</LoopButton></view>
-    <view v-else-if="!records.length" class="cl-panel cl-empty"><LoopIcon name="heart" tone="primary" :size="36"/><text>还没有收藏物品</text><text class="cl-hint">在发现页或物品详情中收藏，刷新后仍会从服务器读取。</text></view>
+    <view v-else-if="!records.length" class="cl-panel cl-empty"><LoopIcon name="heart" tone="primary" :size="36"/><text>还没有收藏物品</text><text class="cl-hint">收藏后，可随时在这里找到喜欢的物品。</text></view>
     <template v-else>
       <text v-if="notice" class="cl-notice" role="status">{{ notice }}</text>
       <view class="favorite-grid">

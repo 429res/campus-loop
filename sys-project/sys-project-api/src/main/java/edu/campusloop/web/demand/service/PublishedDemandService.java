@@ -25,17 +25,18 @@ public class PublishedDemandService {
     public void sync(Item item){
         var current=demands.selectOne(new QueryWrapper<Demand>().eq("source_item_id",item.getId()));
         var now=LocalDateTime.now(ZoneOffset.UTC);
+        String status="HIDDEN".equals(item.getStatus())?"INACTIVE":"ACTIVE";
         String description="用「"+item.getTitle()+"」交换";
         if(current==null){
             var demand=new Demand();demand.setSourceItemId(item.getId());demand.setOwnerId(item.getOwnerId());
             demand.setCategoryId(item.getWantedCategoryId());demand.setDescription(description);demand.setPreferredTagsJson(item.getWantedTagsJson());
-            demand.setStatus("ACTIVE");demand.setVersion(0);demand.setCreatedAt(now);demand.setUpdatedAt(now);
+            demand.setStatus(status);demand.setVersion(0);demand.setCreatedAt(now);demand.setUpdatedAt(now);
             demands.insert(demand);links.insert(demand.getId(),item.getId());
         }else{
             if(!current.getOwnerId().equals(item.getOwnerId())||demands.activeExchangeReferences(current.getId())>0)throw new ApiException(409,"物品正在交换，请先处理当前交换");
             if(current.getVersion()==Integer.MAX_VALUE)throw new ApiException(409,"需求版本已达到上限");
             demands.update(null,new UpdateWrapper<Demand>().eq("id",current.getId()).set("category_id",item.getWantedCategoryId()).set("description",description)
-                .set("preferred_tags_json",item.getWantedTagsJson()).set("updated_at",now).setSql("version=version+1"));
+                .set("status",status).set("preferred_tags_json",item.getWantedTagsJson()).set("updated_at",now).setSql("version=version+1"));
         }
     }
 }

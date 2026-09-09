@@ -351,3 +351,10 @@ HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保�
 登录写入：`POST /api/community/posts`（body 1–2000 字、可选 itemId/imageUrl、requestKey 8–64 位字母数字下划线/短横线）；`POST .../{id}/replies`（body 1–1000 字、requestKey）；`PUT/DELETE .../{id}/like`；`DELETE .../{id}`（version）；`DELETE .../{id}/replies/{replyId}`；`POST .../{id}/reports`（reason 1–500 字）。requestKey 按作者唯一且校验相同内容，作者和上传归属服务端确定。回复通知动态作者；物品链接只解析仍公开的物品。作者可撤回本人内容，举报每人每动态一条；有发帖和回复频率限制。
 
 COMMUNITY 管理权限：`GET /api/admin/community/posts?page&size&reported&keyword`；`GET .../{id}`、`.../{id}/reports`、`.../{id}/audits`、`.../{id}/replies`；`POST .../{id}/moderate`（version/action/reason），action 为 HIDE / RESTORE / DISMISS_REPORTS；处置解决当前举报并留审计，作者撤回内容不可恢复。管理员也可经用户回复删除接口移除违规回复。帖子正文和回复以纯文本渲染，不执行 HTML。
+
+## 2026-09-09 交互反馈补充
+
+- 动态列表 `GET /api/community/posts` 每条返回 `previewReplies`，最多两条最新可见评论，停用作者与撤回评论不展示。
+- 回复请求增加可选 `parentReplyId`。目标必须属于当前动态且可见；幂等比较同时包含回复目标。回复读取增加 `parentReplyId` 与 `replyToName`，目标不可见时不暴露作者名称。通知发送给帖子作者及被回复者，去重且不通知自己。
+- V19 增加可空回复关系，并修正已下架物品的自动需求为 INACTIVE。以后下架与重新提交在原事务内同步需求状态和版本；手动需求不受影响。
+- 详情页从已有 independent-v2 推荐中筛选本人接收当前物品的双方方案，保留精确版本与幂等创建机制；不绕过双方需求、审核或占用检查。
