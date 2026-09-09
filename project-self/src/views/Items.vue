@@ -192,7 +192,7 @@ onMounted(async () => {
 const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:value+'Z').toLocaleString('zh-CN',{hour12:false}):'—';
 </script>
 
-<template><AutoReviewQueue endpoint="/api/admin/items/auto-review-queue" @open="show"/>
+<template><AutoReviewQueue v-if="!showFixture" endpoint="/api/admin/items/auto-review-queue" @open="show"/>
   <el-button @click="manageSpotlights">管理首页曝光</el-button><el-dialog v-model="spotlightsOpen" title="首页曝光物品" width="min(640px,94vw)"><el-table :data="spotlights"><el-table-column prop="title" label="物品"/><el-table-column prop="sortOrder" label="顺序" width="80"/><el-table-column prop="status" label="状态" width="120"/><el-table-column label="操作" width="90"><template #default="{row}"><el-button type="danger" :disabled="spotlightBusy" @click="removeSpotlight(row)">移除</el-button></template></el-table-column></el-table><p>只有当前可交换物品会在首页展示；已下架或已交换物品自动停止曝光。</p></el-dialog>
   <div class="page-heading review-heading">
     <div>

@@ -87,7 +87,7 @@ const dateTime=(value)=>value?.replace("T"," ").replace("Z"," UTC")||"—";
 onMounted(()=>{ if(fixture) detail.value=fixtureReports[0]; else load(); });
 </script>
 
-<template><AutoReviewQueue endpoint="/api/admin/reports/auto-review-queue" @open="show"/>
+<template><AutoReviewQueue v-if="!fixture" endpoint="/api/admin/reports/auto-review-queue" @open="show"/>
   <div class="page-heading reports-heading"><div><span class="eyebrow">TRUST &amp; SAFETY</span><h1>举报处理队列</h1><p>受理通用举报并保留处理理由；交换争议的业务后果不在本页面执行。</p></div><span class="count-pill">{{ fixture ? `夹具共 ${total} 条` : `共 ${total} 条` }}</span></div>
   <el-alert class="contract-alert" :title="fixture ? '开发组件夹具，不是正式举报队列' : '举报受理与处理'" :description="fixture ? '数据已匿名化且仅在开发路由中存在；提交只捕获请求体，不更新本地数组。' : '处理结果保存到服务器；举报成立不会自动下架物品或改变交换所有权。'" type="warning" :closable="false" show-icon />
   <section class="panel">
