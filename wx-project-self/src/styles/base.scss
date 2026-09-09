@@ -93,3 +93,5 @@ uni-form.cl-form > span,uni-form.report-form > span {display:contents}
 /* #endif */
 @media(max-width:700px){.cl-brand{font-size:20px;gap:9px}.cl-title{font-size:26px}.cl-panel{padding:20px}.cl-top{padding:18px 0}.cl-top .cl-brand-note{display:none}}
 @media(max-width:360px){.cl-brand{font-size:18px}.cl-shell{width:calc(100% - 28px)}.cl-top{gap:8px}}
+
+.cl-app .cl-panel,.cl-app .item-card {border-radius:var(--cl-radius,22px);box-shadow:var(--cl-shadow)}

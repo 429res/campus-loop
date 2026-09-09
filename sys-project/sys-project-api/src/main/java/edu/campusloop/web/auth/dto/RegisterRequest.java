@@ -43,6 +43,12 @@ public class RegisterRequest {
         this.displayName = displayName == null ? null : displayName.trim();
     }
 
+    @jakarta.validation.constraints.Email @Size(max=254) private String email;
+    @Size(max=6) private String emailCode;
+    public String email(){return email;}
+    public void setEmail(String value){email=value;}
+    public String emailCode(){return emailCode;}
+    public void setEmailCode(String value){emailCode=value;}
     @JsonAnySetter
     public void rejectUnsupportedField(String field, Object ignored) {
         throw new IllegalArgumentException("注册不接受字段: " + field);

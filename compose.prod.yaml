@@ -17,6 +17,16 @@ x-backend: &backend
     CAMPUS_BOOTSTRAP_ENABLED: "false"
     CAMPUS_DEMO_ENABLED: "false"
     CAMPUS_REGISTRATION_MODE: ${CAMPUS_REGISTRATION_MODE:-CLOSED}
+    SMTP_HOST: ${SMTP_HOST:-}
+    SMTP_PORT: ${SMTP_PORT:-465}
+    SMTP_SSL: ${SMTP_SSL:-true}
+    SMTP_USERNAME: ${SMTP_USERNAME:-}
+    SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+    MAIL_FROM: ${MAIL_FROM:-}
+    DASHSCOPE_API_KEY: ${DASHSCOPE_API_KEY:-}
+    QWEN_BASE_URL: ${QWEN_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+    QWEN_MODEL: ${QWEN_MODEL:-qwen-plus}
+    CAMPUS_PUBLIC_URL: ${USER_SITE:-https://amoewell.top}
     # Only the reverse proxy on this dedicated network may supply client IPs.
     CAMPUS_RATE_LIMIT_TRUSTED_PROXIES: ${CAMPUS_PROXY_IP:-172.30.88.10}
   volumes:

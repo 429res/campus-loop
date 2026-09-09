@@ -1,5 +1,7 @@
 <script setup>
 import {unreadCount,notificationToast,startNotifications,stopNotifications,dismissNotification,openNotification} from '../common/notification-center.js'
+import {showAppModal} from "../common/modal"
+import http,{TOKEN_KEY,USER_KEY,imageUrl} from '../common/http'
 import { platformNavigation } from '../common/platform-adapters.js'
 import LoopIcon from './LoopIcon.vue'
 import LoopButton from './LoopButton.vue'
@@ -7,11 +9,14 @@ import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import { computed, ref, nextTick, onMounted, onUnmounted } from 'vue'
 import {backWithinApp} from '../common/navigation.mjs'
 import { useTheme } from '../composables/useTheme'
-const { theme, toggleTheme, apply, reducedMotion } = useTheme()
+const { theme, toggleTheme, apply, reducedMotion, appearanceStyle } = useTheme()
 const routes = ['home','matches','publish','profile']
 const props = defineProps({ activeTab: { type: String, default: '' }, backTo: { type: String, default: 'home' } })
 const active = computed(() => routes.indexOf(props.activeTab))
 const entering = ref(true)
+const headerUser=ref(null)
+onShow(async()=>{headerUser.value=uni.getStorageSync(USER_KEY)||null;const token=uni.getStorageSync(TOKEN_KEY);if(token&&headerUser.value?.emailVerified===undefined){try{const u=await http.get('/api/auth/me',{}, {silent:true});if(token!==uni.getStorageSync(TOKEN_KEY))return;headerUser.value=u;uni.setStorageSync(USER_KEY,u)}catch{return}}const u=headerUser.value;if(!u||u.emailVerified||u.role==='ADMIN')return;const key='campus-email-reminder-'+u.id;if(Date.now()-Number(uni.getStorageSync(key)||0)<86400000)return;uni.setStorageSync(key,Date.now());const choice=await showAppModal({title:'绑定邮箱，方便登录与保护账号',content:u.legacyExchangeAccess?'你的老账号可以继续使用。绑定邮箱后，还能用邮箱登录，并选择接收账户安全邮件提醒。':'请先验证邮箱，再发布内容和参与交换。',confirmText:'去绑定',cancelText:'稍后再说'});if(choice.confirm&&token===uni.getStorageSync(TOKEN_KEY))uni.navigateTo({url:'/pages/profile-settings/profile-settings'})})
+const openAccount=()=>uni.switchTab({url:'/pages/profile/profile'})
 const notificationOwner=Symbol()
 let pageVisible=false
 const resumeNotifications=()=>{
@@ -34,11 +39,11 @@ const goBack=()=>backWithinApp(platformNavigation,typeof getCurrentPages==='func
 const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
 </script>
 <template>
-  <view class="cl-app" :class="{ 'theme-dark': theme === 'dark', 'cl-reduce-motion': reducedMotion }">
+  <view class="cl-app" :style="appearanceStyle" :class="{ 'theme-dark': theme === 'dark', 'cl-reduce-motion': reducedMotion }">
     <view class="cl-shell">
       <view class="cl-top">
         <LoopButton class="cl-brand cl-btn--quiet" aria-label="Campus Loop 首页" @click="goHome"><image class="cl-brand-mark" src="/static/brand-mark.png" mode="aspectFit" aria-hidden="true"/><text class="cl-brand-name">Campus <text class="cl-brand-accent">Loop</text></text><text class="cl-brand-note">让闲置，继续有用</text></LoopButton>
-        <view class="cl-top-actions"><LoopButton class="cl-icon-btn notification-bell" :aria-label="`消息通知${unreadCount?'，'+unreadCount+'条未读':''}`" @click="inbox"><LoopIcon name="bell"/><text v-if="unreadCount" class="notification-badge">{{unreadCount>99?'99+':unreadCount}}</text></LoopButton>
+        <view class="cl-top-actions"><LoopButton class="cl-icon-btn header-avatar" aria-label="我的账号" @click="openAccount"><image v-if="headerUser?.avatarUrl" :src="imageUrl(headerUser.avatarUrl)" mode="aspectFill"/><text v-else-if="headerUser">{{headerUser.displayName?.slice(0,1)}}</text><LoopIcon v-else name="user"/></LoopButton><LoopButton class="cl-icon-btn notification-bell" :aria-label="`消息通知${unreadCount?'，'+unreadCount+'条未读':''}`" @click="inbox"><LoopIcon name="bell"/><text v-if="unreadCount" class="notification-badge">{{unreadCount>99?'99+':unreadCount}}</text></LoopButton>
           <LoopButton class="cl-icon-btn" :aria-label="theme === 'dark' ? '切换浅色模式' : '切换深色模式'" @click="toggleTheme"><LoopIcon :name="theme === 'dark' ? 'sun' : 'moon'"/></LoopButton>
           <LoopButton class="cl-btn cl-btn--primary cl-desktop-only" @click="goPublish"><LoopIcon name="plus" tone="white" :size="18"/>发布闲置</LoopButton>
         </view>
@@ -54,6 +59,7 @@ const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
   </view>
 </template>
 <style scoped>
+.header-avatar{padding:0;overflow:hidden;background:var(--cl-primary-soft);color:var(--cl-primary);font-weight:700}.header-avatar image{width:100%;height:100%}
 .page-back{margin:4px 0 18px}.page-back .cl-btn{color:var(--cl-text)}
 .loop-nav{position:fixed;z-index:50;bottom:0;left:0;right:0;padding:6px 12px calc(6px + env(safe-area-inset-bottom));display:flex;border-radius:0;isolation:isolate}.nav-button{flex:1;padding:4px 8px;background:transparent;color:var(--cl-muted);font-size:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:44px}.nav-symbol{font-size:23px;line-height:1.1}.nav-button.selected{color:var(--cl-primary);font-weight:650}.nav-indicator{position:absolute;z-index:-1;width:calc((100% - 24px)/4);left:12px;top:6px;bottom:calc(6px + env(safe-area-inset-bottom));border-radius:12px;background:var(--cl-primary-soft);transition:transform var(--cl-motion-normal) var(--cl-ease)}
 /* The outer dock owns the glass. The active pill and icons are flat. */

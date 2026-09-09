@@ -25,6 +25,7 @@ public class AccountMaintenanceService {
  public record Reset(@NotNull @Min(0) Integer version,@NotBlank @Size(min=12,max=64) String password,@NotBlank @Size(max=500) String reason){}
  public record Profile(long id,String username,String displayName,String role,String status,int version,String campus,String bio,String avatarUrl,List<String> permissions){}
  public record Activity(String key,String action,String reason,String actorName,LocalDateTime createdAt){}
+ @org.springframework.beans.factory.annotation.Autowired private edu.campusloop.web.auth.service.AccountSecurityAlerts securityAlerts;
  private final UserMapper users;private final PasswordService passwords;private final AuthSessionMapper sessions;private final JdbcTemplate db;
  public AccountMaintenanceService(UserMapper users,PasswordService passwords,AuthSessionMapper sessions,JdbcTemplate db){this.users=users;this.passwords=passwords;this.sessions=sessions;this.db=db;}
  @Transactional public Profile create(long actor,Create body){
@@ -49,7 +50,7 @@ public class AccountMaintenanceService {
   if(actor==id)throw new ApiException(409,"请在个人账号中修改自己的密码");
   target(operator,id,body.version());
   users.update(null,new UpdateWrapper<User>().eq("id",id).eq("version",body.version()).set("password_hash",passwords.encode(body.password())).setSql("version=version+1"));
-  sessions.delete(new QueryWrapper<AuthSession>().eq("user_id",id));audit(actor,id,"PASSWORD_RESET",body.reason());
+  sessions.delete(new QueryWrapper<AuthSession>().eq("user_id",id));audit(actor,id,"PASSWORD_RESET",body.reason());securityAlerts.passwordChanged(id,true);
  }
  public PageResult<Activity> activity(long id,int page,int size){
   require(users.selectById(id));if(page<1||size<1||size>100)throw new ApiException(400,"分页参数不正确");
@@ -60,7 +61,7 @@ public class AccountMaintenanceService {
  }
  private User operator(long id){var admins=users.selectAdminsForUpdate();var actor=admins.stream().filter(u->u.getId()==id).findFirst().orElseThrow(()->new ApiException(403,"需要管理员权限"));AdminPermissions.require(actor,"USERS");return actor;}
  private User target(User actor,long id,int version){var target=require(users.selectByIdForUpdate(id));if("ADMIN".equals(target.getRole()))AdminPermissions.require(actor,"ALL");if(target.getVersion()!=version||version==Integer.MAX_VALUE)throw new ApiException(409,"账号已更新，请刷新后重试");return target;}
- private User require(User user){if(user==null)throw new ApiException(404,"账号不存在");return user;}
+ private User require(User user){if(user==null||user.getDeletedAt()!=null)throw new ApiException(404,"账号不存在");return user;}
  private Profile profile(User u){return new Profile(u.getId(),u.getUsername(),u.getDisplayName(),u.getRole(),u.getStatus(),u.getVersion(),u.getCampus(),u.getBio(),u.getAvatarUrl(),AdminPermissions.of(u));}
  private String trim(String value){return value==null?"":value.trim();}
  private void audit(long actor,long id,String action,String reason){db.update("INSERT INTO cl_account_audit(target_user_id,actor_user_id,action,reason,created_at) VALUES(?,?,?,?,?)",id,actor,action,reason.trim(),LocalDateTime.now(ZoneOffset.UTC));}

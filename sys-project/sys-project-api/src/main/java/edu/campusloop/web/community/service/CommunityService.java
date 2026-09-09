@@ -18,6 +18,7 @@ import java.util.*;
 public class CommunityService {
  public record Publish(@NotBlank @Size(max=2000) String body,@Positive Long itemId,@Size(max=255) String imageUrl,@NotBlank @Pattern(regexp="[a-zA-Z0-9_-]{8,64}") String requestKey){}
  public record ReplyRequest(@NotBlank @Size(max=1000) String body,@NotBlank @Pattern(regexp="[a-zA-Z0-9_-]{8,64}") String requestKey,@Positive Long parentReplyId){}
+ public record Edit(@NotNull @Min(0)Integer version,@NotBlank @Size(max=2000)String body,@Positive Long itemId,@Size(max=255)String imageUrl){}
  public record Version(@NotNull @Min(0) Integer version){}
  public record Reason(@NotBlank @Size(max=500) String reason){}
  public record Moderate(@NotNull @Min(0) Integer version,@NotNull @Pattern(regexp="HIDE|RESTORE|DISMISS_REPORTS") String action,@NotBlank @Size(max=500) String reason){}
@@ -60,6 +61,12 @@ public class CommunityService {
   if(image!=null)uploads.publicImage(actor,image);
   db.update("INSERT INTO cl_community_post(author_id,body,item_id,image_url,status,version,request_key,created_at) VALUES(?,?,?,?,'PUBLISHED',0,?,?)",actor,body,request.itemId(),image,request.requestKey(),now());
   long id=db.queryForObject("SELECT id FROM cl_community_post WHERE author_id=? AND request_key=?",Long.class,actor,request.requestKey());return detail(id,actor,false);
+ }
+ public Post edit(long actor,long id,Edit request){
+  lockActor(actor);var p=lockPost(id);if(p.authorId()!=actor)throw new ApiException(403,"只能编辑自己的动态");if("DELETED".equals(p.status()))throw missing();version(p,request.version());
+  if(request.itemId()!=null&&db.queryForObject("SELECT COUNT(*) FROM cl_item WHERE id=? AND owner_id=? AND status IN ('AVAILABLE','RESERVED','EXCHANGED')",Long.class,request.itemId(),actor)!=1)throw new ApiException(400,"只能关联自己的公开物品");
+  String image=empty(request.imageUrl());if(image!=null)uploads.publicImage(actor,image);
+  db.update("UPDATE cl_community_post SET body=?,item_id=?,image_url=?,version=version+1 WHERE id=?",request.body().trim(),request.itemId(),image,id);audit(id,actor,"EDIT","作者编辑动态");return detail(id,actor,false);
  }
  public void withdraw(long actor,long id,int version){
   lockActor(actor);var p=lockPost(id);if(p.authorId()!=actor)throw new ApiException(403,"只能撤回自己的动态");

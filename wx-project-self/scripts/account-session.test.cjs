@@ -3,13 +3,13 @@ const {ref,reactive,computed}=require('vue');
 const {loginDestination}=require('../src/common/navigation.mjs');
 const script=name=>fs.readFileSync(path.join(__dirname,`../src/pages/${name}/${name}.vue`),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'');
 function harness(name,expose) {
-  let token='session-a',onLoad,hidden,unloaded;
+  let token='session-a',hidden,unloaded;const loads=[];
   const requests=[],cache={},navigation=[],modals=[];
   const request=(url,body)=>new Promise((resolve,reject)=>requests.push({url,body,resolve,reject}));
   const uni={getStorageSync:()=>token,setStorageSync:(k,v)=>cache[k]=v,redirectTo:o=>navigation.push(o.url),navigateTo:o=>navigation.push(o.url),switchTab:o=>navigation.push(o.url),showToast:()=>{}};
-  const args={ref,reactive,computed,loginDestination,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>onLoad=fn,http:{get:(url,body)=>url==='/api/notifications/unread-count'?Promise.resolve(0):request(url,body),put:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
+  const args={ref,reactive,computed,loginDestination,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>loads.push(fn),http:{get:(url,body)=>url==='/api/auth/options'?Promise.resolve({registrationMode:'DEVELOPMENT_SELF_SERVICE',emailAvailable:false}):url==='/api/notifications/unread-count'?Promise.resolve(0):request(url,body),put:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
   const app=new Function(...Object.keys(args),script(name)+`;return {${expose}};`)(...Object.values(args));
-  return {app,requests,cache,navigation,modals,setToken:v=>token=v,token:()=>token,options:o=>onLoad(o),hide:()=>hidden(),unload:()=>unloaded()};
+  return {app,requests,cache,navigation,modals,setToken:v=>token=v,token:()=>token,options:o=>Promise.all(loads.map(fn=>fn(o))),hide:()=>hidden(),unload:()=>unloaded()};
 }
 const profile=()=>harness('profile-settings','load,user,profileForm,saveProfile,passwordForm,changePassword,logout,profileUncertain');
 const user={id:1,displayName:'First user',version:0};
@@ -51,7 +51,7 @@ test('late old demand 401 cannot redirect a newly logged-in account',async()=>{
  const h=demands(),pending=h.app.loadDemands();h.setToken('session-b');h.requests[0].reject({status:401});await pending;assert.equal(h.navigation.length,0);
 });
 test('registration preserves the demand return path and never repeats an uncertain write',async()=>{
- const h=harness('register','form,register,uncertain,goLogin');h.options({redirect:'demands'});Object.assign(h.app.form,{username:'synthetic-user',displayName:'Synthetic',password:'synthetic-pass',confirmPassword:'synthetic-pass'});
+ const h=harness('register','form,register,uncertain,goLogin');await h.options({redirect:'demands'});Object.assign(h.app.form,{username:'synthetic-user',displayName:'Synthetic',password:'synthetic-pass',confirmPassword:'synthetic-pass'});
  const pending=h.app.register();h.requests[0].reject({uncertain:true});await pending;await h.app.register();assert.equal(h.requests.length,1);assert.equal(h.app.form.password,'');h.app.goLogin('registration-unknown');assert.match(h.navigation[0],/redirect=demands/);
 });
 test('registration route exists without replacing the home launch page',()=>{

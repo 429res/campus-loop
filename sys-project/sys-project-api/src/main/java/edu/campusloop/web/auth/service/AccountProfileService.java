@@ -17,9 +17,10 @@ public class AccountProfileService {
         if(user==null||!"ACTIVE".equals(user.getStatus()))throw new ApiException(401,"账号不可用");
         if(!body.version().equals(user.getVersion())||body.version()==Integer.MAX_VALUE)throw new ApiException(409,"资料已更新，请刷新后重试");
         String avatar=clean(body.avatarUrl());
+        String cover=clean(body.coverUrl());if(!cover.isEmpty())uploads.publicImage(actor.getId(),cover);
         if(!avatar.isEmpty())uploads.publicImage(actor.getId(),avatar);
         var update=new UpdateWrapper<User>().eq("id",actor.getId()).eq("version",body.version()).set("display_name",body.displayName().trim())
-            .set("avatar_url",avatar).set("bio",clean(body.bio())).set("campus",clean(body.campus())).set("contact",clean(body.contact())).setSql("version=version+1");
+            .set("cover_url",cover).set("avatar_url",avatar).set("bio",clean(body.bio())).set("campus",clean(body.campus())).set("contact",clean(body.contact())).setSql("version=version+1");
         if(users.update(null,update)!=1)throw new ApiException(409,"资料已更新，请刷新后重试");
         return auth.info(users.selectById(actor.getId()));
     }

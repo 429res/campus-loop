@@ -13,6 +13,15 @@ public class User {
     private String role;
     private String avatarUrl;
     private String bio;
+    private String coverUrl;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String email;
+    private Boolean emailVerified;
+    private Boolean legacyExchangeAccess;
+    private Boolean mailNotifications;
+    private java.time.LocalDateTime deletedAt;
+    @com.fasterxml.jackson.annotation.JsonIgnore
+    private String lastLoginAddress;
     private String campus;
     private String contact;
     @com.fasterxml.jackson.annotation.JsonIgnore

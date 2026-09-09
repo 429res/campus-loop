@@ -3,12 +3,17 @@ import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import LoopIcon from '../../components/LoopIcon.vue'
 import LoopButton from '../../components/LoopButton.vue'
 import { computed, ref } from 'vue'
+import { useTheme } from '../../composables/useTheme'
+const { reducedMotion } = useTheme()
 import { onPullDownRefresh, onShow, onUnload } from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
 import ItemCard from '../../components/ItemCard.vue'
-import http, { isAbortError, TOKEN_KEY } from '../../common/http'
+import http, { imageUrl, isAbortError, TOKEN_KEY } from '../../common/http'
 import { favoriteIds, readAllFavorites, setFavorite } from '../../common/favorites.mjs'
 const categories = ref([]), items = ref([]), keyword = ref(''), selected = ref(''), total = ref(0), page = ref(1), loading = ref(false), error = ref(''), categoriesError = ref('')
+const spotlights=ref([]),spotlightIndex=ref(0)
+async function loadSpotlights(){try{spotlights.value=await http.get('/api/spotlights',{}, {silent:true})}catch{spotlights.value=[]}}
+const spotlightDetail=id=>uni.navigateTo({url:'/pages/detail/detail?id='+id})
 const size = 12
 const readiness=ref(null),matchCount=ref(0),signedIn=ref(false)
 let readinessSequence=0
@@ -75,7 +80,7 @@ async function toggleFavorite(item) {
     if (e.uncertain) await loadFavorites()
   } finally { const updated = new Set(favoriteBusy.value); updated.delete(id); favoriteBusy.value = updated }
 }
-async function init() { await Promise.all([loadCategories(), load(), loadFavorites(), loadReadiness()]) }
+async function init() { await Promise.all([loadSpotlights(),loadCategories(), load(), loadFavorites(), loadReadiness()]) }
 function search() { page.value = 1; load() }
 function choose(id) { selected.value = id; search() }
 function changePage(delta) { const next = page.value + delta; if (next < 1 || next > totalPages.value || loading.value) return; page.value = next; load() }
@@ -85,7 +90,7 @@ onPullDownRefresh(async () => { await init(); uni.stopPullDownRefresh() })
 onUnload(() => { sequence++; favoriteSequence++;readinessSequence++; activeRequest?.abort?.() })
 </script>
 <template>
-  <LoopLayout active-tab="home">
+  <LoopLayout active-tab="home"><view v-if="spotlights.length" class="spotlight-panel cl-panel"><view class="cl-row"><text class="cl-section-title">校园精选好物</text><text class="cl-hint">{{spotlightIndex+1}} / {{spotlights.length}}</text></view><swiper class="spotlight-carousel" :autoplay="spotlights.length>1 && !reducedMotion" :interval="5500" circular indicator-dots @change="spotlightIndex=$event.detail.current"><swiper-item v-for="item in spotlights" :key="item.id"><LoopButton class="spotlight-card" @click="spotlightDetail(item.id)"><image :src="imageUrl(item.imageUrl,item.title)" mode="aspectFit"/><view><text class="cl-tag">校园精选</text><text class="cl-title">{{item.title}}</text><text class="cl-hint">{{item.ownerName}} · 想换 {{item.wantedCategoryName}}</text><text class="spotlight-link">查看物品 →</text></view></LoopButton></swiper-item></swiper></view>
     <view class="search-row"><view class="search-field"><LoopIcon name="search" :size="20"/><input v-model="keyword" class="search-input" placeholder="搜一搜，让需要与闲置相遇" aria-label="搜索物品" confirm-type="search" @confirm="search"/><LoopButton v-if="keyword" class="cl-icon-btn clear-search" aria-label="清空搜索" @click="keyword='';search()"><LoopIcon name="close" :size="18"/></LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="search">{{ loading ? '搜索中…' : '搜索' }}</LoopButton></view><text class="search-note cl-desktop-only">每一件闲置，都值得下一次心动</text></view>
     <view class="home-hero"><view class="hero-copy"><text class="hero-eyebrow">开学交换季 · CAMPUS LOOP</text><text class="hero-title">让闲置，<text class="hero-accent">继续有用。</text></text><text class="hero-subtitle">书本、数码、宿舍好物……从一件闲置开始，认识一起交换的同学。</text><LoopButton class="cl-btn hero-button" @click="goMatch">寻找交换灵感 <LoopIcon name="arrow" tone="primary" :size="18"/></LoopButton></view><view class="hero-visual" aria-hidden="true"><image src="/static/campus-courtyard.png" mode="aspectFit"/><view class="scene-caption"><LoopIcon name="loop" tone="primary" :size="16"/><text>校园好物交换站</text></view></view></view>
     <view class="cl-panel getting-started"><view><text class="cl-section-title">{{nextStep}}</text><text class="cl-hint">发布闲置和求换意向 → 查看匹配方案 → 确认并约定交换</text></view><view class="cl-row"><LoopButton class="cl-btn cl-btn--primary" @click="goPublish">发布闲置</LoopButton><LoopButton class="cl-btn" @click="goMatch">{{matchCount?'查看方案':'查看交换灵感'}}</LoopButton></view></view>
@@ -112,4 +117,5 @@ onUnload(() => { sequence++; favoriteSequence++;readinessSequence++; activeReque
 .category-button{min-height:44px;border-radius:999px;line-height:1.4;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.category-button.active{border-color:transparent;background:var(--cl-primary-soft)}.clear-search{width:36px;flex:none}.search-field{min-width:0}.search-note{flex:none}
 
 .home-hero{grid-template-columns:1fr 1.1fr;background:linear-gradient(120deg,var(--cl-primary-soft),var(--cl-blue-soft));padding:30px 36px;gap:24px;position:relative}.hero-visual{position:relative;align-self:stretch;justify-content:center}.hero-visual image{max-width:none;width:100%;height:250px;border-radius:22px}.scene-caption{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:8px;padding:9px 18px;border-radius:99px;background:var(--cl-surface);box-shadow:0 4px 16px #56749a12;white-space:nowrap}.scene-caption text{color:var(--cl-primary);font-weight:650}.hero-eyebrow{font-weight:700;letter-spacing:1px}.discovery-ideas{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:20px}.discovery-idea{display:flex;align-items:center;gap:12px;border-radius:16px;border:1px solid var(--cl-border);background:var(--cl-surface);text-align:left;padding:18px;color:var(--cl-text)}.discovery-idea>view:nth-child(2){flex:1;min-width:0;display:flex;flex-direction:column;gap:6px;font-weight:700}.discovery-idea .cl-hint{font-size:11px;font-weight:400;line-height:1.6}.idea-icon{padding:12px;background:var(--cl-blue-soft);border-radius:16px}.pink .idea-icon{background:var(--cl-primary-soft)}.green .idea-icon{background:#e0f0e8}.category-row{flex-wrap:wrap;overflow:visible}.category-button{background:var(--cl-surface);border:1px solid var(--cl-border)}.category-button.active{border-color:var(--cl-primary)}@media(max-width:850px){.home-hero{padding:26px}.hero-title{font-size:32px}.hero-visual image{height:210px}.discovery-ideas{gap:10px}.discovery-idea{padding:14px;gap:8px}.idea-icon{padding:8px}.discovery-idea>.loop-icon{display:none}}@media(max-width:650px){.home-hero{grid-template-columns:1fr;padding:24px 22px 14px;gap:12px}.hero-visual{display:flex}.hero-visual image{height:175px}.hero-accent{display:inline}.hero-title{font-size:31px}.hero-subtitle{max-width:310px}.scene-caption{bottom:2px;padding:7px 14px}.discovery-ideas{grid-template-columns:1fr}.discovery-idea{padding:12px 16px}.discovery-idea>.loop-icon{display:block}.category-row{gap:8px}.category-button{padding:9px 12px;font-size:12px}}
+.spotlight-panel{margin-bottom:24px;background:linear-gradient(115deg,var(--cl-primary-soft),var(--cl-blue-soft))}.spotlight-carousel{height:290px;margin-top:16px}.spotlight-card{display:flex;width:100%;height:100%;gap:30px;padding:12px 24px 36px;background:transparent;color:var(--cl-text);text-align:left;box-sizing:border-box}.spotlight-card image{height:100%;width:48%;border-radius:16px;background:var(--cl-surface)}.spotlight-card>view{display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:16px;flex:1;min-width:0}.spotlight-link{color:var(--cl-primary)}@media(max-width:600px){.spotlight-carousel{height:220px}.spotlight-card{gap:14px;padding:8px 0 30px}.spotlight-card .cl-title{font-size:19px}.spotlight-card>view{gap:10px}}
 </style>

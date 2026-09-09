@@ -7,8 +7,11 @@ import LoopLayout from '../../components/LoopLayout.vue'
 import {loginDestination} from '../../common/navigation.mjs'
 import http from '../../common/http'
 
-const form = reactive({ username:'', displayName:'', password:'', confirmPassword:'' })
+const form = reactive({ username:'', displayName:'', password:'', confirmPassword:'',email:'',emailCode:'' })
 const busy = ref(false), error = ref(''), uncertain = ref(false)
+const options=ref(null),sending=ref(false),sentAt=ref(0)
+onLoad(async()=>{try{options.value=await http.get('/api/auth/options',{}, {skipAuth:true,silent:true})}catch(e){error.value=e.message}})
+async function sendCode(){if(sending.value)return;sending.value=true;error.value='';try{await http.post('/api/auth/email-code',{email:form.email.trim()},{skipAuth:true,silent:true});sentAt.value=Date.now();uni.showToast({title:'验证码已发送',icon:'success'})}catch(e){error.value=e.message}finally{sending.value=false}}
 let redirect = 'profile', targetId = ''
 
 onLoad(options => { const target=loginDestination(options);redirect=target.page;targetId=target.url.split('?id=')[1]||'' })
@@ -29,6 +32,9 @@ function clearPasswords() {
 }
 
 function validate() {
+  if(!options.value)return '请等待注册服务配置加载完成'
+  if(options.value.registrationMode==='CLOSED')return '当前未开放注册'
+  if(options.value.registrationMode==='EMAIL_VERIFIED'&&(!form.email.trim()||!/^\d{6}$/.test(form.emailCode)))return '请填写邮箱并输入收到的 6 位验证码'
   const username = form.username.trim()
   const displayName = form.displayName.trim()
   if (!/^[A-Za-z0-9_.-]{3,64}$/.test(username)) return '用户名须为 3–64 位字母、数字、下划线、点或连字符'
@@ -57,6 +63,7 @@ async function register() {
       username: form.username.trim(),
       password: form.password,
       displayName: form.displayName.trim(),
+      ...(options.value?.registrationMode==='EMAIL_VERIFIED'?{email:form.email.trim(),emailCode:form.emailCode}:{}),
     }, {silent:true, uncertainOnFailure:true,skipAuth:true})
     goLogin('registered')
   } catch (requestError) {
@@ -88,6 +95,7 @@ async function register() {
         <text class="cl-title">创建账号</text>
         <view class="cl-field"><text class="cl-field-title">用户名</text><LoopInput v-model="form.username" class="cl-input" aria-label="注册用户名" placeholder="3–64 位字母、数字、_ . -" maxlength="64" autocomplete="username" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
         <view class="cl-field"><text class="cl-field-title">显示名称</text><LoopInput v-model="form.displayName" class="cl-input" aria-label="显示名称" placeholder="其他同学看到的名称" maxlength="64" autocomplete="name" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
+        <template v-if="options?.registrationMode==='EMAIL_VERIFIED'"><text class="cl-hint">验证邮箱后完成注册，即可发布物品、参与交换和校园讨论。</text><view class="cl-field"><text class="cl-field-title">邮箱</text><LoopInput v-model="form.email" class="cl-input" aria-label="注册邮箱" maxlength="254" :disabled="busy"/><LoopButton class="cl-btn" :disabled="busy||sending||!options.emailAvailable" @click="sendCode">{{sending?'发送中…':sentAt?'重新发送验证码':'发送邮箱验证码'}}</LoopButton><text v-if="!options.emailAvailable" class="cl-error">邮件服务暂不可用，请稍后注册。</text></view><view class="cl-field"><text class="cl-field-title">邮箱验证码</text><LoopInput v-model="form.emailCode" class="cl-input" aria-label="邮箱验证码" maxlength="6" :disabled="busy"/></view></template>
         <view class="cl-field"><text class="cl-field-title">密码</text><LoopInput v-model="form.password" class="cl-input" aria-label="注册密码" placeholder="12–64 个字符" password maxlength="64" autocomplete="new-password" :aria-invalid="!!error" :disabled="busy || uncertain" /></view>
         <view class="cl-field"><text class="cl-field-title">确认密码</text><LoopInput v-model="form.confirmPassword" class="cl-input" aria-label="确认注册密码" placeholder="再次输入密码" password maxlength="64" autocomplete="new-password" :aria-invalid="!!error" :disabled="busy || uncertain" confirm-type="done" @confirm="register" /></view>
         <text v-if="error" class="cl-error" role="alert">{{ error }}</text>

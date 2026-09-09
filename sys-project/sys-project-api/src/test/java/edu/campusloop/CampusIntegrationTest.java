@@ -83,7 +83,7 @@ class CampusIntegrationTest {
     }
     long account(String username,String password,String role){
         User user=new User();user.setUsername(username);user.setPasswordHash(passwords.encode(password));user.setDisplayName("集成测试同学");
-        user.setRole(role);user.setStatus("ACTIVE");user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(user);return user.getId();
+        user.setLegacyExchangeAccess(true);user.setRole(role);user.setStatus("ACTIVE");user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(user);return user.getId();
     }
     String login(String username,String password) throws Exception {
         return json.readTree(mvc.perform(post("/api/auth/login").contentType("application/json").content(json.writeValueAsString(Map.of("username",username,"password",password))))

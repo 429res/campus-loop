@@ -50,7 +50,7 @@ API根路径 `/api`，JSON UTF-8；成功 HTTP200 + `{ "code": 200, "msg": "…"
 
 修改密码的 `currentPassword` 必填，`newPassword` 为12–64字符且UTF-8编码不超过72字节。旧密码不正确、新密码格式不正确或请求含未声明字段返回400，不修改密码也不撤销会话；未登录或会话已撤销返回401。成功时密码哈希更新与该账号全部会话删除位于同一事务，包含发起请求的当前会话及其他设备会话；消费端收到200后必须立即清除本地令牌、用户缓存并跳转登录页。登录与改密按同一用户行串行化，保证改密提交后不存在通过旧密码取得的有效会话；旧密码登录失败，新密码可重新登录。
 
-注册准入默认 `CLOSED`，此时合法注册请求返回403且不写入用户。仅本地开发或隔离联调可显式配置 `CAMPUS_REGISTRATION_MODE=DEVELOPMENT_SELF_SERVICE`；该模式只是开发自助注册，不代表校园身份已核验，不能用于公开部署。注册请求只接受 `username,password,displayName`：用户名 trim 后为3–64位且仅含字母、数字、下划线、点或连字符；密码为12–64字符且UTF-8编码不超过72字节；显示名称 trim 后为1–64字符。服务端固定写入 `USER/ACTIVE`，拒绝 `id/role/status/passwordHash/version` 及其他未声明字段。成功返回公开用户结构但不创建会话、不返回密码、哈希或 token，消费端随后使用现有登录接口；重名返回409，校验错误返回400，关闭准入返回403。并发相同用户名依靠数据库唯一约束保证仅一条用户记录成功，失败请求不留下半成品账号。
+注册准入默认 `CLOSED`，此时合法注册请求返回403且不写入用户。仅本地开发或隔离联调可显式配置 `CAMPUS_REGISTRATION_MODE=DEVELOPMENT_SELF_SERVICE`；该模式只是开发自助注册，不代表校园身份已核验，不能用于公开部署。开发注册请求接受 `username,password,displayName`；邮箱验证模式另要求 `email,emailCode`：用户名 trim 后为3–64位且仅含字母、数字、下划线、点或连字符；密码为12–64字符且UTF-8编码不超过72字节；显示名称 trim 后为1–64字符。服务端固定写入 `USER/ACTIVE`，拒绝 `id/role/status/passwordHash/version` 及其他未声明字段。成功返回公开用户结构但不创建会话、不返回密码、哈希或 token，消费端随后使用现有登录接口；重名返回409，校验错误返回400，关闭准入返回403。并发相同用户名依靠数据库唯一约束保证仅一条用户记录成功，失败请求不留下半成品账号。
 
 分页统一 `{records,total,page,size}`；page从1开始，size1–100；keyword最多100字符；不要由消费端猜测records/list/rows。空结果为records空数组、total0。
 
@@ -78,7 +78,7 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 
 编辑/下架在事务内锁定物品，复核归属、状态、占用与 version，按 id/owner/status/version 条件更新并将 version 加1，再从数据库回读。旧版本、并发编辑/下架和版本上限均409，不覆盖已提交数据；相同字段的有效编辑也加1。D 应保存版本与完整本人表单；409保留当前用户输入，GET /items/mine/{id} 回读并提示重新判断，不自动使用新版本覆盖。400显示msg并保留输入，401按会话归属恢复，403/404停止提交并回到本人列表。具体状态矩阵、示例与验证见 [A-02 接入说明](a02-own-items.md)，协作已同步 [Issue #15](https://github.com/429res/campus-loop/issues/15)，D 消费确认与页面联调仍待完成。
 
-上传仅接受有效PNG/JPEG/GIF、最大5MB、最多1600万像素；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。初版每物品一张图，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
+上传仅接受有效PNG/JPEG/GIF、最大10MiB、最多1600万像素；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。每物品最多9张图，imageUrls 保持顺序，首张兼容 imageUrl 封面，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
 
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
@@ -373,3 +373,18 @@ COMMUNITY 管理权限：`GET /api/admin/community/posts?page&size&reported&keyw
 `direct-v1` 只允许两条 flow，每条必须包含 `itemId`、`itemVersion` 和值均为 0 的 `demandId` / `demandVersion`。以物品真实归属推导双方流向，参与人不能由客户端伪造。推荐模式仍使用 `independent-v2` 的真实需求 ID/版本；两种模式的摘要不同，不能复用同一幂等键切换模式。详情页会对分类或偏好标签不一致显示二次确认。
 
 `GET /api/members/{id}/items?page=1&size=12` 返回 PageResult，公开主页仅显示 ACTIVE 账号的 AVAILABLE / RESERVED 物品；主页计数不包含已交换物品。公开物品详情保留 EXCHANGED 用于动态和历史引用，物品并未物理删除。`GET /api/exchanges/mine` 与详情都返回 `ruleVersion` 和 flow 的 `itemTitle` / `imageUrl`；订单仅参与人可见，不可见返回 404。个人主页不公开用户名、联系方式、角色、权限及认证信息。
+
+
+## 账号、社区、图片和助手升级（V20/V21）
+
+- `GET /api/auth/options`：registrationMode、emailAvailable。`EMAIL_VERIFIED` 模式下先 `POST /api/auth/email-code {email}`，再注册携带 email/emailCode；验证码 10 分钟、单次有效，60 秒重发间隔、最多 5 次错误。重复用户名/邮箱返回 409；邮件未配置返回 503。
+- 登录 username 可填写用户名或邮箱。连续两次错误后需 `GET /api/auth/captcha` 获取 `{id,image,expiresIn}`，登录附带 captchaId/captchaAnswer；图片验证码 120 秒、绑定来源地址且单次消费，不满足时返回 428。仍保留登录频控。
+- `POST /api/account/email-code {email}` 发送绑定验证码；`PUT /api/account/email {email,code,password}` 验证当前密码及验证码。`PUT /api/account/mail-notifications {enabled}` 修改账户安全邮件提醒开关，开启需已验证邮箱。
+- 本人结构增加 email/emailVerified/legacyExchangeAccess/coverUrl/mailNotifications；公开个人主页只增加 coverUrl，不公开邮箱。V20 前账号保留交换和社区资格；未验证且没有历史资格的新账号只有浏览、账号和通知管理权限。
+- `DELETE /api/account {version,password,reason}`、`DELETE /api/admin/users/{id} {version,reason}` 注销账号。管理员接口须 USERS 权限，管理员账号禁止直接删除；未结束交换/占用返回 409。删除后撤销会话、匿名化资料、隐藏在架物品及社区内容，保留交换、履历和治理审计关系。
+- 发布/编辑物品接受 `imageUrls`（最多9个本人公开上传URL），返回有序数组及首张 imageUrl；未提供数组时兼容旧单图。账号资料接受 coverUrl，须为本人公开上传。
+- `GET /api/spotlights` 公开轮播（最多8件当前 AVAILABLE 且作者有效的物品）；`GET /api/admin/items/spotlights` 管理配置；`PUT /api/admin/items/{id}/spotlight {enabled,sortOrder}` 开关/排序（0–999），须 ITEMS 权限。
+- `PATCH /api/community/posts/{id} {version,body,itemId?,imageUrl?}` 作者编辑；版本冲突409、他人403、已撤回404。隐藏动态编辑后仍隐藏，不绕过审核。
+- `GET /api/assistant/status` 返回配置可用标记；`POST /api/assistant/item-draft {description}` 返回 title/description/categoryId/tags/decision/reason/checks/model 草稿。状态只说明已配置，不能替代供应商真实连通验证。
+- `POST /api/admin/items/{id}/assist-review`、`POST /api/admin/community/posts/{id}/assist-review`、`POST /api/admin/reports/{id}/assist-review` 各沿用对应管理权限。受限 agent 先读取授权对象/分类，再返回 JSON 建议；最多两次模型请求，账号10秒间隔。没有写入工具，供应商失败返回503；当前分析文字，图片须人工查看。
+- 账户安全邮件提醒默认关闭，仅 ACCOUNT_SECURITY 事件在用户开启后入 outbox，30秒轮询，失败最多5次、5分钟间隔；不影响原业务事务。SMTP 接受不等于最终投递到收件箱。V21 清除历史业务邮件待发任务，worker 同时按安全类型过滤；商品审核、交换、评论不发送邮件。成功登录记录上次地址，变更仅提示网络地址变化，不宣称已确认账号被盗。

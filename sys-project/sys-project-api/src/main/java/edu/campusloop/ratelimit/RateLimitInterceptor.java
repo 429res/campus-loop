@@ -26,7 +26,7 @@ public class RateLimitInterceptor implements HandlerInterceptor {
         String route = request.getMethod() + " " + request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
         Selection selection = switch (route) {
             case "POST /api/auth/login" -> anonymous("login", properties.getLogin(), request);
-            case "POST /api/auth/register" -> anonymous("registration", properties.getRegistration(), request);
+            case "GET /api/auth/captcha", "POST /api/auth/email-code", "POST /api/account/email-code", "POST /api/auth/register" -> anonymous("registration", properties.getRegistration(), request);
             case "POST /api/auth/password" -> authenticated("password", properties.getPassword(), request);
             case "POST /api/uploads", "POST /api/uploads/evidence" -> authenticated("upload", properties.getUpload(), request);
             default -> null;

@@ -12,12 +12,14 @@ public record PublishItemRequest(
     @NotNull @Size(max=8) List<@NotBlank @Size(max=20) String> tags,
     @NotNull @Positive Long wantedCategoryId,
     @NotNull @Size(max=8) List<@NotBlank @Size(max=20) String> wantedTags,
-    @Size(max=255) String imageUrl) {
+    @Size(max=255) String imageUrl,
+    @Size(max=9) List<@NotBlank @Size(max=255) String> imageUrls) {
+    public PublishItemRequest(String title,String description,Long categoryId,Integer conditionLevel,List<String> tags,Long wantedCategoryId,List<String> wantedTags,String imageUrl){this(title,description,categoryId,conditionLevel,tags,wantedCategoryId,wantedTags,imageUrl,null);}
     @JsonCreator(mode=JsonCreator.Mode.DELEGATING)
     public static PublishItemRequest from(JsonNode body) {
-        ItemWriteJson.fields(body,Set.of("title","description","categoryId","conditionLevel","tags","wantedCategoryId","wantedTags","imageUrl"));
+        ItemWriteJson.fields(body,Set.of("title","description","categoryId","conditionLevel","tags","wantedCategoryId","wantedTags","imageUrl","imageUrls"));
         return new PublishItemRequest(ItemWriteJson.string(body,"title"),ItemWriteJson.string(body,"description"),
             ItemWriteJson.number(body,"categoryId"),ItemWriteJson.integer(body,"conditionLevel"),ItemWriteJson.tags(body,"tags"),
-            ItemWriteJson.number(body,"wantedCategoryId"),ItemWriteJson.tags(body,"wantedTags"),ItemWriteJson.string(body,"imageUrl"));
+            ItemWriteJson.number(body,"wantedCategoryId"),ItemWriteJson.tags(body,"wantedTags"),ItemWriteJson.string(body,"imageUrl"),body.has("imageUrls")?ItemWriteJson.tags(body,"imageUrls"):null);
     }
 }

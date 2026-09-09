@@ -86,7 +86,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
         Item item=new Item();item.setOwnerId(ownerId);item.setTitle(request.title().trim());item.setDescription(request.description().trim());
         item.setCategoryId(request.categoryId());item.setConditionLevel(request.conditionLevel());item.setTagsJson(encode(request.tags()));
         item.setWantedCategoryId(request.wantedCategoryId());item.setWantedTagsJson(encode(request.wantedTags()));
-        item.setImageUrl(image);item.setStatus("PENDING_REVIEW");item.setReviewBasis("UNREVIEWED");item.setVersion(0);item.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        item.setImageUrlsJson(encodeImages(gallery(request)));item.setImageUrl(image);item.setStatus("PENDING_REVIEW");item.setReviewBasis("UNREVIEWED");item.setVersion(0);item.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
         baseMapper.insert(item);item=baseMapper.selectById(item.getId());
         publishedDemands.sync(item);
         audits.append(ownerId,"SUBMIT",null,null,item);return views(List.of(item),true).get(0);
@@ -118,7 +118,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
             .set("category_id",fields.categoryId()).set("condition_level",fields.conditionLevel())
             .set("tags_json",encode(fields.tags())).set("wanted_category_id",fields.wantedCategoryId())
             .set("wanted_tags_json",encode(fields.wantedTags())).set("image_url",image)
-            .set("status","PENDING_REVIEW").set("review_basis","UNREVIEWED");
+            .set("image_urls_json",encodeImages(gallery(fields))).set("status","PENDING_REVIEW").set("review_basis","UNREVIEWED");
         return advanceAndRead(item,update,"SUBMIT");
     }
     @Override @Transactional(isolation=Isolation.READ_COMMITTED)
@@ -158,7 +158,9 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
     }
     private String validateFields(long ownerId,PublishItemRequest request) {
         categorySelection.requireActive(Arrays.asList(request.categoryId(),request.wantedCategoryId()));
-        String image=request.imageUrl();
+        List<String> images=gallery(request);
+        for(String url:images)uploads.publicImage(ownerId,url);
+        String image=images.isEmpty()?null:images.get(0);
         if(image!=null && !image.isBlank()) {
             uploads.publicImage(ownerId,image);
         }
@@ -181,8 +183,10 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
             decode(i.getWantedTagsJson()),i.getImageUrl(),i.getStatus(),i.getVersion(),i.getCreatedAt(),i.getReviewBasis(),
             decision==null?null:decision.getAction(),decision==null?null:decision.getReason(),
             decision==null?null:decision.getOperatorDisplayName(),decision==null?null:decision.getCreatedAt(),
-            decision==null?null:decision.getPreviousVersion(),owners.containsKey(i.getOwnerId())?owners.get(i.getOwnerId()).getAvatarUrl():null);}).toList();
+            decision==null?null:decision.getPreviousVersion(),owners.containsKey(i.getOwnerId())?owners.get(i.getOwnerId()).getAvatarUrl():null,i.getImageUrlsJson()==null?(i.getImageUrl()==null?List.of():List.of(i.getImageUrl())):decode(i.getImageUrlsJson()));}).toList();
     }
+    private List<String> gallery(PublishItemRequest r){return r.imageUrls()!=null?r.imageUrls().stream().distinct().toList():(r.imageUrl()==null||r.imageUrl().isBlank()?List.of():List.of(r.imageUrl()));}
+    private String encodeImages(List<String> images){try{return json.writeValueAsString(images);}catch(Exception e){throw new ApiException(400,"图片格式不正确");}}
     private String encode(List<String> tags) {
         try {return json.writeValueAsString(tags.stream().map(String::trim).map(s->s.toLowerCase(Locale.ROOT)).distinct().toList());}
         catch(Exception e){throw new ApiException(400,"标签格式不正确");}

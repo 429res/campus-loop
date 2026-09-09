@@ -41,7 +41,7 @@
       @change="upload"
     />
     <p>
-      最多 {{ limit }} 张，每张不超过 5 MB；支持
+      最多 {{ limit }} 张，每张不超过 10 MB；支持
       JPG、PNG、GIF。首张图片用于列表展示。
     </p>
   </div>
@@ -83,8 +83,8 @@ const upload = async (event) => {
     )
   )
     return ElMessage.warning("请选择 JPG、PNG、GIF 图片");
-  if (files.some((file) => file.size === 0 || file.size > 5 * 1024 * 1024))
-    return ElMessage.warning("图片不能为空，且每张不能超过 5 MB");
+  if (files.some((file) => file.size === 0 || file.size > 10 * 1024 * 1024))
+    return ElMessage.warning("图片不能为空，且每张不能超过 10 MB");
   busy.value = true;
   emit("busy-change", true);
   controller = new AbortController();
