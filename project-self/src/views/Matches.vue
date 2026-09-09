@@ -64,7 +64,7 @@ onMounted(load);
     <article v-for="match in shown" :key="match.id" class="panel match-card">
       <header>
         <span class="match-label"
-          ><span class="match-icon">↻</span
+          ><span class="match-icon"><el-icon><Connection /></el-icon></span
           >{{ match.length === 2 ? "双方交换" : "三方循环" }}</span
         ><el-tag :type="match.length === 2 ? 'primary' : 'success'" round
           >匹配得分 {{ match.score }}</el-tag

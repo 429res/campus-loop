@@ -1,5 +1,7 @@
 # Campus Loop 管理端控件覆盖
 
+2026-09-09 布局增量：侧栏独立滚动、图标不压缩、图文按钮间距、手机表格内部滚动、单层弹窗和正常排布插画。当前验证见[前端修复记录](../../docs/frontend-refinement.md)；下文历史记录保留原验收范围。
+
 入口：`/controls`。主题语义来自仓库 `shared/design-tokens.css`，Element Plus 映射与页面布局在 `src/styles/base.css`，统一材质和动效在 `src/styles/liquid-glass.css`。不依赖私人技能或绝对本机路径。
 
 | 控件 | 公共实现/验证入口 |

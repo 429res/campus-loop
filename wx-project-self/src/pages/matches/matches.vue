@@ -1,4 +1,5 @@
 <script setup>
+import LoopIcon from '../../components/LoopIcon.vue'
 import { computed, ref } from 'vue'
 import { onShow, onHide, onUnload } from '@dcloudio/uni-app'
 import LoopButton from '../../components/LoopButton.vue'
@@ -126,16 +127,16 @@ onUnload(() => { alive = false; createGeneration++; preview.value = null; reques
 </script>
 
 <template>
-  <LoopLayout>
-    <view class="match-heading"><view class="cl-page-heading"><text class="match-kicker">A LITTLE MATCH, A NEW LOOP</text><text class="cl-title">你的需要，可以这样相遇。</text><text class="cl-subtitle">仅展示服务端独立需求规则生成、且包含当前账号的双方或三方方案。</text></view><text class="match-symbol" aria-hidden="true">↻</text></view>
+  <LoopLayout active-tab="matches">
+    <view class="match-heading"><view class="cl-page-heading"><text class="match-kicker">A LITTLE MATCH, A NEW LOOP</text><text class="cl-title">你的需要，可以这样相遇。</text><text class="cl-subtitle">仅展示服务端独立需求规则生成、且包含当前账号的双方或三方方案。</text></view><LoopIcon class="match-symbol" name="exchange" tone="primary" :size="64"/></view>
     <view class="match-toolbar"><LoopSegment v-model="filter" :options="['全部推荐','双方交换','三方循环']"/><LoopButton class="cl-btn" :disabled="loading || !authenticated" @click="load">↺ 更新推荐</LoopButton></view>
     <view v-if="creation" class="cl-panel retained-request" role="status"><text class="cl-section-title">{{ creation.phase==='confirmed' ? '已发起，可查看交换进度' : '有一次发起请求需要核对' }}</text><text class="cl-hint">{{ creation.phase==='uncertain' ? '上次结果尚未确认。请重试原请求或查看我的交换；刷新页面不会生成新的发起编号。' : creation.phase==='rejected' ? '服务器拒绝了上次请求，原方案已保留。重新读取推荐并核对后，再决定是否重新选择。' : '已保留本账号的原方案与发起编号。' }}</text><view class="notice-actions"><LoopButton v-if="creation.phase==='confirmed'" class="cl-btn cl-btn--primary" @click="openCreated(creation.exchangeId)">查看已发起交换</LoopButton><LoopButton v-else class="cl-btn cl-btn--primary" :disabled="createBusy" @click="reviewRetained">核对保留的请求</LoopButton><LoopButton v-if="['confirmed','rejected','prepared'].includes(creation.phase)" class="cl-btn" :disabled="createBusy" @click="discardKnownRequest">{{ creation.phase==='confirmed'?'收起提示':'已核对，重新选择' }}</LoopButton></view></view>
     <view class="cl-notice match-notice"><view><text class="cl-field-title">规则 {{ ruleVersion }}</text><text class="cl-hint">分类是硬条件；标签只参与服务端排序。页面不重算得分，浏览、预览和刷新都不会创建交换或占用物品。</text></view><view class="notice-actions"><LoopButton class="cl-btn" @click="openDemands">管理独立需求</LoopButton><LoopButton class="cl-btn" @click="openExchanges">我的交换</LoopButton></view></view>
 
-    <view v-if="!authenticated" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ authNotice || '登录后查看与你有关的独立需求推荐' }}</text><text class="cl-hint">不会回退到公开旧推荐冒充结果。</text><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ authNotice ? '重新登录' : '登录' }}</LoopButton></view>
+    <view v-if="!authenticated" class="cl-panel cl-empty"><LoopIcon name="user" tone="primary" :size="36"/><text>{{ authNotice || '登录后查看与你有关的独立需求推荐' }}</text><text class="cl-hint">不会回退到公开旧推荐冒充结果。</text><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ authNotice ? '重新登录' : '登录' }}</LoopButton></view>
     <view v-else-if="loading" class="cl-empty"><text class="cl-label">正在读取服务端推荐快照…</text></view>
     <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><text v-if="errorStatus===422" class="cl-hint">这是候选规模超限，服务端未返回截断方案。请等待候选分区能力或缩小可交换候选范围后再试，不能视为“暂无推荐”。</text><LoopButton class="cl-btn" @click="load">重新读取</LoopButton></view>
-    <view v-else-if="!recommendations.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">↻</text><text>当前没有独立需求交换环</text><text class="cl-hint">只有 ACTIVE 需求及其本人 AVAILABLE、未占用的关联物品会参与；不会用旧物品需求随机补位。</text></view>
+    <view v-else-if="!recommendations.length" class="cl-panel cl-empty"><LoopIcon name="exchange" tone="primary" :size="36"/><text>当前没有独立需求交换环</text><text class="cl-hint">只有 ACTIVE 需求及其本人 AVAILABLE、未占用的关联物品会参与；不会用旧物品需求随机补位。</text></view>
     <template v-else>
       <view v-if="!visible.length" class="cl-panel cl-empty"><text>当前筛选下没有推荐</text><text class="cl-hint">切换“全部推荐”可查看其他环长，筛选不会重新请求或改变服务端方案。</text></view>
       <view v-else class="match-list">

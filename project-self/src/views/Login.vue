@@ -45,12 +45,10 @@ async function submit() {
       <Brand /><span class="eyebrow">LESS WASTE. MORE POSSIBILITIES.</span>
       <h1>闲置有归处，<br />校园有循环<span>。</span></h1>
       <p>让一本书、一盏灯、一份需求，<br />连接校园里新的可能。</p>
-      <div class="login-art">
-        <div class="art-circle" />
-        <img src="/demo/book.svg" alt="校园书籍占位插画" /><span
-          class="floating-label glass-control"
-          >书籍 → 摄影 → 阅读 <b>↻</b></span
-        >
+      <div class="login-art" aria-label="书籍、相机与台灯的循环示意">
+        <figure v-for="item in [{name:'书籍',image:'book'},{name:'相机',image:'camera'},{name:'台灯',image:'lamp'}]" :key="item.image">
+          <img :src="`/demo/${item.image}.svg`" :alt="item.name"/><figcaption>{{ item.name }}</figcaption>
+        </figure>
       </div>
       <small>基于需求匹配与多方置换的校园闲置物品循环管理系统</small>
     </section>
@@ -95,8 +93,7 @@ async function submit() {
             >进入工作台<el-icon><ArrowRight /></el-icon></el-button
         ></el-form>
         <p class="login-hint">
-          首次使用：请先按照 README
-          在自己的开发数据库中初始化账号。这里不提供默认口令。
+          使用管理员账号登录。首次部署的账号设置方式请查看仓库部署文档。
         </p>
         <router-link to="/controls" class="text-link"
           >浏览公开控件实验室 ↗</router-link
