@@ -24,12 +24,13 @@ public class HistoryVerificationService {
     private final HistoryMapper history;private final HistoryVerificationMapper records;private final UserMapper users;
     private final ItemMapper items;private final ExchangeLifecycleMapper locks;private final ExchangeMapper exchanges;
     private final HistoryConfirmationService confirmations;private final LocalUploadService files;private final edu.campusloop.web.upload.service.UploadReferenceService references;private final ObjectMapper json;
+    private final edu.campusloop.web.notification.service.NotificationService notifications;
     private final ExchangeTransactionExecutor transactions;private final ExchangeDatabaseClock clock;
     public HistoryVerificationService(HistoryMapper history,HistoryVerificationMapper records,UserMapper users,ItemMapper items,
         ExchangeLifecycleMapper locks,ExchangeMapper exchanges,HistoryConfirmationService confirmations,LocalUploadService files,
-        ObjectMapper json,ExchangeTransactionExecutor transactions,ExchangeDatabaseClock clock,edu.campusloop.web.upload.service.UploadReferenceService references) {
+        ObjectMapper json,ExchangeTransactionExecutor transactions,ExchangeDatabaseClock clock,edu.campusloop.web.upload.service.UploadReferenceService references,edu.campusloop.web.notification.service.NotificationService notifications) {
         this.history=history;this.records=records;this.users=users;this.items=items;this.locks=locks;this.exchanges=exchanges;
-        this.confirmations=confirmations;this.files=files;this.json=json;this.transactions=transactions;this.clock=clock;this.references=references;
+        this.confirmations=confirmations;this.files=files;this.json=json;this.transactions=transactions;this.clock=clock;this.references=references;this.notifications=notifications;
     }
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public PageResult<JsonNode> page(long actor,int page,int size,String status) {
@@ -68,6 +69,7 @@ public class HistoryVerificationService {
             records.prepare(id);
             if(records.decide(id,command.version(),command.decision())!=1) throw conflict();
             records.append(new HistoryVerificationMapper.Audit(id,1,actor,command.idempotencyKey(),request,command.decision(),command.scope(),command.reason(),digest,snapshot.toString(),clock.now()));
+            if(current.getSourceUserId()!=null)notifications.send(current.getSourceUserId(),"HISTORY","履历核验已有结果",command.reason(),"/pages/history/history?id="+current.getItemId(),"HISTORY:"+id+":VERIFY");
             return true;
         });
     }
@@ -99,7 +101,7 @@ public class HistoryVerificationService {
     private boolean involved(long actor,HistoryEvent row) {return row.getSourceUserId()==actor || row.getExchangeId()!=null && exchanges.participants(List.of(row.getExchangeId())).stream().anyMatch(p->p.getUserId()==actor);}
     private static boolean eligible(HistoryEvent row) {return "SELF_REPORTED".equals(row.getEvidenceLevel()) && Set.of("REPAIR","TRANSFER").contains(row.getEventType()) || "BOTH_CONFIRMED".equals(row.getEvidenceLevel()) && "EXCHANGED".equals(row.getEventType());}
     private HistoryEvent row(long id) {var row=history.find(id);if(row==null) throw new ApiException(404,"履历不存在");return row;}
-    private static User admin(User user) {if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");if(!"ADMIN".equals(user.getRole())) throw new ApiException(403,"需要管理员权限");return user;}
+    private static User admin(User user) {if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");if(!edu.campusloop.auth.AdminPermissions.has(user,"HISTORY")) throw new ApiException(403,"需要管理员权限");return user;}
     private JsonNode parse(String value) {try{return json.readTree(value);}catch(Exception malformed){throw conflict();}}
     private static String utc(LocalDateTime time) {return time==null?null:time.toInstant(ZoneOffset.UTC).toString();}
     private static String hash(String value) {return hash(value.getBytes(StandardCharsets.UTF_8));}

@@ -8,8 +8,10 @@ input, textarea { color: var(--cl-text); font: inherit; }
 .cl-app { min-height: calc(100vh - 50px); color: var(--cl-text); background: var(--cl-bg); }
 .cl-shell { width: calc(100% - 48px); max-width: 1220px; margin: 0 auto; padding-bottom: 48px; }
 .cl-top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 20px 0; }
-.cl-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 23px; letter-spacing: -.8px; }
-.cl-brand-mark { width: 38px; height: 38px; border-radius: 13px; color: #fff; background: var(--cl-primary); display:flex; align-items:center; justify-content:center; font-size:31px; font-weight:500; }
+.cl-brand { display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 22px; letter-spacing: -.5px; }
+.cl-brand-mark { width: 39px; height: 39px; display:block; flex:none; }
+.cl-brand-name { white-space:nowrap; }
+.cl-brand-accent { color:var(--cl-primary); }
 .cl-brand-note { margin-left: 16px; font-size: 12px; color: var(--cl-muted); font-weight: 400; letter-spacing: 1px; }
 .cl-top-actions, .cl-row { display: flex; align-items: center; gap: 12px; }
 .cl-btn, .cl-icon-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 1px solid var(--cl-border); border-radius: var(--cl-radius-control); padding: 11px 18px; color: var(--cl-text); background-color: var(--cl-surface); font-size: 14px; font-weight: 600; flex-shrink: 0; }

@@ -18,6 +18,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if(OPTIONAL.contains(request.getMethod()+" "+path) && request.getHeader("Authorization")==null) return true;
         User user=auth.authenticate(token(request)); request.setAttribute(USER,user);
         if (path.startsWith("/api/admin/") && !"ADMIN".equals(user.getRole())) throw new ApiException(403,"需要管理员权限");
+        response.setHeader("Cache-Control","private, no-store");response.addHeader("Vary","Authorization");
+        if(path.startsWith("/api/admin/")) AdminPermissions.require(user,AdminPermissions.forPath(path));
         return true;
     }
     public static String token(HttpServletRequest request) {

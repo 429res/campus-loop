@@ -87,6 +87,12 @@
       "style": {
         "navigationBarTitleText": "注册"
       }
+    },
+    {
+      "path": "pages/notifications/notifications",
+      "style": {
+        "navigationBarTitleText": "消息通知"
+      }
     }
   ],
   "globalStyle": {

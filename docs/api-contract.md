@@ -325,3 +325,16 @@ HistoryView新增`recordedEvidenceLevel`与`confirmation`：原来源始终保�
 ### B-06 性能切片兼容
 
 分类建边索引仅改变independent-v2的内部边构建；字段、结果顺序、理由与全部422上限不变，没有候选分页或部分推荐成功。正式创建仍实时事务重校验。见[B-06基准与边界](b06-matching-benchmark.md)。
+
+
+## 平台补全接口（V16）
+
+- `GET/PUT /api/account/profile`：本人资料；写入 `version, displayName, avatarUrl, bio, campus, contact`，返回完整本人账号。头像沿用本人上传校验，联系方式不进入公共投影。冲突返回 409，重新读取后修改。
+- `PATCH /api/admin/users/{id}/access`：只有 ALL 管理员可调用；`version, role, permissions[], reason`。权限为 ALL / USERS / ITEMS / CATEGORIES / EXCHANGES / HISTORY / REPORTS / OPERATIONS；USER 必须为空，ADMIN 至少一项。成功撤销目标全部会话并保存审计；不能修改自身权限，保留最后可用超级管理员。旧 ADMIN 迁移为 ALL。
+- `GET /api/notifications?page&size&unread`、`GET /api/notifications/unread-count`、`PATCH /api/notifications/{id}/read`、`POST /api/notifications/read-all`：仅本人消息，分页沿用 PageResult，重复已读幂等。邀请、交换进度、审核、举报、履历核验及权限变更与业务事务一起写入，重复业务请求不重复通知。
+- `POST /api/items/{id}/relist`：本人 HIDDEN 物品提交 `version` 后进入 PENDING_REVIEW；分类须有效且无交换占用。HIDDEN 也可完整编辑后重新送审。
+- `POST /api/admin/exchange-disputes/{id}/resolve`：EXCHANGES 权限，`version, decision:RESUME|CANCEL, reason, returnConfirmed`。RESUME 保留交接声明并恢复 READY，延长交接期限一天；CANCEL 必须确认物品仍在原持有人处或全部归还，释放占用并恢复可交换。不得代替参与者确认收发。交换锁、用户、需求、物品顺序与原生命周期一致；同版本同人同内容重试幂等。
+- `GET /api/admin/exchanges/{id}/resolutions`、`GET /api/exchanges/{id}/resolutions`：管理员 / 本交换参与者读取争议处理记录。事件新增 DISPUTE_RESUMED、ADMIN_CANCELLED。
+- `GET /api/admin/operations/summary?days=7|30|90`：OPERATIONS 权限，数据库实时汇总、UTC 日趋势和分类计数。`GET /api/admin/operations/audits?page&size&module`：跨物品、账号、举报、交换的审计分页；module 可为 ITEMS / USERS / REPORTS / EXCHANGES。
+
+自动审核和 OSS 付费服务暂不启用。内容维持现有人工审核流程。

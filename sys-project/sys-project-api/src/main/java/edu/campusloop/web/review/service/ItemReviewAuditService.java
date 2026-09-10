@@ -25,8 +25,9 @@ public class ItemReviewAuditService {
     private final UserMapper users;
     private final ItemMapper items;
     private final ObjectMapper json;
-    public ItemReviewAuditService(ItemReviewAuditMapper audits, UserMapper users, ItemMapper items, ObjectMapper json) {
-        this.audits=audits; this.users=users; this.items=items; this.json=json;
+    private final edu.campusloop.web.notification.service.NotificationService notifications;
+    public ItemReviewAuditService(ItemReviewAuditMapper audits, UserMapper users, ItemMapper items, ObjectMapper json, edu.campusloop.web.notification.service.NotificationService notifications) {
+        this.audits=audits; this.users=users; this.items=items; this.json=json;this.notifications=notifications;
     }
 
     @Transactional(propagation = Propagation.MANDATORY)
@@ -41,6 +42,7 @@ public class ItemReviewAuditService {
         audit.setPreviousSnapshotJson(before==null?null:snapshot(before)); audit.setNewSnapshotJson(snapshot(after));
         audit.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS));
         audits.insert(audit);
+        if("APPROVE".equals(action)||"REJECT".equals(action))notifications.send(after.getOwnerId(),"REVIEW","APPROVE".equals(action)?"物品已通过审核":"物品需要修改",after.getTitle()+"："+reason,"/pages/my-items/my-items","REVIEW:"+after.getId()+":"+after.getVersion());
     }
 
     public Map<Long,ItemReviewAudit> latestDecisions(List<Long> ids) {

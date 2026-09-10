@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, toRef, watch } from "vue";
 import { RefreshRight } from "@element-plus/icons-vue";
+import DisputeResolution from "@/components/DisputeResolution.vue";
 import http from "@/http";
 import { SESSION_KEY, useAuth } from "@/stores/auth";
 import { useOverlayLock } from "@/composables/useOverlayLock";
@@ -36,8 +37,8 @@ onBeforeUnmount(() => reader.dispose());
 
 <template>
   <div class="page-heading exchange-heading">
-    <div><span class="eyebrow">FOLLOW EVERY LOOP</span><h1>交换记录</h1><p>查看同学之间的物品流向、交换进度和处理记录。</p></div>
-    <el-tag round effect="plain">管理只读</el-tag>
+    <div><span class="eyebrow">FOLLOW EVERY LOOP</span><h1>{{props.initialStatus==='DISPUTED'?'交换争议':'交换记录'}}</h1><p>查看同学之间的物品流向、交换进度和处理记录。</p></div>
+
   </div>
   <section class="panel exchange-list-panel">
     <div class="exchange-toolbar">
@@ -46,7 +47,7 @@ onBeforeUnmount(() => reader.dispose());
       </el-select>
       <el-button :icon="RefreshRight" :loading="state.busy" @click="reader.loadList()">重新读取</el-button>
     </div>
-    <p class="exchange-caption">确认邀请和交接由参与者本人操作，管理员在此查看记录。时间按 {{ localZone }} 显示。</p>
+    <p class="exchange-caption">确认邀请和交接由参与者完成，有争议时可在详情中处理。时间按 {{ localZone }} 显示。</p>
     <div v-if="state.busy" role="status" aria-label="正在读取交换记录"><el-skeleton :rows="5" animated /></div>
     <div v-else-if="state.error" class="exchange-error" role="alert">
       <el-alert :title="state.error" type="error" :closable="false" show-icon />
@@ -78,7 +79,7 @@ onBeforeUnmount(() => reader.dispose());
 
   <el-drawer :model-value="state.drawer" :title="`交换 #${state.detailId ?? ''} 详情`" size="min(820px, 100vw)" :lock-scroll="false" destroy-on-close @update:model-value="updateDrawer">
     <div class="exchange-drawer">
-      <div class="exchange-detail-toolbar"><span class="exchange-caption">管理只读 · {{ localZone }}</span><el-button :icon="RefreshRight" :loading="state.detailBusy" @click="reader.openDetail()">刷新详情</el-button></div>
+      <div class="exchange-detail-toolbar"><span class="exchange-caption">{{ localZone }}</span><el-button :icon="RefreshRight" :loading="state.detailBusy" @click="reader.openDetail()">刷新详情</el-button></div>
       <div v-if="state.detailBusy" role="status" aria-label="正在读取交换详情"><el-skeleton :rows="8" animated /></div>
       <div v-else-if="state.detailError" class="exchange-error" role="alert"><el-alert :title="state.detailError" type="error" :closable="false" show-icon /><el-button @click="reader.openDetail()">重试详情</el-button></div>
       <template v-else-if="exchange">
@@ -93,6 +94,7 @@ onBeforeUnmount(() => reader.dispose());
           <p class="exchange-caption">进度以本次读取结果为准。交接开始后，原定截止时间不会触发自动取消。</p>
         </section>
 
+        <DisputeResolution v-if="exchange.status==='DISPUTED'" :exchange="exchange" @saved="reader.openDetail();reader.loadList()"/>
         <section aria-labelledby="exchange-participants-title">
           <h3 id="exchange-participants-title">参与者与交接记录</h3>
           <div class="exchange-people">

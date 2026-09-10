@@ -167,12 +167,12 @@ button:focus-visible {
   display: flex;
   align-items: center;
   gap: 11px;
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
-  letter-spacing: -0.8px;
+  letter-spacing: -0.5px;
   white-space: nowrap;
 }
-.brand svg {
+.brand .brand-mark {
   width: 39px;
   height: 39px;
   color: var(--cl-primary);
@@ -1225,7 +1225,7 @@ button:focus-visible {
     font-size: 16px;
     gap: 7px;
   }
-  .brand svg {
+  .brand .brand-mark {
     width: 33px;
     height: 33px;
   }
@@ -1351,7 +1351,7 @@ button:focus-visible {
   .sidebar .brand {
     font-size: 20px;
   }
-  .sidebar .brand svg {
+  .sidebar .brand .brand-mark {
     width: 39px;
     height: 39px;
   }

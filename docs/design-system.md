@@ -14,6 +14,12 @@
 
 控件阴影小而柔和，按钮不使用强白边或厚内阴影。卡片图像、表格和长表单采用稳定实色底，不为数十张物品卡片同时开启背景模糊。本地 SVG 是清楚的示意图而非真实商品摄影；上传图像来自用户本机。
 
+## 品牌资源
+
+`shared/brand-mark.svg` 是 Campus Loop 标志源文件：粉色圆角方形与白色循环箭头。`shared/brand-mark.png` 是同图形的 240 × 240 透明背景导出，用于小程序和触屏收藏图标。修改图形时同步重新导出 PNG。
+
+两端 Vite 配置调用 `shared/brand.mjs`，把这两份资源复制到各自静态目录；生成副本不进入 Git。管理端 `Brand.vue`、用户端 `LoopLayout.vue` 与两端 favicon 均使用这些资源，不再用业务图标或页面内独立 SVG 代替 Logo。字标统一为深色 Campus、主题粉色 Loop、系统无衬线粗体，口号统一为“让闲置，继续有用”；尺寸可随侧栏和窄屏布局调整。深色模式通过现有文本 token 保证可读，图形不变色。
+
 ## 材质、动效与状态
 
 - 公共材质：半透明底 + 一层边缘高光 + 柔影；弹层外壳只绘制一次，内部区域不叠加第二层玻璃。
@@ -24,7 +30,7 @@
 
 ## 覆盖与展示入口
 
-管理端 `/controls` 展示完整 Element Plus 控件；用户端有控件实验室入口和真实首页/发布/登录页面。对应细节与映射表见 `project-self/docs/liquid-glass-controls.md`、`wx-project-self/docs/liquid-glass-controls.md`。
+管理端 `/controls` 展示完整 Element Plus 控件；用户端开发环境有控件实验室入口，线上保留首页/发布/登录等业务页面。对应细节与映射表见 `project-self/docs/liquid-glass-controls.md`、`wx-project-self/docs/liquid-glass-controls.md`。
 
 | 类型 | 管理端 | H5 / 微信处理 |
 | --- | --- | --- |

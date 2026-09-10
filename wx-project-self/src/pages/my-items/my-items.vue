@@ -46,6 +46,12 @@ function changeImage(){
  uni.chooseImage({count:1,success:async result=>{try{if(!live(token,epoch))return;const value=await http.upload(result.tempFilePaths[0],{silent:true});if(live(token,epoch))form.value.imageUrl=value.url}catch(cause){if(live(token,epoch))formError.value=cause.message}finally{if(live(token,epoch))saving.value=false}},fail:()=>{if(live(token,epoch))saving.value=false}})
 }
 
+async function relist(item){
+ if(saving.value)return
+ const token=uni.getStorageSync(TOKEN_KEY);saving.value=true;error.value=''
+ try{await http.post(`/api/items/${item.id}/relist`,{version:item.version},{silent:true,uncertainOnFailure:true});if(token===uni.getStorageSync(TOKEN_KEY)){await load();uni.showToast({title:'已提交审核',icon:'success'})}}
+ catch(e){if(token===uni.getStorageSync(TOKEN_KEY)){error.value=e.message;await load()}}finally{saving.value=false}
+}
 async function load() {
   const current = ++sequence, token = uni.getStorageSync(TOKEN_KEY)
   request?.abort?.(); rows.value = []; total.value = 0; error.value = ''; busy.value = true
@@ -68,7 +74,7 @@ onUnload(() => {editorEpoch++;sequence++; request?.abort?.(); rows.value = []})
 </script>
 <template>
   <LoopLayout>
-    <view class="cl-page-heading"><text class="cl-title">我的物品</text><text class="cl-subtitle">查看提交内容与审核进度。待审和驳回内容仅本人及管理员可见。</text></view>
+    <view class="cl-page-heading"><text class="cl-title">我的物品</text><text class="cl-subtitle">管理闲置物品，查看审核与交换进度。</text></view>
     <view class="cl-panel cl-stack">
       <LoopPicker :range="labels" :value="selected" :disabled="busy" aria-label="我的物品状态" @change="select"><view class="cl-picker">{{ labels[selected] }} ⌄</view></LoopPicker>
       <text v-if="busy" class="cl-hint" role="status">正在读取…</text>
@@ -79,7 +85,7 @@ onUnload(() => {editorEpoch++;sequence++; request?.abort?.(); rows.value = []})
           <view class="cl-row"><text class="cl-field-title">{{ item.title }}</text><text class="cl-tag">{{ itemStatusLabel(item.status) }}</text></view>
           <text class="cl-hint">{{ item.categoryName }} · {{ item.createdAt?.slice(0,10) }}</text>
           <text v-if="item.reviewDecision" class="review-reason">最近一次{{ item.reviewDecision === 'REJECT' ? '驳回' : '通过' }}（版本 {{ item.reviewedVersion }}）：{{ item.reviewReason }}</text>
-          <view class="cl-row"><LoopButton class="cl-btn" @click="detail(item)">查看本人详情</LoopButton><LoopButton v-if="['AVAILABLE','PENDING_REVIEW','REJECTED'].includes(item.status)" class="cl-btn" :disabled="saving" @click="editItem(item)">编辑</LoopButton><LoopButton v-if="item.status==='AVAILABLE'" class="cl-btn" :disabled="saving" @click="withdraw(item)">下架</LoopButton></view>
+          <view class="cl-row"><LoopButton class="cl-btn" @click="detail(item)">查看详情</LoopButton><LoopButton v-if="['AVAILABLE','PENDING_REVIEW','REJECTED','HIDDEN'].includes(item.status)" class="cl-btn" :disabled="saving" @click="editItem(item)">编辑</LoopButton><LoopButton v-if="item.status==='HIDDEN'" class="cl-btn cl-btn--primary" :disabled="saving" @click="relist(item)">重新上架</LoopButton><LoopButton v-if="item.status==='AVAILABLE'" class="cl-btn" :disabled="saving" @click="withdraw(item)">下架</LoopButton></view>
         </view>
       </template>
       <view class="cl-row"><LoopButton class="cl-btn" :disabled="busy || page <= 1" @click="turn(-1)">上一页</LoopButton><text>{{ page }} · 共 {{ total }} 件</text><LoopButton class="cl-btn" :disabled="busy || page * 12 >= total" @click="turn(1)">下一页</LoopButton></view>

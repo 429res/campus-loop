@@ -63,7 +63,7 @@ class AdminExchangeIntegrationTest {
     @AfterEach void cleanup() {
         ReadProbe.before.remove();
         for(long user:users) for(long exchange:jdbc.queryForList("SELECT id FROM cl_exchange WHERE initiator_id=?",Long.class,user)) {
-            for(String table:List.of("cl_item_history","cl_item_hold","cl_exchange_event","cl_exchange_demand","cl_exchange_participant"))
+            for(String table:List.of("cl_exchange_resolution","cl_item_history","cl_item_hold","cl_exchange_event","cl_exchange_demand","cl_exchange_participant"))
                 jdbc.update("DELETE FROM "+table+" WHERE exchange_id=?",exchange);
             jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchange);
         }
@@ -73,6 +73,7 @@ class AdminExchangeIntegrationTest {
         }
         for(long user:users) jdbc.update("DELETE FROM cl_item WHERE owner_id=?",user);
         for(long user:users) {
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_user WHERE id=?",user);
         }
@@ -221,6 +222,45 @@ class AdminExchangeIntegrationTest {
         } finally {release.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(5,TimeUnit.SECONDS));}
     }
 
+
+    @Test void disputedExchangeCanResumeWithoutForgingOrLosingHandoff() throws Exception {
+        long id=ring(2).id();ready(id);lifecycle.handoff(a.id(),id,2,HandoffKind.HANDED_OFF,"原交接");lifecycle.dispute(b.id(),id,3,"核对物品");
+        var handed=jdbc.queryForMap("SELECT * FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",id,a.id());
+        var body=Map.of("version",4,"decision","RESUME","reason","双方已核对","returnConfirmed",false);
+        call("POST","/api/admin/exchange-disputes/"+id+"/resolve",a.token(),body,403);
+        var result=call("POST","/api/admin/exchange-disputes/"+id+"/resolve",admin.token(),body,200);
+        assertEquals("READY",result.at("/exchange/status").asText());assertEquals(5,result.at("/exchange/version").asInt());
+        assertEquals(handed,jdbc.queryForMap("SELECT * FROM cl_exchange_participant WHERE exchange_id=? AND user_id=?",id,a.id()));
+        call("POST","/api/admin/exchange-disputes/"+id+"/resolve",admin.token(),body,200);
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_resolution WHERE exchange_id=?",Integer.class,id));
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_notification WHERE source_key=?",Integer.class,"EXCHANGE:"+id+":5"));
+        call("GET","/api/exchanges/"+id+"/resolutions",c.token(),null,404);
+        assertEquals(1,call("GET","/api/exchanges/"+id+"/resolutions",a.token(),null,200).size());
+        lifecycle.handoff(b.id(),id,5,HandoffKind.RECEIVED,"");lifecycle.handoff(b.id(),id,6,HandoffKind.HANDED_OFF,"");lifecycle.handoff(a.id(),id,7,HandoffKind.RECEIVED,"");
+        assertEquals("COMPLETED",call("GET","/api/exchanges/"+id,a.token(),null,200).path("status").asText());
+        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=?",Integer.class,id));
+    }
+    @Test void cancellationRequiresReturnedItemsAndKeepsResolutionAuditOnReplay() throws Exception {
+        var ring=ring(2);long id=ring.id();ready(id);lifecycle.handoff(a.id(),id,2,HandoffKind.HANDED_OFF,"");lifecycle.dispute(b.id(),id,3,"待归还");
+        var body=Map.of("version",4,"decision","CANCEL","reason","物品已全部归还","returnConfirmed",true);
+        call("POST","/api/admin/exchange-disputes/"+id+"/resolve",admin.token(),Map.of("version",4,"decision","CANCEL","reason","未归还","returnConfirmed",false),400);
+        call("POST","/api/admin/exchange-disputes/"+id+"/resolve",admin.token(),body,200);
+        call("POST","/api/admin/exchange-disputes/"+id+"/resolve",admin.token(),body,200);
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+        assertEquals("CANCELLED",call("GET","/api/exchanges/"+id,a.token(),null,200).path("status").asText());
+        for(long item:ring.items())assertEquals("AVAILABLE",jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?",String.class,item));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_history WHERE exchange_id=?",Integer.class,id));
+    }
+    @Test void simultaneousResolutionDecisionsHaveOnlyOneWinner() throws Exception {
+        long id=ring(2).id();ready(id);lifecycle.handoff(a.id(),id,2,HandoffKind.HANDED_OFF,"");lifecycle.dispute(a.id(),id,3,"核对");
+        var pool=Executors.newFixedThreadPool(2);var start=new CountDownLatch(1);
+        try {
+            var futures=new ArrayList<Future<Integer>>();
+            for(String decision:List.of("RESUME","CANCEL"))futures.add(pool.submit(()->{start.await();try{lifecycle.resolve(admin.id(),id,new edu.campusloop.web.exchange.dto.ResolveDisputeRequest(4,decision,"已协商",decision.equals("CANCEL")));return 200;}catch(edu.campusloop.common.ApiException e){return e.getStatus();}}));
+            start.countDown();var outcomes=new ArrayList<Integer>();for(var f:futures)outcomes.add(f.get(15,TimeUnit.SECONDS));Collections.sort(outcomes);assertEquals(List.of(200,409),outcomes);
+            assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_resolution WHERE exchange_id=?",Integer.class,id));
+        }finally{pool.shutdownNow();}
+    }
     private Ring ring(int length) {
         var people=List.of(a,b,c).subList(0,length);List<Long> items=new ArrayList<>(),demands=new ArrayList<>();
         for(int i=0;i<length;i++) items.add(item(people.get(i).id(),i+1));
@@ -238,7 +278,7 @@ class AdminExchangeIntegrationTest {
     private Account account(boolean administrator) throws Exception {
         String name="admin_exchange_"+UUID.randomUUID(),password=UUID.randomUUID().toString();
         long id=call("POST","/api/auth/register",null,Map.of("username",name,"password",password,"displayName","虚构交换同学"),200).path("id").asLong();users.add(id);
-        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?",id);
+        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?",id);
         return new Account(id,call("POST","/api/auth/login",null,Map.of("username",name,"password",password),200).path("token").asText());
     }
     private long item(long user,int category) {

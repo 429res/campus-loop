@@ -64,7 +64,7 @@ onUnload(() => { sequence++; activeRequest?.abort?.() })
       <view class="favorite-grid">
         <view v-for="record in records" :key="record.itemId" class="favorite-entry">
           <ItemCard v-if="record.itemVisible && record.item" :item="record.item" :show-favorite="true" :favorited="true" :favorite-busy="busy.has(String(record.itemId))" @favorite="remove(record)" />
-          <view v-else class="cl-panel unavailable"><text class="unavailable-symbol">◇</text><text class="cl-section-title">物品暂不可见</text><text class="cl-hint">物品 #{{ record.itemId }} · 收藏于 {{ record.favoritedAt?.slice(0,10) || '未知时间' }}</text><text class="cl-hint">可能已下架或不再公开；这里不会展示旧缓存，也不能打开详情。</text><LoopButton class="cl-btn" :disabled="busy.has(String(record.itemId))" @click="remove(record)">{{ busy.has(String(record.itemId)) ? '取消中…' : '取消收藏' }}</LoopButton></view>
+          <view v-else class="cl-panel unavailable"><text class="unavailable-symbol">◇</text><text class="cl-section-title">物品暂不可见</text><text class="cl-hint">物品 #{{ record.itemId }} · 收藏于 {{ record.favoritedAt?.slice(0,10) || '未知时间' }}</text><text class="cl-hint">物品已下架或不再公开。</text><LoopButton class="cl-btn" :disabled="busy.has(String(record.itemId))" @click="remove(record)">{{ busy.has(String(record.itemId)) ? '取消中…' : '取消收藏' }}</LoopButton></view>
         </view>
       </view>
       <view class="pagination"><LoopButton class="cl-btn" :disabled="page===1 || loading" @click="changePage(-1)">上一页</LoopButton><text class="cl-label">{{ page }} / {{ totalPages }} · 共 {{ total }} 条</text><LoopButton class="cl-btn" :disabled="page>=totalPages || loading" @click="changePage(1)">下一页</LoopButton></view>

@@ -24,6 +24,7 @@ public class ItemController {
         @PathVariable long id){return ResultVo.success(items.ownDetail(user.getId(),id));}
     @PutMapping("/{id}") public ResultVo<ItemView> edit(@RequestAttribute(AuthInterceptor.USER) User user,
         @PathVariable long id,@Valid @RequestBody EditItemRequest body){return ResultVo.success(items.edit(user.getId(),id,body));}
+    @PostMapping("/{id}/relist") public ResultVo<ItemView> relist(@RequestAttribute(AuthInterceptor.USER) User user,@PathVariable long id,@Valid @RequestBody WithdrawItemRequest body){return ResultVo.success(items.relist(user.getId(),id,body));}
     @PostMapping("/{id}/withdraw") public ResultVo<ItemView> withdraw(@RequestAttribute(AuthInterceptor.USER) User user,
         @PathVariable long id,@Valid @RequestBody WithdrawItemRequest body){return ResultVo.success(items.withdraw(user.getId(),id,body));}
 }

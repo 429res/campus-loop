@@ -1,60 +1,24 @@
-<template>
-  <div class="page-heading">
-    <div>
-      <span class="eyebrow">THE NEXT CHAPTER</span>
-      <h1>一起把循环补完整</h1>
-      <p>下列业务尚未实现。以接口约定与状态设计为起点，四人协作推进。</p>
-    </div>
-    <span class="pill">待开发</span>
-  </div>
-  <div class="planned-grid">
-    <section v-for="module in modules" :key="module.title" class="panel">
-      <span class="eyebrow">{{ module.owner }}</span>
-      <h2>{{ module.title }}</h2>
-      <p>{{ module.description }}</p>
-      <el-tag type="info" round>待开发 · 无写入接口</el-tag>
-    </section>
-  </div>
-  <el-alert
-    title="开发前请阅读根目录 docs/architecture.md、docs/api-contract.md 与 docs/roadmap.md；共享契约变更先在 Issue 或 PR 中协商。"
-    type="info"
-    :closable="false"
-    show-icon
-  />
-</template>
 <script setup>
-const modules = [
-  {
-    title: "个人资料与权限管理",
-    owner: "A · 基础服务",
-    description: "补充用户资料、权限粒度与安全审计。保留真实认证边界。",
-  },
-  {
-    title: "交换生命周期",
-    owner: "B · 交换机制",
-    description:
-      "创建邀请、参与者确认、物品占用、交接、取消和超时。事务与并发校验先行。",
-  },
-  {
-    title: "物品履历与维修记录",
-    owner: "B · 溯源设计",
-    description: "区分用户自述、双方确认与管理员核验，保存来源、操作者及时间。",
-  },
-  {
-    title: "审核、举报与争议",
-    owner: "C · 管理体验",
-    description: "建立待审核队列、举报证据和处理记录，并对接真实管理接口。",
-  },
-  {
-    title: "收藏与独立需求清单",
-    owner: "D · 用户体验",
-    description:
-      "扩展我有什么、我想要什么、收藏和通知；与现有发布链路保持一致。",
-  },
-  {
-    title: "业务统计与运行治理",
-    owner: "A + C · 联合交付",
-    description: "从真实数据构建趋势、分类统计和可审计运营视图。",
-  },
-];
+import {ref,onMounted,onBeforeUnmount,computed} from 'vue'
+import http from '@/http'
+const days=ref(30),summary=ref(null),busy=ref(false),error=ref(''),rows=ref([]),total=ref(0),page=ref(1),module=ref(''),auditBusy=ref(false),auditError=ref('')
+let sequence=0,auditSequence=0
+const labels={users:'注册用户',activeUsers:'可用账号',items:'物品总数',availableItems:'可交换物品',pendingReview:'待审核物品',completedExchanges:'已完成交换',activeExchanges:'进行中交换',disputedExchanges:'待处理争议',openReports:'待处理举报',activeDemands:'有效需求'}
+const modules={ITEMS:'物品审核',REPORTS:'举报处理',EXCHANGES:'交换进度',USERS:'账号管理'}
+const actions={SUBMIT:'提交',APPROVE:'通过',REJECT:'退回',WITHDRAW:'下架',CONFIRMED:'确认邀请',CANCELLED:'取消',EXPIRED:'到期',HANDED_OFF:'交出物品',RECEIVED:'收到物品',DISPUTED:'登记争议',DISPUTE_RESUMED:'恢复交接',ADMIN_CANCELLED:'终止交换',STATUS_ACTIVE:'启用账号',STATUS_DISABLED:'停用账号',ACCESS_CHANGED:'调整权限',ACCEPT:'受理',DECIDE:'处理'}
+const max= computed(()=>Math.max(1,...(summary.value?.trend||[]).flatMap(d=>[d.users,d.items,d.completedExchanges])))
+async function load(){const run=++sequence;busy.value=true;error.value='';try{const {data}=await http.get('/api/admin/operations/summary',{params:{days:days.value},silent:true});if(run===sequence)summary.value=data}catch(e){if(run===sequence)error.value=e.response?.data?.msg||'统计读取失败，请重试'}finally{if(run===sequence)busy.value=false}}
+async function audits(){const run=++auditSequence;auditBusy.value=true;auditError.value='';try{const {data}=await http.get('/api/admin/operations/audits',{params:{page:page.value,size:20,...(module.value?{module:module.value}:{})},silent:true});if(run===auditSequence){rows.value=data.records;total.value=data.total}}catch(e){if(run===auditSequence)auditError.value=e.response?.data?.msg||'操作记录读取失败'}finally{if(run===auditSequence)auditBusy.value=false}}
+const time=value=>value?new Date(/Z$/.test(value)?value:value+'Z').toLocaleString('zh-CN'):''
+onMounted(()=>{load();audits()});onBeforeUnmount(()=>{sequence++;auditSequence++})
 </script>
+<template><div class="page-heading"><div><span class="eyebrow">CAMPUS IN MOTION</span><h1>运营中心</h1></div><el-button :loading="busy" @click="load">刷新统计</el-button></div>
+<el-alert v-if="error" :title="error" type="error" :closable="false"/>
+<template v-if="summary"><div class="metrics"><section v-for="(label,key) in labels" :key="key" class="panel metric"><span>{{label}}</span><strong>{{summary.totals[key]}}</strong></section></div>
+<section class="panel"><div class="section-top"><h2>近期活动</h2><el-select v-model="days" aria-label="统计时间范围" style="width:150px" @change="load"><el-option v-for="n in [7,30,90]" :key="n" :value="n" :label="`最近 ${n} 天`"/></el-select></div><p class="legend"><span>● 新增用户</span><span>● 新增物品</span><span>● 完成交换</span></p><div class="chart" role="img" :aria-label="`最近${days}天新增用户、物品和完成交换数量，按UTC日期统计`"><div v-for="day in summary.trend" :key="day.date" class="chart-day" :title="`${day.date}：用户 ${day.users}，物品 ${day.items}，交换 ${day.completedExchanges}`"><div class="bars"><i v-for="(key,index) in ['users','items','completedExchanges']" :key="key" :class="`series-${index}`" :style="{height:`${day[key]/max*100}%`}"/></div><small v-if="days===7||day.date.endsWith('01')">{{day.date.slice(5)}}</small></div></div><p class="muted">日期按 UTC 统计，空白日期为 0。</p>
+<details><summary>查看每日数据</summary><el-table :data="summary.trend" max-height="320"><el-table-column prop="date" label="日期"/><el-table-column prop="users" label="新增用户"/><el-table-column prop="items" label="新增物品"/><el-table-column prop="completedExchanges" label="完成交换"/></el-table></details></section>
+<section class="panel"><h2>分类分布</h2><el-table :data="summary.categories"><el-table-column prop="name" label="分类"/><el-table-column prop="items" label="物品数量"/></el-table></section></template>
+<section class="panel"><div class="section-top"><h2>操作记录</h2><el-select v-model="module" clearable placeholder="全部模块" aria-label="操作记录模块" style="width:180px" @change="page=1;audits()"><el-option v-for="(label,key) in modules" :key="key" :label="label" :value="key"/></el-select></div><el-alert v-if="auditError" :title="auditError" type="error"/><el-table v-loading="auditBusy" :data="rows"><el-table-column label="时间" min-width="170"><template #default="{row}">{{time(row.createdAt)}}</template></el-table-column><el-table-column label="模块" min-width="110"><template #default="{row}">{{modules[row.module]}}</template></el-table-column><el-table-column label="操作" min-width="130"><template #default="{row}">{{actions[row.action]||row.action}} #{{row.subjectId}}</template></el-table-column><el-table-column label="操作人" min-width="110"><template #default="{row}">{{row.actorName||'系统'}}</template></el-table-column><el-table-column prop="reason" label="原因" min-width="230" show-overflow-tooltip/></el-table><div class="pagination-row"><span>共 {{total}} 条</span><el-pagination v-model:current-page="page" :total="total" :page-size="20" layout="prev,pager,next" :disabled="auditBusy" @current-change="audits"/></div></section>
+</template>
+<style scoped>.metrics{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:16px;margin-bottom:24px}.metric{display:flex;flex-direction:column;gap:14px}.metric strong{font-size:30px;color:var(--cl-primary)}.metric span,.muted{font-size:13px;color:var(--cl-muted)}.panel{margin-bottom:22px}.section-top{display:flex;justify-content:space-between;align-items:center;gap:16px}.chart{display:flex;height:215px;gap:3px;overflow-x:auto;align-items:stretch;border-bottom:1px solid var(--cl-border)}.chart-day{flex:1;min-width:7px;display:flex;flex-direction:column}.bars{display:flex;gap:1px;align-items:flex-end;height:180px}.bars i{flex:1;min-width:1px;border-radius:3px 3px 0 0}.series-0{background:var(--cl-primary)}.series-1{background:var(--cl-blue)}.series-2{background:#208469}.chart-day small{font-size:10px;white-space:nowrap}.legend{display:flex;gap:18px;font-size:12px;flex-wrap:wrap}.legend span:nth-child(1){color:var(--cl-primary)}.legend span:nth-child(2){color:var(--cl-blue)}.legend span:nth-child(3){color:#208469}details{margin-top:20px}summary{cursor:pointer}@media(max-width:1100px){.metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}@media(max-width:600px){.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.section-top{flex-wrap:wrap}.metric{padding:18px}}
+</style>

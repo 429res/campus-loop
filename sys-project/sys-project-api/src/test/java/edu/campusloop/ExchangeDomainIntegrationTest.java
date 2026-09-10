@@ -92,6 +92,7 @@ class ExchangeDomainIntegrationTest {
         }
         for(long user:users) {
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?",user);
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",user);
             jdbc.update("DELETE FROM cl_user WHERE id=?",user);
         }
@@ -882,7 +883,7 @@ class ExchangeDomainIntegrationTest {
     private Account account(boolean administrator) throws Exception {
         String name=prefix+UUID.randomUUID().toString().substring(0,8),password=UUID.randomUUID().toString();
         long id=call("POST","/api/auth/register",null,Map.of("username",name,"password",password,"displayName","虚构交换同学"),200).path("id").asLong();users.add(id);
-        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?",id);
+        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?",id);
         return new Account(id,call("POST","/api/auth/login",null,Map.of("username",name,"password",password),200).path("token").asText());
     }
     private long item(Account owner,int category) {
@@ -1374,7 +1375,7 @@ class ExchangeDomainIntegrationTest {
         var stale=new HashMap<>(body);stale.put("version",9);call("POST",verificationPath(f.event())+"/decision",admin.token(),stale,409);
         assertEquals(before,businessRows());
         String hash=requestConfirmation(f).at("/confirmation/snapshotHash").asText();confirmHistory(a,f,hash);call("POST",verificationPath(f.event())+"/decision",admin.token(),body,409);
-        jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?",b.id());var involved=verificationBody(f.event(),b,"APPROVED","involved");call("POST",verificationPath(f.event())+"/decision",b.token(),involved,403);
+        jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?",b.id());var involved=verificationBody(f.event(),b,"APPROVED","involved");call("POST",verificationPath(f.event())+"/decision",b.token(),involved,403);
         long ownItem=item(admin,1);long own=call("POST","/api/items/"+ownItem+"/history",admin.token(),statement("REPAIR","本人声明",null,null,List.of()),200).path("id").asLong();call("POST",verificationPath(own)+"/decision",admin.token(),verificationBody(own,admin,"REJECTED","own"),403);
         jdbc.update("UPDATE cl_user SET status='DISABLED' WHERE id=?",admin.id());rejected(401,()->decideHistory(admin,f.event(),body));jdbc.update("UPDATE cl_user SET status='ACTIVE' WHERE id=?",admin.id());
     }

@@ -62,7 +62,8 @@ class CategoriesIntegrationTest {
             jdbc.update("DELETE FROM cl_demand WHERE owner_id=?", id);
             jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",id);
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?", id);
-            jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?", id);
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",id);
+            jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",id);
             jdbc.update("DELETE FROM cl_user WHERE id=?", id);
         }
         for (long id : categoryIds) jdbc.update("DELETE FROM cl_category WHERE id=?", id);
@@ -311,7 +312,7 @@ class CategoriesIntegrationTest {
         String name = prefix + UUID.randomUUID().toString().substring(0, 8), password = UUID.randomUUID().toString();
         long id = call("POST", "/api/auth/register", null, Map.of("username", name, "password", password, "displayName", "隔离分类测试"), 200).path("id").asLong();
         userIds.add(id);
-        if (administrator) jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?", id);
+        if (administrator) jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?", id);
         return new Account(id, call("POST", "/api/auth/login", null, Map.of("username", name, "password", password), 200).path("token").asText());
     }
     private JsonNode category(String name, int order) throws Exception {

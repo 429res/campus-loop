@@ -11,6 +11,7 @@ import { createLatestRequestGuard } from '../../common/latest-request.mjs'
 import { EXCHANGE_STATUSES, STATUS_LABELS, ACTION_LABELS, createExchangeJournal, actionRequest, expiryText } from '../../common/exchange-workflow.mjs'
 
 const authenticated=ref(false), records=ref([]), page=ref(1), total=ref(0), filter=ref(0)
+const resolutions=ref([]),resolutionError=ref('')
 const loading=ref(false), listError=ref(''), detail=ref(null), detailLoading=ref(false), detailError=ref('')
 const itemTitles=ref({}), targetId=ref(null), now=ref(Date.now()), notice=ref('')
 const editorOpen=ref(false), actionBusy=ref(false), actionError=ref(''), pending=ref(null), reason=ref(''), acknowledged=ref(false)
@@ -54,11 +55,12 @@ function changeFilter(event) {filter.value=Number(event.detail.value);page.value
 async function loadDetail(id=targetId.value) {
   if(!id || !token()) return
   targetId.value=id
-  const ticket=detailGuard.begin();detailLoading.value=true;detailError.value=''
+  const ticket=detailGuard.begin();detailLoading.value=true;detailError.value='';resolutions.value=[];resolutionError.value=''
   try {
     const data=await http.get(`/api/exchanges/${id}`,{},{silent:true})
     if(!active || !detailGuard.isCurrent(ticket)) return
     detail.value=data
+    if(data.disputeReason)http.get(`/api/exchanges/${id}/resolutions`,{},{silent:true}).then(value=>{if(active&&detailGuard.isCurrent(ticket))resolutions.value=value}).catch(()=>{if(active&&detailGuard.isCurrent(ticket))resolutionError.value='处理记录读取失败，请刷新详情'})
     if(!(pending.value?.phase==='draft' && pending.value.exchangeId===id)) {
       try {pending.value=journal().action(id)} catch {pending.value=null}
     }
@@ -185,7 +187,8 @@ onUnload(()=>{retainDraft();active=false;clearInterval(timer);listGuard.invalida
           <view class="detail-flows"><view v-for="flow in detail.flows" :key="flow.itemId" class="detail-flow"><text class="cl-field-title">{{ personName(flow.fromUserId) }} → {{ personName(flow.toUserId) }}</text><text>{{ itemTitle(flow.itemId) }}</text></view></view>
           <view v-for="person in detail.participants" :key="person.userId" class="participant-progress"><text class="cl-field-title">{{ person.displayName }}{{ person.userId===currentPerson?.userId?'（你）':'' }}</text><text class="cl-hint">确认参加：{{ formatTime(person.confirmedAt) }}</text><text class="cl-hint">交出 {{ itemTitle(person.offeredItemId) }}：{{ formatTime(person.handedOffAt) }}</text><text v-if="person.handedOffNote" class="cl-hint">交出说明：{{ person.handedOffNote }}</text><text class="cl-hint">收到 {{ itemTitle(person.receivedItemId) }}：{{ formatTime(person.receivedAt) }}</text><text v-if="person.receivedNote" class="cl-hint">收到说明：{{ person.receivedNote }}</text></view>
           <view v-if="detail.cancellationReason" class="cl-notice"><text>取消原因：{{ detail.cancellationReason }} · {{ formatTime(detail.cancelledAt) }}</text></view>
-          <view v-if="detail.disputeReason" class="cl-notice"><text>争议原因：{{ detail.disputeReason }} · {{ formatTime(detail.disputedAt) }}</text><text class="cl-hint">交换已停止推进，物品占用保留；目前不能在这里裁决或恢复。</text></view>
+          <view v-if="detail.disputeReason" class="cl-notice"><text>争议原因：{{ detail.disputeReason }} · {{ formatTime(detail.disputedAt) }}</text><text v-if="detail.status==='DISPUTED'" class="cl-hint">正在等待管理员处理，结果会通过站内消息通知。</text></view>
+          <text v-if="resolutionError" class="cl-error">{{resolutionError}}</text><view v-for="record in resolutions" :key="record.id" class="cl-notice"><text>{{record.decision==='RESUME'?'已恢复交接':'已终止交换'}} · {{formatTime(record.createdAt)}}</text><text>{{record.reason}}</text></view>
           <view v-if="pending" class="cl-notice pending-action"><text class="cl-field-title">有一项 {{ ACTION_LABELS[pending.action] }} 需要核对</text><text class="cl-hint">原请求版本 {{ pending.request.body.version }}；{{ pending.phase==='uncertain'?'结果未知，可重试完全相同的请求。':'原说明和版本已保留，请结合最新详情决定。' }}</text><LoopButton class="cl-btn" :disabled="actionBusy" @click="restoreEditor">核对保留的操作</LoopButton></view>
           <view class="exchange-actions"><LoopButton v-for="action in detail.allowedActions" :key="action" class="cl-btn" :class="{'cl-btn--primary':['CONFIRM','HANDED_OFF','RECEIVED'].includes(action)}" :disabled="actionBusy || detailLoading || !!pending" @click="beginAction(action)">{{ ACTION_LABELS[action] }}</LoopButton></view>
           <text v-if="!detail.allowedActions.length" class="cl-hint">服务器当前没有可执行操作，可刷新核对进度。</text>

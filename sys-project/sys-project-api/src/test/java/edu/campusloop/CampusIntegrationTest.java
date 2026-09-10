@@ -828,7 +828,7 @@ class CampusIntegrationTest {
 
     @Test void ownItemWritesRejectEveryUnavailableStateAndActiveExchangeReference() throws Exception {
         String owner=demandUser();long id=demandItem(owner);
-        for(String state:List.of("DRAFT","RESERVED","EXCHANGED","HIDDEN")) {
+        for(String state:List.of("DRAFT","RESERVED","EXCHANGED")) {
             jdbc.update("UPDATE cl_item SET status=? WHERE id=?",state,id);assertItemWritesBlocked(owner,id);
         }
         jdbc.update("UPDATE cl_item SET status='AVAILABLE' WHERE id=?",id);
@@ -878,8 +878,10 @@ class CampusIntegrationTest {
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=? AND demand_id=?",Integer.class,id,demand));
         assertFalse(demandCall("GET","/api/demands/"+demand,owner,null,200).at("/offeredItems/0/offerable").asBoolean());
         demandCall("POST","/api/items/"+id+"/withdraw",owner,Map.of("version",1),409);
-        demandCall("PUT","/api/items/"+id,owner,itemEdit(1,"不支持重新上架"),409);
-        assertEquals(expected,itemRow(id));
+        var relisted=demandCall("PUT","/api/items/"+id,owner,itemEdit(1,"更新后重新上架"),200);
+        assertEquals("PENDING_REVIEW",relisted.path("status").asText());
+        assertEquals(2,relisted.path("version").asInt());
+        demandCall("GET","/api/items/"+id,null,null,404);
     }
 
     @Test void concurrentItemEditsAndWithdrawalsHaveExactlyOneWinner() throws Exception {
@@ -1237,7 +1239,7 @@ class CampusIntegrationTest {
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",ownerId);
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_item WHERE owner_id=?",ownerId);
-            for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",ownerId);
+            for(long ownerId:ownerIds) { jdbc.update("DELETE FROM cl_notification WHERE user_id=?",ownerId); jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",ownerId); }
             for(long ownerId:ownerIds) jdbc.update("DELETE FROM cl_user WHERE id=?",ownerId);
         });
     }

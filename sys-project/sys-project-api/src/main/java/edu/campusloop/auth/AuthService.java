@@ -23,7 +23,7 @@ import java.util.*;
 @Service
 public class AuthService {
     public enum RegistrationMode { CLOSED, DEVELOPMENT_SELF_SERVICE }
-    public record UserInfo(long id, String username, String displayName, String role) {}
+    public record UserInfo(long id, String username, String displayName, String role, String avatarUrl, String bio, String campus, String contact, Integer version, List<String> permissions) {}
     public record LoginResult(String token, UserInfo user) {}
     private final UserMapper users; private final AuthSessionMapper sessions;
     private final PasswordService passwords; private final SecretKey key; private final int hours; private final RegistrationMode registrationMode;
@@ -40,7 +40,7 @@ public class AuthService {
         if(registrationMode!=RegistrationMode.DEVELOPMENT_SELF_SERVICE)
             throw new ApiException(403,"当前未开放注册");
         User user=new User();user.setUsername(request.username());user.setPasswordHash(passwords.encode(request.password()));
-        user.setDisplayName(request.displayName());user.setRole("USER");user.setStatus("ACTIVE");user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        user.setAdminPermissions("");user.setDisplayName(request.displayName());user.setRole("USER");user.setStatus("ACTIVE");user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
         try { users.insert(user); }
         catch(DuplicateKeyException e) { throw new ApiException(409,"用户名已存在"); }
         return info(user);
@@ -59,7 +59,7 @@ public class AuthService {
         return new LoginResult(token,info(user));
     }
     @Transactional public UserInfo updateProfile(long userId, UpdateProfileRequest request) {
-        int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("display_name",request.displayName().trim()));
+        int updated=users.update(null,new UpdateWrapper<User>().eq("id",userId).set("display_name",request.displayName().trim()).setSql("version=version+1"));
         if(updated!=1) throw new ApiException(401,"账号不可用");
         User user=users.selectById(userId);
         if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");
@@ -87,5 +87,5 @@ public class AuthService {
         try { return Jwts.parser().requireIssuer("campus-loop").verifyWith(key).build().parseSignedClaims(token).getPayload(); }
         catch (JwtException | IllegalArgumentException e) { throw new ApiException(401,"请重新登录"); }
     }
-    public UserInfo info(User user) { return new UserInfo(user.getId(),user.getUsername(),user.getDisplayName(),user.getRole()); }
+    public UserInfo info(User user) { return new UserInfo(user.getId(),user.getUsername(),user.getDisplayName(),user.getRole(),user.getAvatarUrl(),user.getBio(),user.getCampus(),user.getContact(),user.getVersion(),AdminPermissions.of(user)); }
 }

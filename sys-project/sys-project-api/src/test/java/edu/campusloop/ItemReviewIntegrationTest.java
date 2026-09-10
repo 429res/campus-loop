@@ -59,9 +59,20 @@ class ItemReviewIntegrationTest {
         for (long id : userIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id IN (SELECT id FROM cl_item WHERE owner_id=?)",id);
         for (long id : userIds) {
             jdbc.update("DELETE FROM cl_item WHERE owner_id=?",id);
+            jdbc.update("DELETE FROM cl_notification WHERE user_id=?",id);
             jdbc.update("DELETE FROM cl_auth_session WHERE user_id=?",id);
             jdbc.update("DELETE FROM cl_user WHERE id=?",id);
         }
+    }
+    @Test void relistingRequiresOwnerVersionAndReviewBeforePublication() throws Exception {
+        long id=item(owner);jdbc.update("UPDATE cl_item SET status='HIDDEN' WHERE id=?",id);
+        call("POST","/api/items/"+id+"/relist",other.token(),Map.of("version",0),403);
+        var result=call("POST","/api/items/"+id+"/relist",owner.token(),Map.of("version",0),200);
+        assertEquals("PENDING_REVIEW",result.path("status").asText());assertEquals(1,result.path("version").asInt());
+        call("GET","/api/items/"+id,null,null,404);call("POST","/api/items/"+id+"/relist",owner.token(),Map.of("version",0),409);
+        call("POST",review(id),admin.token(),Map.of("version",1,"decision","APPROVE","reason","可交换"),200);
+        call("GET","/api/items/"+id,null,null,200);
+        assertEquals(1,call("GET","/api/notifications/unread-count",owner.token(),null,200).asInt());
     }
     @Test void adminQueriesDoNotWidenPublicOrOwnerAccess() throws Exception {
         for (String state : List.of("DRAFT","PENDING_REVIEW","HIDDEN")) {
@@ -256,7 +267,7 @@ class ItemReviewIntegrationTest {
         String name=prefix+UUID.randomUUID().toString().substring(0,8), password=UUID.randomUUID().toString();
         long id=call("POST","/api/auth/register",null,Map.of("username",name,"password",password,"displayName","隔离审核测试"),200).path("id").asLong();
         userIds.add(id);
-        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN' WHERE id=?",id);
+        if(administrator) jdbc.update("UPDATE cl_user SET role='ADMIN',admin_permissions='ALL' WHERE id=?",id);
         return new Account(id,call("POST","/api/auth/login",null,Map.of("username",name,"password",password),200).path("token").asText());
     }
     private Map<String,Object> itemBody() {

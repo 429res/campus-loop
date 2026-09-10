@@ -1,5 +1,7 @@
 import { defineConfig, loadEnv } from 'vite'
 import uni from '@dcloudio/vite-plugin-uni'
+import { syncBrandAssets } from '../shared/brand.mjs'
+syncBrandAssets(new URL('./src/static/', import.meta.url))
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), 'VITE_')

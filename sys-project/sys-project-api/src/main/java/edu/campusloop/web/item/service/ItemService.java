@@ -14,5 +14,6 @@ public interface ItemService {
     ItemView ownDetail(long ownerId,long id);
     ItemView edit(long ownerId,long id,EditItemRequest request);
     ItemView withdraw(long ownerId,long id,WithdrawItemRequest request);
+    ItemView relist(long ownerId,long id,WithdrawItemRequest request);
     List<ItemView> availableForMatching();
 }

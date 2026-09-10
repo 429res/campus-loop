@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Campus Loop backup at 03:30 China time
+
+[Timer]
+OnCalendar=*-*-* 03:30:00 Asia/Shanghai
+Persistent=true
+Unit=campus-loop-backup.service
+
+[Install]
+WantedBy=timers.target
