@@ -116,8 +116,8 @@ async function refreshVersion() {
       <slot v-if="fixture" name="fixture-controls" />
       <dl class="review-target">
         <div><dt>物品</dt><dd>{{ item?.title || "—" }}</dd></div>
-        <div><dt>当前状态</dt><dd>{{ item?.status || "—" }}</dd></div>
-        <div><dt>并发版本</dt><dd>{{ item?.version ?? "接口未提供" }}</dd></div>
+        <div><dt>当前状态</dt><dd>{{ ({PENDING_REVIEW:'待审核',AVAILABLE:'可交换',REJECTED:'已驳回',HIDDEN:'已下架',RESERVED:'交换中',EXCHANGED:'已交换'})[item?.status] || '—' }}</dd></div>
+
       </dl>
       <img v-if="item?.imageUrl" class="review-image" :src="imageUrl(item.imageUrl)" :alt="item.title" />
       <p class="review-content">{{ item?.description }}</p>

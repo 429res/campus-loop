@@ -540,7 +540,7 @@ class CampusIntegrationTest {
         assertTrue(original.at("/offeredItems/0/offerable").asBoolean());assertEquals("AVAILABLE",original.at("/offeredItems/0/status").asText());
         JsonNode another=demandCall("POST","/api/demands",owner,demandBody(3,"同一物品可在另一需求",List.of(),List.of(first)),200);
         assertEquals(first,another.at("/offeredItems/0/itemId").asLong());
-        assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=?",Integer.class,first));
+        assertEquals(3,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE item_id=?",Integer.class,first)); // Two manual requests plus the published request.
         assertEquals(itemCount,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item",Long.class));
         assertEquals(original.path("ownerId").asLong(),jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,first));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE item_id IN (?,?)",Integer.class,first,second));
@@ -555,7 +555,7 @@ class CampusIntegrationTest {
         JsonNode replaced=demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",0,"offeredItemIds",List.of(second)),200);
         assertEquals(1,replaced.path("offeredItems").size());assertEquals(second,replaced.at("/offeredItems/0/itemId").asLong());
         assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_demand_item WHERE demand_id=?",Integer.class,id));
-        assertEquals(2,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+        assertEquals(4,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
     }
     @Test void demandAssociationsRejectEveryUnavailableStateAndHeldItems() throws Exception {
         String owner=demandUser();long item=demandItem(owner);
@@ -580,7 +580,7 @@ class CampusIntegrationTest {
             assertFalse(held.at("/offeredItems/0/offerable").asBoolean());assertEquals("AVAILABLE",held.at("/offeredItems/0/status").asText());
             demandCall("PATCH","/api/demands/"+associatedId+"/status",owner,Map.of("version",0,"status","INACTIVE"),200);
             demandCall("PATCH","/api/demands/"+associatedId+"/status",owner,Map.of("version",1,"status","ACTIVE"),409);
-            assertEquals(1,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+            assertEquals(2,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
         } finally {
             jdbc.update("DELETE FROM cl_item_hold WHERE exchange_id=?",exchangeId);
             jdbc.update("DELETE FROM cl_exchange WHERE id=?",exchangeId);
@@ -668,7 +668,7 @@ class CampusIntegrationTest {
         demandCall("PATCH","/api/demands/"+id,owner,Map.of("version",1,"description","无法恢复"),404);
         demandCall("PATCH","/api/demands/"+id+"/status",owner,Map.of("version",1,"status","ACTIVE"),404);
         demandCall("DELETE","/api/demands/"+id+"?version=1",owner,null,404);
-        assertEquals(0,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
+        assertEquals(1,demandCall("GET","/api/demands",owner,null,200).path("total").asInt());
         assertEquals(1,demandCall("GET","/api/demands/offerable-items",owner,null,200).path("total").asInt());
         JsonNode inactive=demandCall("POST","/api/demands",owner,demandBody(1,"停用后也可删除",List.of(),List.of()),200);long inactiveId=inactive.path("id").asLong();
         demandCall("PATCH","/api/demands/"+inactiveId+"/status",owner,Map.of("version",0,"status","INACTIVE"),200);
@@ -1010,7 +1010,10 @@ class CampusIntegrationTest {
                     assertEquals("AVAILABLE",offer.status());assertEquals("ACTIVE",offer.userStatus());assertFalse(offer.held());
                 }
                 List<IndependentMatchingInput.Demand> owned=snapshot.demands().stream().filter(demand->fixtureOwners.contains(demand.ownerId())).toList();
-                assertEquals(1,owned.size());IndependentMatchingInput.Demand selected=owned.get(0);
+                assertEquals(2,owned.size());
+                long automatic=jdbc.queryForObject("SELECT id FROM cl_demand WHERE source_item_id=?",Long.class,available);
+                assertTrue(owned.stream().anyMatch(demand->demand.id()==automatic));
+                IndependentMatchingInput.Demand selected=owned.stream().filter(demand->demand.id()==activeId).findFirst().orElseThrow();
                 assertEquals(activeId,selected.id());assertEquals(ownerId,selected.ownerId());assertEquals(6,selected.categoryId());
                 assertEquals(Set.of("solar","便携"),selected.preferredTags());assertEquals(Set.of(available),selected.offeredItemIds());
                 assertEquals("ACTIVE",selected.status());assertEquals(1,selected.version());
@@ -1046,6 +1049,8 @@ class CampusIntegrationTest {
                 "title","候选边界 "+UUID.randomUUID(),"description","隔离候选上限夹具","categoryId",6,"conditionLevel",4,
                 "tags",List.of(),"wantedCategoryId",6,"wantedTags",List.of()),200);
             jdbc.update("UPDATE cl_item SET status='AVAILABLE',review_basis='LEGACY_DIRECT' WHERE owner_id=?",ownerId);
+            // Isolate candidate budgeting from whether published requests are active.
+            jdbc.update("UPDATE cl_demand SET status='INACTIVE' WHERE owner_id=? AND source_item_id IS NOT NULL",ownerId);
             assertEquals(200,eligibleMatchingItemCount());
             IndependentMatchingInput atLimit=readOnlyMatchingSnapshot();assertEquals(200,atLimit.offers().size());
             assertTrue(atLimit.demands().stream().noneMatch(demand->demand.ownerId()==ownerId));
@@ -1142,7 +1147,8 @@ class CampusIntegrationTest {
                 if(flow.path("toUserId").asLong()==secondId) {
                     assertEquals(firstItem,flow.path("itemId").asLong());assertEquals(best,flow.path("demandId").asLong());
                     List<Long> matchedIds=new ArrayList<>();flow.path("matchedDemandIds").forEach(value->matchedIds.add(value.asLong()));
-                    assertEquals(List.of(low,best,same,disjoint),matchedIds);
+                    long automatic=jdbc.queryForObject("SELECT id FROM cl_demand WHERE source_item_id=?",Long.class,secondItem);
+                    assertEquals(List.of(automatic,low,best,same,disjoint),matchedIds);
                     assertEquals(json.valueToTree(List.of("solar","usb")),flow.path("matchedTags"));
                 } else {
                     assertEquals(firstId,flow.path("toUserId").asLong());assertEquals(secondItem,flow.path("itemId").asLong());
@@ -1163,6 +1169,8 @@ class CampusIntegrationTest {
             String first=demandUser(),second=demandUser();long firstId=matchingOwnerId(first),secondId=matchingOwnerId(second);
             fixtureOwners.addAll(List.of(firstId,secondId));
             long firstItem=matchingGreenItem(first,List.of(),4),secondItem=matchingGreenItem(second,List.of(),4);
+            // Deliberately inactive published requests keep this fixture focused on manual-demand filtering.
+            for(long owner:fixtureOwners)jdbc.update("UPDATE cl_demand SET status='INACTIVE' WHERE owner_id=? AND source_item_id IS NOT NULL",owner);
             demandCall("POST","/api/demands",first,demandBody(6,"需要独立绿植甲",List.of(),List.of(firstItem)),200);
             long secondDemand=demandCall("POST","/api/demands",second,demandBody(6,"需要独立绿植乙",List.of(),List.of(secondItem)),200).path("id").asLong();
             assertNotNull(matchingRing(readOnlyIndependentMatches(first,200).path("recommendations"),Set.of(firstId,secondId)));

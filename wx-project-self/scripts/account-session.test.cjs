@@ -1,12 +1,13 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {ref,reactive,computed}=require('vue');
+const {loginDestination}=require('../src/common/navigation.mjs');
 const script=name=>fs.readFileSync(path.join(__dirname,`../src/pages/${name}/${name}.vue`),'utf8').match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm,'');
 function harness(name,expose) {
   let token='session-a',onLoad,hidden,unloaded;
   const requests=[],cache={},navigation=[],modals=[];
   const request=(url,body)=>new Promise((resolve,reject)=>requests.push({url,body,resolve,reject}));
   const uni={getStorageSync:()=>token,setStorageSync:(k,v)=>cache[k]=v,redirectTo:o=>navigation.push(o.url),navigateTo:o=>navigation.push(o.url),switchTab:o=>navigation.push(o.url),showToast:()=>{}};
-  const args={ref,reactive,computed,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>onLoad=fn,http:{get:(url,body)=>url==='/api/notifications/unread-count'?Promise.resolve(0):request(url,body),put:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
+  const args={ref,reactive,computed,loginDestination,onShow:()=>{},onHide:fn=>hidden=fn,onUnload:fn=>unloaded=fn,onLoad:fn=>onLoad=fn,http:{get:(url,body)=>url==='/api/notifications/unread-count'?Promise.resolve(0):request(url,body),put:request,patch:request,post:request,delete:request},uni,TOKEN_KEY:'token',USER_KEY:'user',clearSession:()=>token='',showAppModal:options=>new Promise(resolve=>modals.push({options,resolve}))};
   const app=new Function(...Object.keys(args),script(name)+`;return {${expose}};`)(...Object.values(args));
   return {app,requests,cache,navigation,modals,setToken:v=>token=v,token:()=>token,options:o=>onLoad(o),hide:()=>hidden(),unload:()=>unloaded()};
 }

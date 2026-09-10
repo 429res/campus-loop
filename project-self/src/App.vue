@@ -32,6 +32,7 @@ const allLinks = [
   { path: "/", label: "循环概览", icon: DataBoard },
   { path: "/items", label: "物品审核", icon: Box },
   { path: "/categories", label: "分类维护", icon: CollectionTag },
+  { path: "/community", label: "校园动态", icon: Connection },
   { path: "/users", label: "账号管理", icon: User },
   { path: "/matches", label: "交换推荐", icon: Connection },
   { path: "/disputes", label: "交换争议", icon: Warning },
@@ -91,7 +92,7 @@ onBeforeUnmount(() => {
 });
 </script>
 <template>
-  <router-view v-if="route.path === '/login'" />
+  <router-view v-if="['/login','/connection'].includes(route.path)" />
   <div v-else class="app-shell">
     <a href="#main-content" class="skip-link">跳转到主要内容</a>
     <aside

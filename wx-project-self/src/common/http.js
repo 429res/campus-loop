@@ -25,7 +25,7 @@ const unpack = (response, token, options = {}) => {
 }
 const abortedError = () => Object.assign(new Error('请求已取消'), { code: 'ABORTED' })
 const request = (method, url, data = {}, options = {}) => {
-  const token = uni.getStorageSync(TOKEN_KEY)
+  const token = options.skipAuth ? '' : uni.getStorageSync(TOKEN_KEY)
   let task
   const promise = new Promise((resolve, reject) => {
     task = uni.request({
@@ -64,6 +64,7 @@ const upload = (filePath, options = {}) => {
       },
     })
   })
+  if (typeof options.onProgress === 'function') task?.onProgressUpdate?.(event => options.onProgress(Math.max(0, Math.min(100, event.progress || 0))))
   promise.abort = () => task?.abort()
   return promise
 }

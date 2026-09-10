@@ -42,7 +42,7 @@ public class ItemReviewAuditService {
         audit.setPreviousSnapshotJson(before==null?null:snapshot(before)); audit.setNewSnapshotJson(snapshot(after));
         audit.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC).truncatedTo(ChronoUnit.SECONDS));
         audits.insert(audit);
-        if("APPROVE".equals(action)||"REJECT".equals(action))notifications.send(after.getOwnerId(),"REVIEW","APPROVE".equals(action)?"物品已通过审核":"物品需要修改",after.getTitle()+"："+reason,"/pages/my-items/my-items","REVIEW:"+after.getId()+":"+after.getVersion());
+        if("APPROVE".equals(action)||"REJECT".equals(action))notifications.send(after.getOwnerId(),"REVIEW","APPROVE".equals(action)?"物品已通过审核":"物品需要修改",after.getTitle()+"："+reason,"APPROVE".equals(action)?"/pages/matches/matches":"/pages/my-items/my-items","REVIEW:"+after.getId()+":"+after.getVersion());
     }
 
     public Map<Long,ItemReviewAudit> latestDecisions(List<Long> ids) {

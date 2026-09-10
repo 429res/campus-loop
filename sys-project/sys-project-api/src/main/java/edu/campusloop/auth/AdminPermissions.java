@@ -4,7 +4,7 @@ import edu.campusloop.web.user.entity.User;
 import java.util.*;
 public final class AdminPermissions {
     private AdminPermissions() {}
-    public static final Set<String> SCOPES=Set.of("ALL","USERS","ITEMS","CATEGORIES","EXCHANGES","HISTORY","REPORTS","OPERATIONS");
+    public static final Set<String> SCOPES=Set.of("ALL","USERS","ITEMS","CATEGORIES","EXCHANGES","HISTORY","REPORTS","OPERATIONS","COMMUNITY");
     public static List<String> of(User user) {
         if(!"ADMIN".equals(user.getRole())) return List.of();
         String raw=user.getAdminPermissions();
@@ -16,6 +16,7 @@ public final class AdminPermissions {
     }
     public static String forPath(String path) {
         if(path.startsWith("/api/admin/users")) return path.endsWith("/access")?"ALL":"USERS";
+        if(path.startsWith("/api/admin/community")) return "COMMUNITY";
         if(path.startsWith("/api/admin/items")) return "ITEMS";
         if(path.startsWith("/api/admin/categories")) return "CATEGORIES";
         if(path.startsWith("/api/admin/matches")) return "EXCHANGES";

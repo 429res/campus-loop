@@ -4,7 +4,7 @@ import http from '@/http'
 import {useOverlayLock} from '@/composables/useOverlayLock'
 const props=defineProps({user:Object,modelValue:Boolean});const emit=defineEmits(['update:modelValue','saved'])
 const visible=ref(false),busy=ref(false),error=ref(''),uncertain=ref(false),form=reactive({role:'USER',permissions:[],reason:''})
-const scopes={ALL:'全部权限（超级管理员）',USERS:'账号管理',ITEMS:'物品审核',CATEGORIES:'分类维护',EXCHANGES:'交换管理与争议',HISTORY:'履历核验',REPORTS:'举报处理',OPERATIONS:'运营统计与审计'}
+const scopes={ALL:'全部权限（超级管理员）',USERS:'账号管理',ITEMS:'物品审核',CATEGORIES:'分类维护',EXCHANGES:'交换管理与争议',HISTORY:'履历核验',REPORTS:'举报处理',COMMUNITY:'校园动态',OPERATIONS:'运营统计与审计'}
 watch(()=>props.modelValue,value=>{visible.value=value;if(value){form.role=props.user.role;form.permissions=[...(props.user.permissions||[])];form.reason='';error.value='';uncertain.value=false}})
 useOverlayLock(visible)
 function close(){if(!busy.value)emit('update:modelValue',false)}

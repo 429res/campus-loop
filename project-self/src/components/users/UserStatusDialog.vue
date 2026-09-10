@@ -101,8 +101,8 @@ async function submit() {
       />
       <dl class="status-target">
         <div><dt>账号</dt><dd>{{ user?.username || "—" }}</dd></div>
-        <div><dt>当前状态</dt><dd>{{ user?.status || "—" }}</dd></div>
-        <div><dt>并发版本</dt><dd>{{ user?.version ?? "—" }}</dd></div>
+        <div><dt>当前状态</dt><dd>{{ user?.status==='ACTIVE'?'启用':'停用' }}</dd></div>
+
       </dl>
       <el-form
         ref="formRef"

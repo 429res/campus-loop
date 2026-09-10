@@ -180,6 +180,7 @@ onMounted(async () => {
   } catch {}
   if (/^[1-9][0-9]*$/.test(String(route.query.id || ""))) await show({id:route.query.id});
 });
+const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?value:value+'Z').toLocaleString('zh-CN',{hour12:false}):'—';
 </script>
 
 <template>
@@ -187,19 +188,12 @@ onMounted(async () => {
     <div>
       <span class="eyebrow">CONTENT REVIEW</span>
       <h1>物品审核</h1>
-      <p>查看完整内容并记录审核理由；已占用或交接中的物品不可审批。</p>
+      <p>核对物品描述与图片，处理同学提交的闲置。</p>
     </div>
     <span class="count-pill">本页待审 {{ pendingCount }} · 共 {{ total }} 件</span>
   </div>
 
-  <el-alert
-    class="review-contract-alert"
-    title="提交与修改后进入待审"
-    description="待审及驳回物品仅本人和管理员可见。历史直发保留原公开行为，首次编辑进入复审；审核决定不替代履历核验。"
-    type="warning"
-    :closable="false"
-    show-icon
-  />
+
 
   <section class="panel">
     <form class="filter-bar review-filter" @submit.prevent="search">
@@ -271,7 +265,7 @@ onMounted(async () => {
       </el-table-column>
       <el-table-column label="发布时间" min-width="165">
         <template #default="{ row }">{{
-          row.createdAt?.replace("T", " ").slice(0, 16) || "—"
+          formatDate(row.createdAt)
         }}</template>
       </el-table-column>
       <el-table-column label="操作" width="230" fixed="right">
@@ -291,7 +285,7 @@ onMounted(async () => {
       </template>
     </el-table>
     <div class="pagination-row">
-      <span>旧 AVAILABLE 数据仅按当前状态展示，不代表经过审核</span>
+      <span></span>
       <el-pagination
         v-model:current-page="filters.page"
         :page-size="filters.size"
@@ -377,7 +371,7 @@ onMounted(async () => {
             </dd>
           </div>
           <div><dt>记录编号</dt><dd>#{{ detail.id }}</dd></div>
-          <div><dt>并发版本</dt><dd>{{ detail.version }}</dd></div>
+
           <div><dt>审核人</dt><dd>{{ detail.reviewedByName || "暂无审核决定" }}</dd></div>
           <div><dt>审核时间</dt><dd>{{ detail.reviewedAt || "—" }}</dd></div>
           <div class="detail-wide">
@@ -402,7 +396,7 @@ onMounted(async () => {
         >
       </div>
       <h3>状态与内容审计</h3>
-      <p v-if="!audits.length">暂无审计事件；历史直发不补造审批记录。</p>
+      <p v-if="!audits.length">暂无审核记录。</p>
       <div v-for="audit in audits" :key="audit.id" class="audit-event">
         <strong>{{ {SUBMIT:'提交审核',APPROVE:'通过',REJECT:'驳回',WITHDRAW:'下架'}[audit.action] }} · {{ audit.operatorDisplayName }}</strong>
         <p>{{ audit.previousStatus || '新物品' }} → {{ audit.newStatus }} · v{{ audit.previousVersion ?? '—' }} → v{{ audit.newVersion }} · {{ audit.createdAt }}</p>

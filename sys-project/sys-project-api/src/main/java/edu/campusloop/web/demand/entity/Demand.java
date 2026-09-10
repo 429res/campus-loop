@@ -12,6 +12,7 @@ public class Demand {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long ownerId;
+    private Long sourceItemId;
     private Long categoryId;
     private String description;
     private String preferredTagsJson;

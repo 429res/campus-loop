@@ -3,6 +3,7 @@ import LoopIcon from './LoopIcon.vue'
 import LoopButton from './LoopButton.vue'
 import { onShow } from '@dcloudio/uni-app'
 import { computed } from 'vue'
+import {backWithinApp} from '../common/navigation.mjs'
 import { useTheme } from '../composables/useTheme'
 const { theme, toggleTheme, apply, reducedMotion } = useTheme()
 const routes = ['home','matches','publish','profile']
@@ -11,6 +12,7 @@ const active = computed(() => routes.indexOf(props.activeTab))
 onShow(apply)
 const navigate = index => uni.switchTab({url:`/pages/${routes[index]}/${routes[index]}`})
 const goHome = () => uni.switchTab({ url:'/pages/home/home' })
+const goBack=()=>backWithinApp(uni,typeof getCurrentPages==='function'?getCurrentPages():[])
 const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
 </script>
 <template>
@@ -23,6 +25,7 @@ const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
           <LoopButton class="cl-btn cl-btn--primary cl-desktop-only" @click="goPublish"><LoopIcon name="plus" tone="white" :size="18"/>发布闲置</LoopButton>
         </view>
       </view>
+      <view v-if="!activeTab" class="page-back"><LoopButton class="cl-btn cl-btn--quiet" aria-label="返回上一页" @click="goBack">‹ 返回</LoopButton></view>
       <slot />
       <text class="cl-footer-note">CAMPUS LOOP · 校园闲置循环计划</text>
     </view>
@@ -32,6 +35,7 @@ const goPublish = () => uni.switchTab({url:'/pages/publish/publish'})
   </view>
 </template>
 <style scoped>
+.page-back{margin:4px 0 18px}.page-back .cl-btn{padding-left:0;color:var(--cl-muted)}
 .loop-nav{position:fixed;z-index:50;bottom:0;left:0;right:0;padding:6px 12px calc(6px + env(safe-area-inset-bottom));display:flex;border-radius:0;isolation:isolate}.nav-button{flex:1;padding:4px 8px;background:transparent;color:var(--cl-muted);font-size:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:44px}.nav-symbol{font-size:23px;line-height:1.1}.nav-button.selected{color:var(--cl-primary);font-weight:650}.nav-indicator{position:absolute;z-index:-1;width:calc((100% - 24px)/4);left:12px;top:6px;bottom:calc(6px + env(safe-area-inset-bottom));border-radius:12px;background:var(--cl-primary-soft);transition:transform var(--cl-motion-normal) var(--cl-ease)}
 /* The outer dock owns the glass. The active pill and icons are flat. */
 .loop-nav{width:min(520px,calc(100% - 32px));left:50%;right:auto;bottom:calc(12px + env(safe-area-inset-bottom));transform:translateX(-50%);padding:6px;border-radius:22px;gap:0}

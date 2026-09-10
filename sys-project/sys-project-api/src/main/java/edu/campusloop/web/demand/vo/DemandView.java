@@ -8,4 +8,4 @@ public record DemandView(long id, long ownerId, long categoryId, String category
                          String description, List<String> preferredTags, String status, int version,
                          @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'") LocalDateTime createdAt,
                          @JsonFormat(pattern = "yyyy-MM-dd'T'HH:mm:ss'Z'") LocalDateTime updatedAt,
-                         List<OfferedItemView> offeredItems) {}
+                         List<OfferedItemView> offeredItems, Long sourceItemId) {}

@@ -60,6 +60,7 @@ class FavoritesIntegrationTest {
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_favorite WHERE item_id=?", itemId);
         for (long userId : userIds) jdbc.update("DELETE FROM cl_favorite WHERE user_id=?", userId);
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item_review_audit WHERE item_id=?", itemId);
+        for(long userId:userIds){jdbc.update("DELETE FROM cl_demand_item WHERE demand_id IN (SELECT id FROM cl_demand WHERE owner_id=?)",userId);jdbc.update("DELETE FROM cl_demand WHERE owner_id=?",userId);}
         for (long itemId : itemIds) jdbc.update("DELETE FROM cl_item WHERE id=?", itemId);
         for (long userId : userIds) {
             jdbc.update("DELETE FROM cl_notification WHERE user_id=?",userId);

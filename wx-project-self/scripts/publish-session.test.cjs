@@ -9,7 +9,7 @@ const { ref, watch, effectScope } = require('vue')
 const source = fs.readFileSync(path.join(__dirname, '../src/pages/publish/publish.vue'), 'utf8')
 const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
 const setup = new Function('ref', 'watch', 'onShow', 'onUnload', 'http', 'uni', 'TOKEN_KEY', 'USER_KEY', 'imageUrl', 'isAbortError', `${script}
-return { verifySession, publish, pickImage, startUpload, cancelUpload, removeImage, form, currentUser, loggedIn, verifyingSession, busy, uploading, pendingFile, uploadError, error, sessionError, draftNotice, categories, categoriesError };`)
+return { submitted, uploadProgress, verifySession, publish, pickImage, startUpload, cancelUpload, removeImage, form, currentUser, loggedIn, verifyingSession, busy, uploading, pendingFile, uploadError, error, sessionError, draftNotice, categories, categoriesError };`)
 const TOKEN_KEY = 'campus-loop-token'
 const USER_KEY = 'campus-loop-user'
 const draftKey = id => `campus-loop-publish-draft-${id}`
@@ -30,6 +30,7 @@ function harness(t, { manualCategories = false } = {}) {
     removeStorageSync: key => storage.delete(key),
     navigateTo: options => navigations.push(options),
     chooseImage: options => choices.push(options),
+    showToast: () => {},
   }
   function enqueue(list, data) {
     const request = { ...deferred(), token: storage.get(TOKEN_KEY), ...data }
@@ -81,7 +82,8 @@ test('account switch hides and blocks the old form until verification, then publ
   await publishing
   assert.equal(h.storage.has(draftKey(2)), false)
   assert.equal(h.storage.get(draftKey(1)).form.description, 'Saved immediately before leaving')
-  assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22&mine=1' }])
+  assert.deepEqual(h.navigations, [])
+  assert.equal(h.app.submitted.value.id,22)
 })
 
 test('out-of-order /me responses cannot restore an old account or overwrite the user cache', async t => {
@@ -211,7 +213,8 @@ for (const outcome of ['success', 'unauthorized']) {
     await publishB
     assert.equal(h.app.busy.value, false)
     assert.equal(h.storage.has(draftKey(2)), false)
-    assert.deepEqual(h.navigations, [{ url: '/pages/detail/detail?id=22&mine=1' }])
+    assert.deepEqual(h.navigations, [])
+  assert.equal(h.app.submitted.value.id,22)
   })
 }
 
