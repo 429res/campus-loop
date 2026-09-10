@@ -38,7 +38,7 @@ public class ItemReviewService {
         guard.requireUnoccupied(before);
         String status="APPROVE".equals(request.decision())?"AVAILABLE":"REJECTED";
         if(items.update(null,new UpdateWrapper<Item>().eq("id",id).eq("status","PENDING_REVIEW").eq("version",request.version())
-            .set("status",status).set("review_basis","APPROVE".equals(request.decision())?"ADMIN_REVIEW":"UNREVIEWED")
+            .set("status",status).set("review_basis","APPROVE".equals(request.decision())?(Boolean.TRUE.equals(users.selectById(operatorId).getSystemAccount())?"AI_REVIEW":"ADMIN_REVIEW"):"UNREVIEWED")
             .set("version",request.version()+1))!=1) throw new ApiException(409,"物品已更新，请刷新后重试");
         Item after=items.selectById(id);
         audits.append(operatorId,request.decision(),request.reason(),before,after);

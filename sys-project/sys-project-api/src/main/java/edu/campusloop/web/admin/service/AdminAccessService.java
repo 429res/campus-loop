@@ -22,7 +22,7 @@ public class AdminAccessService {
   var admins=users.selectAdminsForUpdate();var operator=admins.stream().filter(u->u.getId()==actor).findFirst().orElseThrow(()->new ApiException(403,"需要最高管理权限"));
   AdminPermissions.require(operator,"ALL");
   var user=admins.stream().filter(u->u.getId()==target).findFirst().orElseGet(()->users.selectByIdForUpdate(target));
-  if(user==null)throw new ApiException(404,"账号不存在");
+  if(user==null||Boolean.TRUE.equals(user.getSystemAccount()))throw new ApiException(404,"账号不存在");
   if(!user.getVersion().equals(request.version())||request.version()==Integer.MAX_VALUE)throw new ApiException(409,"账号已更新，请刷新后重试");
   var permissions=new TreeSet<>(request.permissions());
   if(!AdminPermissions.SCOPES.containsAll(permissions)||("USER".equals(request.role())&&!permissions.isEmpty())||("ADMIN".equals(request.role())&&permissions.isEmpty()))throw new ApiException(400,"权限配置不正确");

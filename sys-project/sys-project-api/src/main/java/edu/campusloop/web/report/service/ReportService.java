@@ -135,6 +135,21 @@ public class ReportService {
         return adminDetail(actor,id);
     }
 
+    /** Internal queue entry; joins the queue transaction so verdict and job completion are atomic. */
+    @Transactional(isolation=Isolation.READ_COMMITTED)
+    public void decideAutomatically(long actor,long id,int version,String decision,String reason) {
+        User system=admin(users.selectByIdForUpdate(actor));
+        if(!Boolean.TRUE.equals(system.getSystemAccount()))throw new ApiException(403,"仅供系统审核队列调用");
+        Report row=lockedReport(id);
+        if(!"SUBMITTED".equals(row.getStatus())||row.getVersion()!=version)throw conflict();
+        var now=clock.now();
+        if(reports.accept(id,version,actor,now)!=1)throw conflict();
+        audits.insert(audit(id,system,"ACCEPT","SUBMITTED","IN_REVIEW",version,version+1,"千问自动受理",null,actionDigest("ACCEPT",id,actor,version,null,reason),now));
+        if(reports.decide(id,version+1,decision,reason,actor,now)!=1)throw conflict();
+        audits.insert(audit(id,system,"DECIDE","IN_REVIEW","RESOLVED",version+1,version+2,reason,decision,actionDigest("DECIDE",id,actor,version+1,decision,reason),now));
+        notifications.send(row.getReporterId(),"REPORT","举报已有处理结果",reason,"/pages/governance/governance","REPORT:"+id+":"+(version+2));
+    }
+
     @Transactional(readOnly=true,isolation=Isolation.REPEATABLE_READ)
     public PageResult<ReportAuditView> audits(long actor,long reportId,int page,int size) {
         admin(users.selectById(actor));validatePage(page,size);report(reportId);
@@ -260,7 +275,7 @@ public class ReportService {
         if(row==null) throw new ApiException(404,"举报不存在");return row;
     }
     private static User active(User user) {
-        if(user==null || !"ACTIVE".equals(user.getStatus()) || user.getPasswordHash()==null) throw new ApiException(401,"账号不可用");return user;
+        if(user==null || !"ACTIVE".equals(user.getStatus()) || (user.getPasswordHash()==null&&!Boolean.TRUE.equals(user.getSystemAccount()))) throw new ApiException(401,"账号不可用");return user;
     }
     private static User admin(User user) {
         active(user);if(!edu.campusloop.auth.AdminPermissions.has(user,"REPORTS")) throw new ApiException(403,"需要管理员权限");return user;

@@ -4,7 +4,7 @@ import edu.campusloop.web.user.entity.User;
 import org.apache.ibatis.annotations.*;
 import java.util.List;
 public interface UserMapper extends BaseMapper<User> {
-    @Select("SELECT * FROM cl_user WHERE role='ADMIN' ORDER BY id FOR UPDATE")
+    @Select("SELECT * FROM cl_user WHERE role='ADMIN' AND system_account=FALSE ORDER BY id FOR UPDATE")
     List<User> selectAdminsForUpdate();
 
     @Select("SELECT * FROM cl_user WHERE id=#{id} FOR UPDATE")
