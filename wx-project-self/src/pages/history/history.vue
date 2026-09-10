@@ -1,4 +1,5 @@
 <script setup>
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import { computed, ref } from 'vue'
 import { onLoad, onShow, onPullDownRefresh, onUnload } from '@dcloudio/uni-app'
 import LoopButton from '../../components/LoopButton.vue'
@@ -9,6 +10,7 @@ import LoopSwitch from '../../components/LoopSwitch.vue'
 import { showAppModal } from '../../common/modal'
 import http, { isAbortError, TOKEN_KEY } from '../../common/http'
 
+const login = () => uni.navigateTo({url:'/pages/login/login'})
 const records = ref([]), total = ref(0), page = ref(1), size = 8
 const loading = ref(true), error = ref(''), actionError = ref(''), actionBusy = ref('')
 const formOpen = ref(false), submitting = ref(false), submitError = ref(''), uncertain = ref(false), recoveryNotice = ref('')
@@ -146,8 +148,8 @@ onUnload(() => { sequence++;activeRequest?.abort?.();evidence.value.forEach(valu
     <view class="source-guide cl-panel"><view v-for="entry in [['SELF_REPORTED','本人自述','作者提交，尚未得到全体参与者或管理员核验'],['BOTH_CONFIRMED','全体参与者确认','两方须 2/2、三方须 3/3；不等同平台核验'],['ADMIN_VERIFIED','管理员核验','仅表示该事件在服务端记录的范围内通过核验']]" :key="entry[0]" class="source-row"><text class="cl-tag" :class="level(entry[0])[1]">{{ entry[1] }}</text><text class="cl-hint">{{ entry[2] }}</text></view></view>
     <view class="toolbar"><LoopButton class="cl-btn cl-btn--primary" @click="openCreate()">提交本人自述</LoopButton><LoopButton class="cl-btn" :disabled="loading" @click="load(page)">刷新履历</LoopButton></view>
     <text v-if="recoveryNotice" class="cl-notice" role="status">{{ recoveryNotice }}</text><text v-if="actionError" class="cl-error block" role="alert">{{ actionError }}</text>
-    <view v-if="loading" class="cl-empty"><text>正在读取履历…</text></view>
-    <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load(page)">重试</LoopButton><LoopButton v-if="!hasToken" class="cl-btn cl-btn--primary" @click="uni.navigateTo({url:'/pages/login/login'})">重新登录</LoopButton></view>
+    <LoopSkeleton v-if="loading"/>
+    <view v-else-if="error" class="cl-panel cl-empty" role="alert"><text class="cl-error">{{ error }}</text><LoopButton class="cl-btn" @click="load(page)">重试</LoopButton><LoopButton v-if="!hasToken" class="cl-btn cl-btn--primary" @click="login">重新登录</LoopButton></view>
     <view v-else-if="!records.length" class="cl-panel cl-empty"><text class="cl-empty-symbol">○</text><text>还没有可见履历</text><text class="cl-hint">不会生成随机或占位事件。</text></view>
     <view v-else class="timeline">
       <view v-for="event in records" :key="event.id" class="cl-panel event-card">

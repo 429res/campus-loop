@@ -146,7 +146,7 @@ public class ItemServiceImpl extends ServiceImpl<ItemMapper,Item> implements Ite
             .eq("version",item.getVersion()).set("version",item.getVersion()+1);
         if(baseMapper.update(null,update)!=1) throw new ApiException(409,"物品已更新，请刷新后重试");
         Item after=baseMapper.selectById(item.getId());
-        if("SUBMIT".equals(action))publishedDemands.sync(after);
+        if("SUBMIT".equals(action)||"WITHDRAW".equals(action))publishedDemands.sync(after);
         audits.append(item.getOwnerId(),action,null,item,after);
         return views(List.of(after),true).get(0);
     }

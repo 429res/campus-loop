@@ -16,6 +16,8 @@ function pageHarness(page,options={}) {
     navigateTo: options => navigations.push(options),
     switchTab: options => navigations.push(options),
   }
+  const adapterSource = readFileSync(new URL('../src/common/platform-adapters.js', import.meta.url), 'utf8').replaceAll('export const ', 'const ')
+  const {platformStorage} = new Function('uni', adapterSource + '\nreturn {platformStorage};')(uni)
   const send = (method,url, data) => {
     if(url==='/api/matches/readiness') return Promise.resolve({AVAILABLE:1,DEMANDS:1})
     if(url.startsWith('/api/items/')) return Promise.resolve({title:'真实服务器物品标题'})
@@ -30,7 +32,7 @@ function pageHarness(page,options={}) {
   const exports = page === 'matches'
     ? 'load, authenticated, loading, recommendations, preview, previewMatch, authNotice, error, errorStatus, login, creation, createBusy, createError, createExchange, reviewRetained'
     : 'authenticated, login, recommendations, loadList, loadDetail, detail, pending, reason, acknowledged, beginAction, submitAction, useCurrentVersion, actionError, actionBusy, targetId, records, page, filter, total, refreshActionDetail, dismissDraft, restoreEditor'
-  const dependencies={ref,computed,onLoad:cb=>{lifecycle.load=cb},onShow:cb=>{lifecycle.show=cb},onHide:cb=>{lifecycle.hide=cb},onUnload:cb=>{lifecycle.unload=cb},uni,http,TOKEN_KEY,USER_KEY,isAbortError:error=>error?.code==='ABORTED',createLatestRequestGuard,createExchangeJournal,creationSnapshot,actionRequest,expiryText,EXCHANGE_STATUSES,STATUS_LABELS,ACTION_LABELS,showAppModal:options.showAppModal || (async()=>({confirm:true})),setInterval:()=>1,clearInterval:()=>{}}
+  const dependencies={ref,computed,onLoad:cb=>{lifecycle.load=cb},onShow:cb=>{lifecycle.show=cb},onHide:cb=>{lifecycle.hide=cb},onUnload:cb=>{lifecycle.unload=cb},uni,platformStorage,http,TOKEN_KEY,USER_KEY,isAbortError:error=>error?.code==='ABORTED',createLatestRequestGuard,createExchangeJournal,creationSnapshot,actionRequest,expiryText,EXCHANGE_STATUSES,STATUS_LABELS,ACTION_LABELS,showAppModal:options.showAppModal || (async()=>({confirm:true})),setInterval:()=>1,clearInterval:()=>{}}
   const setup=new Function(...Object.keys(dependencies),`${script}\nreturn {${exports}};`)
   const app=setup(...Object.values(dependencies))
   return { app, storage, requests, lifecycle, navigations }

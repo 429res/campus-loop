@@ -1,4 +1,5 @@
 <script setup>
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import {ref} from 'vue'
 import {onShow,onUnload} from '@dcloudio/uni-app'
 import LoopLayout from '../../components/LoopLayout.vue'
@@ -21,7 +22,7 @@ onShow(load);onUnload(()=>generation++)
 </script>
 <template><LoopLayout><view class="cl-page-heading"><text class="cl-title">消息通知</text></view><view class="cl-panel cl-stack">
 <view class="cl-row"><LoopButton class="cl-btn" :disabled="busy||writing" @click="filter">{{unreadOnly?'仅看未读':'全部消息'}} · 切换</LoopButton><LoopButton class="cl-btn" :disabled="busy||writing" @click="readAll">全部标为已读</LoopButton></view>
-<view v-if="error" class="cl-empty"><text class="cl-error" role="alert">{{error}}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton></view><text v-if="busy" class="cl-hint">正在加载…</text>
+<view v-if="error" class="cl-empty"><text class="cl-error" role="alert">{{error}}</text><LoopButton class="cl-btn" @click="load">重试</LoopButton></view><LoopSkeleton v-if="busy"/>
 <view v-for="row in rows" :key="row.id" class="message"><view class="cl-row"><text class="cl-field-title">{{row.title}}</text><text v-if="!row.readAt" class="cl-tag">未读</text></view><text class="body">{{row.body}}</text><view class="cl-row"><text class="cl-hint">{{time(row.createdAt)}}</text><LoopButton class="cl-btn" :disabled="writing" @click="read(row)">查看</LoopButton></view></view>
 <view v-if="!busy&&!error&&!rows.length" class="cl-empty">{{unreadOnly?'暂时没有未读消息':'还没有消息'}}</view><view class="cl-row"><LoopButton class="cl-btn" :disabled="busy||page<=1" @click="turn(-1)">上一页</LoopButton><text>{{page}} · 共 {{total}} 条</text><LoopButton class="cl-btn" :disabled="busy||page*15>=total" @click="turn(1)">下一页</LoopButton></view>
 </view></LoopLayout></template>

@@ -1,4 +1,5 @@
 <script setup>
+import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import LoopIcon from '../../components/LoopIcon.vue'
 import LoopPicker from '../../components/LoopPicker.vue'
 import LoopButton from '../../components/LoopButton.vue'
@@ -168,7 +169,7 @@ const openSubmitted = () => uni.navigateTo({url:`/pages/detail/detail?id=${submi
 <template>
   <LoopLayout active-tab="publish">
     <view class="cl-page-heading"><text class="cl-title">让闲置，开始下一段旅程</text><text class="cl-subtitle">写下你有什么、想换什么，审核通过后自动为你寻找交换方案。</text></view>
-    <view v-if="verifyingSession" class="cl-panel cl-empty" role="status"><text>正在加载…</text></view>
+    <LoopSkeleton v-if="verifyingSession"/>
     <view v-else-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ error || sessionError || '登录后发布你的闲置' }}</text><LoopButton v-if="sessionError" class="cl-btn" @click="verifySession">重试验证</LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ error ? '重新登录' : '登录' }}</LoopButton></view>
     <view v-else-if="!submitted" class="publish-layout">
       <form class="cl-panel cl-form" @submit="publish">

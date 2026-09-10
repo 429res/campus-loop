@@ -72,3 +72,16 @@ sudo systemctl list-timers campus-loop-backup.timer --no-pager
 - 本次未验证微信真机、小程序发布、持续压力负载、真实校园身份、争议仲裁或自动异地灾备。当前交付是可访问的同学测试环境。
 
 临时部署 SSH 公钥会在交接完成时撤销；后续维护继续使用所有者已有的 ECS 登录方式。
+
+
+## 同学试用反馈修复上线（2026-09-09 15:18 CST）
+
+应用提交 `f9e33b6c095fae32685778929a9891e509d2cb23`，修复分支 `fix/usability-feedback`，PR [#58](https://github.com/429res/campus-loop/pull/58)。原八项反馈、交换存储接口报错与校园页面丰富化见[修复记录](usability-feedback.md)。
+
+- 发布包 SHA-256：`aec952e4d8aca805da3129187cd41dcf8d20ac8ac44f40ce593f7e3cde63ef61`，通过 GitHub 预发布包分发，服务器校验后构建并切换。
+- 切换前完成数据库与上传文件备份 `.local/backups/20260909T071756Z`；保留上一版本镜像、源码及配置供回滚。
+- 后端和 Web 镜像均为 `f9e33b6`，MySQL 8.4.11，三个容器健康；Flyway V19 执行成功，自动备份定时器 active。
+- 公网两域 HTTPS/数据库健康通过；现有管理员的账号目录、运营和动态读取通过；现有用户的资料、匹配、交换及评论预览读取通过。临时 API 登录会话已退出。
+- 公网两端入口 JS 哈希与本地发布产物一致。Chrome 线上确认新首页、详情直接交换选物以及返回；真实用户的物品仅作读取和方案预览，没有替用户发出邀请。交换创建与指定评论回复的实际写入验证在隔离 MySQL 中完成。
+
+访问：[用户端](https://amoewell.top)、[管理端](https://admin.amoewell.top)。分支已提交，主分支合并仍按成员审核要求执行。
