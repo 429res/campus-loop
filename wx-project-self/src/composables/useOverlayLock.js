@@ -1,4 +1,4 @@
-import { onBeforeUnmount, watch } from 'vue'
+import { onBeforeUnmount, watch, ref } from 'vue'
 
 // H5 overlays share one reference-counted lock so a closing sheet cannot
 // unlock the page while another sheet is already open. Native mini-program
@@ -30,3 +30,10 @@ export function useOverlayLock(visible) {
   }, { immediate:true, flush:'sync' })
   onBeforeUnmount(() => release?.())
 }
+
+const dialogs=ref([])
+export function pushDialog(key){const index=dialogs.value.indexOf(key);if(index>=0)dialogs.value.splice(index,1);dialogs.value.push(key)}
+export function popDialog(key){const index=dialogs.value.indexOf(key);if(index>=0)dialogs.value.splice(index,1)}
+export const isTopDialog=key=>dialogs.value[dialogs.value.length-1]===key
+
+export const dialogLayer=key=>2000+Math.max(0,dialogs.value.indexOf(key))*2

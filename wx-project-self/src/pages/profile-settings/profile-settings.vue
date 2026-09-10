@@ -1,4 +1,5 @@
 <script setup>
+import AccountSecurity from "../../components/AccountSecurity.vue"
 import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import LoopIcon from '../../components/LoopIcon.vue'
 import LoopInput from '../../components/LoopInput.vue'
@@ -12,13 +13,13 @@ import { showAppModal } from '../../common/modal'
 const user = ref(null), loading = ref(false), error = ref('')
 const profileBusy = ref(false), profileError = ref(''), profileSuccess = ref(''), profileUncertain = ref(false)
 const passwordBusy = ref(false), passwordError = ref(''), showPasswordForm = ref(false)
-const profileForm = reactive({ displayName:'', avatarUrl:'', bio:'', campus:'', contact:'' })
+const profileForm = reactive({ displayName:'', avatarUrl:'', coverUrl:'', bio:'', campus:'', contact:'' })
 const avatarBusy=ref(false), unread=ref(0)
 const inbox=()=>uni.navigateTo({url:'/pages/notifications/notifications'})
-function chooseAvatar(){
+function chooseAvatar(field='avatarUrl'){
  if(avatarBusy.value||profileBusy.value||profileUncertain.value)return
  const token=uni.getStorageSync(TOKEN_KEY)
- uni.chooseImage({count:1,success:async result=>{avatarBusy.value=true;try{const uploaded=await http.upload(result.tempFilePaths[0]);if(sameSession(token))profileForm.avatarUrl=uploaded.url}catch(e){if(sameSession(token))profileError.value=e.message}finally{avatarBusy.value=false}}})
+ uni.chooseImage({count:1,success:async result=>{avatarBusy.value=true;try{const uploaded=await http.upload(result.tempFilePaths[0]);if(sameSession(token))profileForm[field]=uploaded.url}catch(e){if(sameSession(token))profileError.value=e.message}finally{avatarBusy.value=false}}})
 }
 const passwordForm = reactive({ currentPassword:'', newPassword:'', confirmPassword:'' })
 let loadedToken = '', readSequence = 0
@@ -167,8 +168,8 @@ onHide(() => { readSequence++; clearPasswords(); showPasswordForm.value = false 
           <view class="profile-form-heading"><text class="cl-section-title"><LoopIcon name="user" tone="primary"/> 个人资料</text></view>
           <view class="cl-field"><text class="cl-field-title">用户名</text><LoopInput class="cl-input" :model-value="user.username" aria-label="用户名（不可修改）" disabled /></view>
           <view class="cl-field"><text class="cl-field-title">显示名称</text><LoopInput v-model="profileForm.displayName" class="cl-input" aria-label="显示名称" :aria-invalid="!!profileError" maxlength="64" :disabled="profileBusy || profileUncertain" /></view>
-          <view class="cl-field"><text class="cl-field-title">头像</text><image v-if="profileForm.avatarUrl" :src="profileForm.avatarUrl" mode="aspectFill" style="width:64px;height:64px;border-radius:18px"/><view class="form-actions"><LoopButton class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="chooseAvatar">{{avatarBusy?'上传中…':'选择头像'}}</LoopButton><LoopButton v-if="profileForm.avatarUrl" class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="profileForm.avatarUrl=''">移除</LoopButton></view></view>
-          <view class="cl-field"><text class="cl-field-title">学校 / 校区</text><LoopInput v-model="profileForm.campus" class="cl-input" aria-label="学校或校区" maxlength="100" :disabled="profileBusy||profileUncertain" /></view>
+          <view class="cl-field"><text class="cl-field-title">头像</text><image v-if="profileForm.avatarUrl" :src="profileForm.avatarUrl" mode="aspectFill" style="width:64px;height:64px;border-radius:18px"/><view class="form-actions"><LoopButton class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="chooseAvatar('avatarUrl')">{{avatarBusy?'上传中…':'选择头像'}}</LoopButton><LoopButton v-if="profileForm.avatarUrl" class="cl-btn" :disabled="profileBusy||avatarBusy||profileUncertain" @click="profileForm.avatarUrl=''">移除</LoopButton></view></view>
+          <view class="cl-field"><text class="cl-field-title">主页背景图</text><image v-if="profileForm.coverUrl" :src="imageUrl(profileForm.coverUrl)" mode="aspectFit" style="width:100%;height:140px"/><LoopButton class="cl-btn" :disabled="avatarBusy||profileBusy" @click="chooseAvatar('coverUrl')">选择背景图 · 最大 10 MB</LoopButton><LoopButton v-if="profileForm.coverUrl" class="cl-btn" :disabled="profileBusy" @click="profileForm.coverUrl=''">恢复默认背景</LoopButton></view><view class="cl-field"><text class="cl-field-title">学校 / 校区</text><LoopInput v-model="profileForm.campus" class="cl-input" aria-label="学校或校区" maxlength="100" :disabled="profileBusy||profileUncertain" /></view>
           <view class="cl-field"><text class="cl-field-title">个人简介</text><textarea v-model="profileForm.bio" class="cl-textarea" aria-label="个人简介" maxlength="300" :disabled="profileBusy||profileUncertain" /></view>
           <view class="cl-field"><text class="cl-field-title">联系方式</text><LoopInput v-model="profileForm.contact" class="cl-input" aria-label="联系方式" maxlength="160" placeholder="仅自己可见" :disabled="profileBusy||profileUncertain" /></view>
           <text v-if="profileError" class="cl-error" role="alert">{{ profileError }}</text><text v-if="profileSuccess" class="cl-success" role="status">{{ profileSuccess }}</text>
@@ -186,6 +187,7 @@ onHide(() => { readSequence++; clearPasswords(); showPasswordForm.value = false 
         </view>
       </view>
 
+    <AccountSecurity :user="user" @updated="value=>value?applyUser(value):resetAccount()"/>
     </template>
     <view v-else class="cl-panel cl-empty"><LoopIcon name="user" tone="primary" :size="36"/><text>登录后管理个人资料</text><text class="cl-hint">登录后可查看自己的物品、需求和交换进度。</text><LoopButton class="cl-btn cl-btn--primary" @click="login()">登录</LoopButton></view>
 

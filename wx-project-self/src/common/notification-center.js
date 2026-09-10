@@ -29,6 +29,6 @@ export async function openNotification(row){
  catch{if(token===uni.getStorageSync(TOKEN_KEY))uni.navigateTo({url:'/pages/notifications/notifications'});return}
  if(token!==uni.getStorageSync(TOKEN_KEY))return
  unreadCount.value=Math.max(0,unreadCount.value-1)
- if(row?.link&&/^\/pages\/(exchanges|my-items|governance|history|community)\/[a-z-]+(?:\?[a-zA-Z0-9=&_-]+)?$/.test(row.link))uni.navigateTo({url:row.link})
+ if(row?.link&&/^\/pages\/(exchanges|my-items|governance|history|community|profile-settings)\/[a-z-]+(?:\?[a-zA-Z0-9=&_-]+)?$/.test(row.link))uni.navigateTo({url:row.link})
  else uni.navigateTo({url:'/pages/notifications/notifications'})
 }

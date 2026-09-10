@@ -19,7 +19,7 @@ public class LocalUploadService {
         this.privateDirectory=this.directory.resolveSibling(this.directory.getFileName()+"-evidence");this.uploads=uploads;
     }
     public Upload store(long actor,MultipartFile file,boolean privateEvidence) throws IOException {
-        if(file.isEmpty() || file.getSize()>5*1024*1024) throw new ApiException(400,"图片须为 1 字节至 5 MB");
+        if(file.isEmpty() || file.getSize()>10*1024*1024) throw new ApiException(400,"图片须为 1 字节至 10 MB");
         String type=file.getContentType();
         if(type==null || !Set.of("image/png","image/jpeg","image/gif").contains(type)) throw new ApiException(400,"支持 PNG、JPEG、GIF 图片");
         String id=UUID.randomUUID().toString();Path folder=privateEvidence?privateDirectory:directory;Path target=folder.resolve(id+".png").normalize();

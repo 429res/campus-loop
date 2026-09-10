@@ -4,7 +4,7 @@ COPY sys-project/ ./
 RUN chmod +x mvnw && ./mvnw -B -ntp -DskipTests package
 
 FROM eclipse-temurin:17-jre-jammy
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends curl fontconfig fonts-dejavu-core && rm -rf /var/lib/apt/lists/* \
     && groupadd --gid 10001 campus && useradd --uid 10001 --gid campus campus \
     && mkdir -p /app /data/uploads /data/uploads-evidence && chown -R campus:campus /app /data
 WORKDIR /app

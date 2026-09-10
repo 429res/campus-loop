@@ -9,11 +9,11 @@ const { ref, watch, effectScope } = require('vue')
 const source = fs.readFileSync(path.join(__dirname, '../src/pages/publish/publish.vue'), 'utf8')
 const script = source.match(/<script setup>([\s\S]*?)<\/script>/)[1].replace(/^import .*$/gm, '')
 const setup = new Function('ref', 'watch', 'onShow', 'onUnload', 'http', 'uni', 'TOKEN_KEY', 'USER_KEY', 'imageUrl', 'isAbortError', `${script}
-return { submitted, uploadProgress, verifySession, publish, pickImage, startUpload, cancelUpload, removeImage, form, currentUser, loggedIn, verifyingSession, busy, uploading, pendingFile, uploadError, error, sessionError, draftNotice, categories, categoriesError };`)
+return { submitted, uploadProgress, verifySession, publish, form, currentUser, loggedIn, verifyingSession, busy, uploading, pendingFile, uploadError, error, sessionError, draftNotice, categories, categoriesError };`)
 const TOKEN_KEY = 'campus-loop-token'
 const USER_KEY = 'campus-loop-user'
 const draftKey = id => `campus-loop-publish-draft-${id}`
-const draft = (title, imageUrl = '') => ({ title, description: 'A saved description', categoryId: 1, conditionLevel: 3, tags: '', wantedCategoryId: 1, wantedTags: '', imageUrl })
+const draft = (title, imageUrl = '') => ({ title, description: 'A saved description', categoryId: 1, conditionLevel: 3, tags: '', wantedCategoryId: 1, wantedTags: '', imageUrl,imageUrls:imageUrl?[imageUrl]:[] })
 function deferred() {
   let resolve, reject
   const promise = new Promise((yes, no) => { resolve = yes; reject = no })
@@ -69,7 +69,6 @@ test('account switch hides and blocks the old form until verification, then publ
   assert.equal(h.app.currentUser.value, null)
   assert.equal(h.app.form.value.title, '')
   await h.app.publish()
-  h.app.pickImage()
   assert.equal(h.posts.length, 0)
   assert.equal(h.choices.length, 0)
   h.requests.at(-1).resolve({ id: 2 })
@@ -146,51 +145,11 @@ test('actions reject a changed token even before the page receives onShow', asyn
   assert.equal(h.storage.get(draftKey(1)).form.title, 'Account A')
 })
 
-test('logout clears transient state, aborts uploads, and preserves the same account draft for a new session', async t => {
-  const h = harness(t)
-  await h.authenticate(1)
-  h.app.form.value = draft('Keep my text')
-  h.app.pendingFile.value = '/temporary/a.jpg'
-  const upload = h.app.startUpload(h.app.pendingFile.value)
-  h.storage.delete(TOKEN_KEY)
-  await h.lifecycle.show()
-  assert.equal(h.uploads[0].aborted, true)
-  assert.equal(h.app.uploading.value, false)
-  assert.equal(h.app.form.value.title, '')
-  assert.equal(h.app.pendingFile.value, '')
-  h.uploads[0].resolve({ url: '/uploads/old-a.jpg' })
-  await upload
-  await h.authenticate(1, 'replacement-session-1')
-  assert.equal(h.app.form.value.title, 'Keep my text')
-  assert.equal(h.app.form.value.imageUrl, '')
-  assert.equal(h.app.pendingFile.value, '')
-  assert.match(h.app.draftNotice.value, /已恢复/)
+test('logout clears the form and preserves the same account draft for a new session', async t => {
+ const h=harness(t);await h.authenticate(1);h.app.form.value=draft('Keep my text','/uploads/old.png');h.storage.delete(TOKEN_KEY);await h.lifecycle.show();assert.equal(h.app.form.value.title,'');await h.authenticate(1,'replacement-session');assert.equal(h.app.form.value.title,'Keep my text');assert.deepEqual(h.app.form.value.imageUrls,['/uploads/old.png']);
 })
 
 for (const outcome of ['success', 'unauthorized']) {
-  test(`late upload ${outcome} cannot affect a replacement account or its active upload`, async t => {
-    const h = harness(t)
-    await h.authenticate(1)
-    h.app.form.value = draft('A')
-    const uploadA = h.app.startUpload('/temporary/a.jpg')
-    h.storage.set(draftKey(2), { form: draft('B', '/uploads/b-existing.jpg') })
-    await h.authenticate(2)
-    assert.equal(h.uploads[0].aborted, true)
-    const uploadB = h.app.startUpload('/temporary/b.jpg')
-    if (outcome === 'success') h.uploads[0].resolve({ url: '/uploads/old-a.jpg' })
-    else h.uploads[0].reject(Object.assign(new Error('Old session expired'), { status: 401 }))
-    await uploadA
-    assert.equal(h.app.currentUser.value.id, 2)
-    assert.equal(h.app.loggedIn.value, true)
-    assert.equal(h.app.form.value.imageUrl, '/uploads/b-existing.jpg')
-    assert.equal(h.app.uploading.value, true)
-    assert.equal(h.app.uploadError.value, '')
-    h.uploads[1].resolve({ url: '/uploads/b-new.jpg' })
-    await uploadB
-    assert.equal(h.app.form.value.imageUrl, '/uploads/b-new.jpg')
-    assert.equal(h.storage.get(draftKey(2)).form.imageUrl, '/uploads/b-new.jpg')
-    assert.equal(h.app.uploading.value, false)
-  })
   test(`late publish ${outcome} cannot delete a replacement draft, navigate, or finish its active request`, async t => {
     const h = harness(t)
     await h.authenticate(1)
@@ -236,51 +195,6 @@ test('an expired publish session keeps its draft and supports normal publication
   h.posts[1].resolve({ id: 33 })
   await publishing
   assert.equal(h.storage.has(draftKey(1)), false)
-})
-
-test('a native image picker callback from an old account cannot start an upload', async t => {
-  const h = harness(t)
-  await h.authenticate(1)
-  h.app.pickImage()
-  await h.authenticate(2)
-  h.choices[0].success({ tempFilePaths: ['/temporary/old-account.jpg'] })
-  assert.equal(h.uploads.length, 0)
-  assert.equal(h.app.pendingFile.value, '')
-  assert.equal(h.app.form.value.imageUrl, '')
-})
-
-test('same-session onShow verification preserves an in-flight native picker and its upload', async t => {
-  const h = harness(t)
-  await h.authenticate(1)
-  h.app.form.value = draft('Same account')
-  h.app.pickImage()
-  const showing = h.lifecycle.show()
-  assert.equal(h.app.verifyingSession.value, true)
-  h.choices[0].success({ tempFilePaths: ['/temporary/current.jpg'] })
-  assert.equal(h.uploads.length, 1)
-  h.uploads[0].resolve({ url: '/uploads/current.jpg' })
-  await h.uploads[0].promise
-  h.requests.at(-1).resolve({ id: 1 })
-  await showing
-  assert.equal(h.app.form.value.title, 'Same account')
-  assert.equal(h.app.form.value.imageUrl, '/uploads/current.jpg')
-  assert.equal(h.app.uploading.value, false)
-})
-
-test('a canceled upload cannot overwrite its retry even when it completes after abort', async t => {
-  const h = harness(t)
-  await h.authenticate(1)
-  const first = h.app.startUpload('/temporary/first.jpg')
-  h.app.cancelUpload()
-  assert.equal(h.uploads[0].aborted, true)
-  const second = h.app.startUpload('/temporary/retry.jpg')
-  h.uploads[0].resolve({ url: '/uploads/obsolete.jpg' })
-  await first
-  assert.equal(h.app.uploading.value, true)
-  assert.equal(h.app.form.value.imageUrl, '')
-  h.uploads[1].resolve({ url: '/uploads/retry.jpg' })
-  await second
-  assert.equal(h.app.form.value.imageUrl, '/uploads/retry.jpg')
 })
 
 test('unload invalidates pending verification so it cannot restore the disposed page', async t => {

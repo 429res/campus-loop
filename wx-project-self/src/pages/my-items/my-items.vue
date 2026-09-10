@@ -1,4 +1,5 @@
 <script setup>
+import ItemGalleryUpload from "../../components/ItemGalleryUpload.vue"
 import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import { ref } from 'vue'
 import { onShow, onUnload, onPullDownRefresh } from '@dcloudio/uni-app'
@@ -10,6 +11,7 @@ import LoopButton from '../../components/LoopButton.vue'
 import LoopPicker from '../../components/LoopPicker.vue'
 import http, { TOKEN_KEY, isAbortError } from '../../common/http'
 import { itemStatusLabel } from '../../common/items'
+const galleryBusy=ref(false)
 const states = ['', 'PENDING_REVIEW', 'REJECTED', 'AVAILABLE', 'RESERVED', 'EXCHANGED', 'HIDDEN', 'DRAFT']
 const labels = states.map(s => s ? itemStatusLabel(s) : '全部状态')
 const rows = ref([]), total = ref(0), page = ref(1), selected = ref(0), busy = ref(false), error = ref('')
@@ -20,13 +22,13 @@ async function editItem(item){
  if(saving.value)return
  const token=uni.getStorageSync(TOKEN_KEY),epoch=++editorEpoch;formError.value='';uncertain.value=false
  try{const [value,catalog]=await Promise.all([http.get(`/api/items/mine/${item.id}`,{},{silent:true}),http.get('/api/categories',{}, {silent:true})]);if(!live(token,epoch))return
- editing.value=value;categories.value=catalog;form.value={title:value.title,description:value.description,categoryId:value.categoryId,wantedCategoryId:value.wantedCategoryId,conditionLevel:value.conditionLevel,tags:(value.tags||[]).join(','),wantedTags:(value.wantedTags||[]).join(','),imageUrl:value.imageUrl};editorOpen.value=true
+ editing.value=value;categories.value=catalog;form.value={title:value.title,description:value.description,categoryId:value.categoryId,wantedCategoryId:value.wantedCategoryId,conditionLevel:value.conditionLevel,tags:(value.tags||[]).join(','),wantedTags:(value.wantedTags||[]).join(','),imageUrl:value.imageUrl,imageUrls:value.imageUrls||(value.imageUrl?[value.imageUrl]:[])};editorOpen.value=true
  }catch(cause){if(live(token,epoch))error.value=cause.message}
 }
 function chooseCategory(field,event){form.value[field]=categories.value[Number(event.detail.value)]?.id}
 const categoryName=id=>categories.value.find(value=>value.id===id)?.name||'请选择有效分类'
 async function saveItem(){
- if(saving.value||uncertain.value||!editing.value)return
+ if(galleryBusy.value||saving.value||uncertain.value||!editing.value)return
  const token=uni.getStorageSync(TOKEN_KEY),epoch=editorEpoch;saving.value=true;formError.value=''
  try{const tags=value=>value.split(/[,，]/).map(t=>t.trim()).filter(Boolean);const payload={...form.value,version:editing.value.version,tags:tags(form.value.tags),wantedTags:tags(form.value.wantedTags)}
  await http.put(`/api/items/${editing.value.id}`,payload,{silent:true,uncertainOnFailure:true});if(!live(token,epoch))return;editorOpen.value=false;await load()
@@ -42,7 +44,7 @@ async function withdraw(item){
  finally{if(live(token,epoch))saving.value=false}
 }
 function changeImage(){
- if(saving.value||uncertain.value)return
+ if(galleryBusy.value||saving.value||uncertain.value)return
  const token=uni.getStorageSync(TOKEN_KEY),epoch=editorEpoch;saving.value=true
  uni.chooseImage({count:1,success:async result=>{try{if(!live(token,epoch))return;const value=await http.upload(result.tempFilePaths[0],{silent:true});if(live(token,epoch))form.value.imageUrl=value.url}catch(cause){if(live(token,epoch))formError.value=cause.message}finally{if(live(token,epoch))saving.value=false}},fail:()=>{if(live(token,epoch))saving.value=false}})
 }
@@ -93,16 +95,16 @@ onUnload(() => {editorEpoch++;sequence++; request?.abort?.(); rows.value = []})
     </view>
     <LoopSheet :model-value="editorOpen" title="编辑物品" @update:model-value="value=>{if(!saving)editorOpen=value}"><form v-if="editing" class="cl-form" @submit="saveItem">
       <text class="cl-hint">保存后重新进入审核，当前版本 {{editing.version}}。</text>
-      <LoopInput v-model="form.title" class="cl-input" aria-label="物品标题" maxlength="100" :disabled="saving||uncertain"/>
-      <textarea v-model="form.description" class="cl-textarea" aria-label="物品说明" maxlength="2000" :disabled="saving||uncertain"/>
-      <text>物品分类</text><LoopPicker :range="categories.map(c=>c.name)" :value="categories.findIndex(c=>c.id===form.categoryId)" :disabled="saving||uncertain" @change="chooseCategory('categoryId',$event)"><view class="cl-input">{{categoryName(form.categoryId)}}</view></LoopPicker>
-      <text>期望分类</text><LoopPicker :range="categories.map(c=>c.name)" :value="categories.findIndex(c=>c.id===form.wantedCategoryId)" :disabled="saving||uncertain" @change="chooseCategory('wantedCategoryId',$event)"><view class="cl-input">{{categoryName(form.wantedCategoryId)}}</view></LoopPicker>
-      <text>成色</text><LoopPicker :range="['1 · 较旧','2 · 一般','3 · 良好','4 · 很新','5 · 全新']" :value="form.conditionLevel-1" :disabled="saving||uncertain" @change="form.conditionLevel=Number($event.detail.value)+1"><view class="cl-input">{{form.conditionLevel}} / 5</view></LoopPicker>
-      <LoopInput v-model="form.tags" class="cl-input" aria-label="物品标签" placeholder="物品标签，以逗号分隔" :disabled="saving||uncertain"/>
-      <LoopInput v-model="form.wantedTags" class="cl-input" aria-label="期望标签" placeholder="期望标签，以逗号分隔" :disabled="saving||uncertain"/>
-      <LoopButton class="cl-btn" :disabled="saving||uncertain" @click="changeImage">更换图片</LoopButton>
+      <LoopInput v-model="form.title" class="cl-input" aria-label="物品标题" maxlength="100" :disabled="saving||galleryBusy||uncertain"/>
+      <textarea v-model="form.description" class="cl-textarea" aria-label="物品说明" maxlength="2000" :disabled="saving||galleryBusy||uncertain"/>
+      <text>物品分类</text><LoopPicker :range="categories.map(c=>c.name)" :value="categories.findIndex(c=>c.id===form.categoryId)" :disabled="saving||galleryBusy||uncertain" @change="chooseCategory('categoryId',$event)"><view class="cl-input">{{categoryName(form.categoryId)}}</view></LoopPicker>
+      <text>期望分类</text><LoopPicker :range="categories.map(c=>c.name)" :value="categories.findIndex(c=>c.id===form.wantedCategoryId)" :disabled="saving||galleryBusy||uncertain" @change="chooseCategory('wantedCategoryId',$event)"><view class="cl-input">{{categoryName(form.wantedCategoryId)}}</view></LoopPicker>
+      <text>成色</text><LoopPicker :range="['1 · 较旧','2 · 一般','3 · 良好','4 · 很新','5 · 全新']" :value="form.conditionLevel-1" :disabled="saving||galleryBusy||uncertain" @change="form.conditionLevel=Number($event.detail.value)+1"><view class="cl-input">{{form.conditionLevel}} / 5</view></LoopPicker>
+      <LoopInput v-model="form.tags" class="cl-input" aria-label="物品标签" placeholder="物品标签，以逗号分隔" :disabled="saving||galleryBusy||uncertain"/>
+      <LoopInput v-model="form.wantedTags" class="cl-input" aria-label="期望标签" placeholder="期望标签，以逗号分隔" :disabled="saving||galleryBusy||uncertain"/>
+      <ItemGalleryUpload v-model="form.imageUrls" :disabled="saving||uncertain" @busy="galleryBusy=$event"/>
       <text v-if="formError" class="cl-error">{{formError}}</text><LoopButton v-if="uncertain" class="cl-btn" :disabled="saving" @click="editItem(editing)">重新读取服务器内容</LoopButton>
-      <LoopButton class="cl-btn cl-btn--primary" form-type="submit" :loading="saving" :disabled="saving||uncertain">保存并重新送审</LoopButton>
+      <LoopButton class="cl-btn cl-btn--primary" form-type="submit" :loading="saving" :disabled="saving||galleryBusy||uncertain">保存并重新送审</LoopButton>
     </form></LoopSheet>
   </LoopLayout>
 </template>

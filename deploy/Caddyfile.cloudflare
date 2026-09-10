@@ -13,7 +13,7 @@
     header Referrer-Policy same-origin
     header X-Robots-Tag "noindex, nofollow"
     request_body {
-        max_size 6MB
+        max_size 12MB
     }
     @backend path /api /api/* /uploads /uploads/*
     handle @backend {

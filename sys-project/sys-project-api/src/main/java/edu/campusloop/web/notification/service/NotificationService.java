@@ -10,12 +10,14 @@ import org.springframework.transaction.annotation.*;
 import java.time.*;
 @Service
 public class NotificationService {
+ @org.springframework.beans.factory.annotation.Autowired private org.springframework.jdbc.core.JdbcTemplate db;
  private final NotificationMapper messages;
  public NotificationService(NotificationMapper messages){this.messages=messages;}
  @Transactional(propagation=Propagation.MANDATORY)
  public void send(long user,String kind,String title,String body,String link,String sourceKey){
   var n=new Notification();n.setUserId(user);n.setKind(kind);n.setTitle(title);n.setBody(body==null?"":body);
   n.setLink(link);n.setSourceKey(sourceKey);n.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));messages.insert(n);
+  if("ACCOUNT_SECURITY".equals(kind))db.update("INSERT INTO cl_mail_outbox(notification_id,next_attempt_at) SELECT ?,CURRENT_TIMESTAMP FROM cl_user WHERE id=? AND status='ACTIVE' AND email_verified=TRUE AND mail_notifications=TRUE",n.getId(),user);
  }
  public PageResult<Notification> page(long user,int page,int size,boolean unread){
   if(page<1||size<1||size>100)throw new ApiException(400,"分页参数不正确");

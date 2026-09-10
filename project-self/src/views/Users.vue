@@ -1,4 +1,5 @@
 <script setup>
+import { ElMessageBox,ElMessage } from "element-plus";
 import { computed, onMounted, reactive, ref } from "vue";
 import { RefreshRight, Search, UserFilled } from "@element-plus/icons-vue";
 import AccountEditor from "@/components/users/AccountEditor.vue";
@@ -9,6 +10,8 @@ import { useAuth } from "@/stores/auth";
 import http from "@/http";
 
 const auth = useAuth();
+async function deleteUser(user){try{const {value}=await ElMessageBox.prompt('账号注销后无法恢复。个人资料将清除，物品下架；历史交换和治理记录保留。请输入删除原因。','删除账号',{confirmButtonText:'确认删除',inputValidator:v=>!!v?.trim()||'请填写原因'});const current=(await http.get(`/api/admin/users/${user.id}/profile`)).data;await http.delete(`/api/admin/users/${user.id}`,{data:{version:current.version,reason:value.trim()}});ElMessage.success('账号已注销');await loadUsers()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.response?.data?.msg||e.message||'删除失败')}}
+
 const editorVisible=ref(false),editorMode=ref('create'),editorTarget=ref(null);
 function openEditor(mode,user=null){editorMode.value=mode;editorTarget.value=user;editorVisible.value=true}
 async function editorSaved(){resultNotice.value='账号已保存。';await loadUsers();if(drawerVisible.value&&detail.value)showDetails(detail.value)}
@@ -245,7 +248,7 @@ onMounted(() => loadUsers());
             size="small" plain
             @click="openStatus(row)"
           >{{ row.status === "ACTIVE" ? "停用" : "启用" }}</el-button>
-        </div></template>
+        <el-button v-if="row.role==='USER'" type="danger" size="small" plain @click="deleteUser(row)">删除账号</el-button></div></template>
       </el-table-column>
       <template #empty>
         <el-empty :description="readError ? '读取失败，请重试' : '没有匹配的账号'" :image-size="72" />

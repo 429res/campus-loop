@@ -35,7 +35,7 @@ public class AdminUserService {
         String search=normalizeKeyword(keyword);
         role=normalizeFilter(role,ROLES,"角色筛选不正确");
         status=normalizeFilter(status,STATUSES,"状态筛选不正确");
-        QueryWrapper<User> query=new QueryWrapper<>();
+        QueryWrapper<User> query=new QueryWrapper<User>().isNull("deleted_at");
         if(search!=null) query.and(q->q.like("username",search).or().like("display_name",search));
         if(role!=null) query.eq("role",role);
         if(status!=null) query.eq("status",status);
@@ -54,7 +54,7 @@ public class AdminUserService {
 
         edu.campusloop.auth.AdminPermissions.require(operator,"USERS");
         User target=admins.stream().filter(user->Objects.equals(user.getId(),targetId)).findFirst().orElseGet(()->users.selectByIdForUpdate(targetId));
-        if(target==null) throw new ApiException(404,"用户不存在");
+        if(target==null||target.getDeletedAt()!=null) throw new ApiException(404,"用户不存在");
         if("ADMIN".equals(target.getRole()))edu.campusloop.auth.AdminPermissions.require(operator,"ALL");
         if(!Objects.equals(target.getVersion(),request.version())) throw new ApiException(409,"账号状态已变化，请刷新后重试");
         if(Objects.equals(target.getStatus(),request.status())) return view(target);

@@ -13,7 +13,7 @@ async function load(){const run=++generation,token=uni.getStorageSync(TOKEN_KEY)
 function filter(){unreadOnly.value=!unreadOnly.value;page.value=1;load()}
 async function read(row){if(writing.value)return;writing.value=true;const token=uni.getStorageSync(TOKEN_KEY)
  try{await http.patch(`/api/notifications/${row.id}/read`,{}, {silent:true});if(token!==uni.getStorageSync(TOKEN_KEY))return
- if(/^\/pages\/(exchanges|my-items|governance|history|community)\/[^\s]+$/.test(row.link))uni.navigateTo({url:row.link});else if(['/pages/profile/profile','/pages/matches/matches'].includes(row.link))uni.switchTab({url:row.link});else await load()
+ if(/^\/pages\/(exchanges|my-items|governance|history|community|profile-settings)\/[^\s]+$/.test(row.link))uni.navigateTo({url:row.link});else if(['/pages/profile/profile','/pages/matches/matches'].includes(row.link))uni.switchTab({url:row.link});else await load()
  }catch(e){error.value=e.message}finally{writing.value=false}}
 async function readAll(){if(writing.value)return;writing.value=true;try{await http.post('/api/notifications/read-all',{}, {silent:true});page.value=1;await load()}catch(e){error.value=e.message}finally{writing.value=false}}
 function turn(n){page.value+=n;load()}

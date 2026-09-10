@@ -231,7 +231,7 @@ class ReportIntegrationTest {
     private Account account(String role,String displayName) throws Exception {
         String username="report_"+UUID.randomUUID().toString().replace("-","").substring(0,14),password=UUID.randomUUID().toString();
         User row=new User();row.setUsername(username);row.setPasswordHash(passwords.encode(password));row.setDisplayName(displayName);
-        row.setRole(role);row.setStatus("ACTIVE");row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(row);createdUsers.add(row.getId());
+        row.setLegacyExchangeAccess(true);row.setRole(role);row.setStatus("ACTIVE");row.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));users.insert(row);createdUsers.add(row.getId());
         return new Account(row.getId(),login(username,password),displayName);
     }
 

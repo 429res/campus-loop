@@ -1,4 +1,6 @@
 <script setup>
+import {ElMessage,ElMessageBox} from "element-plus";
+import AssistantReview from "@/components/AssistantReview.vue";
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import { Check, Close, RefreshRight, Search } from "@element-plus/icons-vue";
@@ -8,6 +10,12 @@ import { imageUrl } from "@/api/uploadApi";
 import { useOverlayLock } from "@/composables/useOverlayLock";
 
 const route = useRoute();
+const spotlights=ref([]),spotlightsOpen=ref(false),spotlightBusy=ref(false);
+async function readSpotlights(){spotlights.value=(await http.get('/api/admin/items/spotlights')).data}
+async function expose(item){try{const {value}=await ElMessageBox.prompt('排序数字越小越靠前。最多展示 8 件当前可交换物品。','加入首页曝光',{inputValue:'0',inputValidator:v=>/^\d{1,3}$/.test(v)||'请输入 0–999'});await http.put(`/api/admin/items/${item.id}/spotlight`,{enabled:true,sortOrder:Number(value)});ElMessage.success('已加入首页曝光');await readSpotlights()}catch(e){if(e!=='cancel'&&e!=='close')ElMessage.error(e.response?.data?.msg||e.message)}}
+async function removeSpotlight(row){spotlightBusy.value=true;try{await http.put(`/api/admin/items/${row.itemId}/spotlight`,{enabled:false,sortOrder:0});await readSpotlights()}finally{spotlightBusy.value=false}}
+async function manageSpotlights(){spotlightsOpen.value=true;await readSpotlights()}
+
 
 const showFixture = import.meta.env.DEV && route.path === "/fixtures/item-review";
 const filters = reactive({ keyword: "", categoryId: null, status: "", page: 1, size: 12 });
@@ -184,6 +192,7 @@ const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?valu
 </script>
 
 <template>
+  <el-button @click="manageSpotlights">管理首页曝光</el-button><el-dialog v-model="spotlightsOpen" title="首页曝光物品" width="min(640px,94vw)"><el-table :data="spotlights"><el-table-column prop="title" label="物品"/><el-table-column prop="sortOrder" label="顺序" width="80"/><el-table-column prop="status" label="状态" width="120"/><el-table-column label="操作" width="90"><template #default="{row}"><el-button type="danger" :disabled="spotlightBusy" @click="removeSpotlight(row)">移除</el-button></template></el-table-column></el-table><p>只有当前可交换物品会在首页展示；已下架或已交换物品自动停止曝光。</p></el-dialog>
   <div class="page-heading review-heading">
     <div>
       <span class="eyebrow">CONTENT REVIEW</span>
@@ -270,7 +279,7 @@ const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?valu
       </el-table-column>
       <el-table-column label="操作" width="230" fixed="right">
         <template #default="{ row }">
-          <el-button type="primary" link @click="show(row)">详情</el-button>
+          <el-button type="primary" link @click="show(row)">详情</el-button><el-button v-if="row.status==='AVAILABLE'" type="primary" link @click="expose(row)">首页曝光</el-button>
           <template v-if="row.status === 'PENDING_REVIEW'">
             <el-button type="success" link @click="openReview(row, 'APPROVE')">通过</el-button>
             <el-button type="danger" link @click="openReview(row, 'REJECT')">驳回</el-button>
@@ -341,13 +350,13 @@ const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?valu
     destroy-on-close
   >
     <el-alert v-if="detailError" :title="detailError" type="error" :closable="false" />
-    <template v-if="detail">
+    <template v-if="detail"><AssistantReview :key="detail.id" :endpoint="`/api/admin/items/${detail.id}/assist-review`"/>
       <div class="detail-surface">
-        <img
-          class="detail-image"
-          :src="imageUrl(detail.imageUrl) || '/demo/book.svg'"
-          :alt="detail.title"
-        />
+        <div class="review-gallery">
+          <el-image v-for="(photo,index) in (detail.imageUrls?.length ? detail.imageUrls : [detail.imageUrl])" :key="photo || index"
+            class="detail-image" :src="imageUrl(photo) || '/demo/book.svg'" :alt="`${detail.title} · 图片 ${index+1}`" fit="contain"
+            :preview-src-list="(detail.imageUrls?.length ? detail.imageUrls : [detail.imageUrl]).map(p=>imageUrl(p) || '/demo/book.svg')" :initial-index="index" preview-teleported />
+        </div>
         <div class="detail-tags">
           <el-tag round>{{ detail.categoryName }}</el-tag>
           <el-tag :type="statusType(detail.status)" round>{{
@@ -496,4 +505,5 @@ const formatDate=value=>value?new Date(/(?:Z|[+-]\d{2}:\d{2})$/.test(value)?valu
     width: 100%;
   }
 }
+.review-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.review-gallery .detail-image{width:100%;height:220px;object-fit:contain}.review-gallery .detail-image:only-child{grid-column:1 / -1}
 </style>

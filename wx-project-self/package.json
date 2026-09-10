@@ -2,7 +2,7 @@
   "name": "campus-loop-user",
   "version": "0.1.0",
   "scripts": {
-    "test": "node --test scripts/publish-session.test.cjs scripts/demand-categories.test.cjs scripts/item-review-read.test.cjs scripts/test-loop-button.mjs scripts/matches-page.test.mjs scripts/exchange-workflow.test.mjs scripts/modal-stack.test.mjs scripts/d04-history-reports.test.mjs scripts/loop-input.test.cjs scripts/account-session.test.cjs scripts/navigation.test.mjs scripts/notification-center.test.cjs",
+    "test": "node --test scripts/publish-session.test.cjs scripts/gallery-upload.test.cjs scripts/demand-categories.test.cjs scripts/item-review-read.test.cjs scripts/test-loop-button.mjs scripts/matches-page.test.mjs scripts/exchange-workflow.test.mjs scripts/modal-stack.test.mjs scripts/d04-history-reports.test.mjs scripts/loop-input.test.cjs scripts/account-session.test.cjs scripts/navigation.test.mjs scripts/notification-center.test.cjs",
     "test:mp-build": "node scripts/test-loop-button.mjs --mp-build",
     "test:mp-readiness": "node scripts/check-mp-readiness.mjs",
     "dev:h5": "uni",

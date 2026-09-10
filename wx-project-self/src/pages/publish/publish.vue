@@ -1,4 +1,6 @@
 <script setup>
+import ItemDraftAssistant from "../../components/ItemDraftAssistant.vue"
+import ItemGalleryUpload from '../../components/ItemGalleryUpload.vue'
 import LoopSkeleton from '../../components/LoopSkeleton.vue'
 import LoopIcon from '../../components/LoopIcon.vue'
 import LoopPicker from '../../components/LoopPicker.vue'
@@ -10,13 +12,13 @@ import http, { TOKEN_KEY, USER_KEY, imageUrl, isAbortError } from '../../common/
 const categories = ref([]), loggedIn = ref(false), verifyingSession = ref(false), busy = ref(false), uploading = ref(false), error = ref(''), categoriesError = ref('')
 const uploadProgress=ref(0),submitted=ref(null)
 const uploadError = ref(''), pendingFile = ref(''), draftNotice = ref(''), sessionError = ref(''), removedUpload = ref(false), currentUser = ref(null)
-const empty = () => ({title:'',description:'',categoryId:'',conditionLevel:3,tags:'',wantedCategoryId:'',wantedTags:'',imageUrl:''})
+const empty = () => ({title:'',description:'',categoryId:'',conditionLevel:3,tags:'',wantedCategoryId:'',wantedTags:'',imageUrl:'',imageUrls:[]})
 const form = ref(empty())
 const conditionNames = ['有使用痕迹','正常使用','成色良好','几乎全新','全新未用']
 let uploadRequest, uploadAttempt = 0, hydratedUserId = null
 let verificationAttempt = 0, categoriesAttempt = 0, loadedCategoriesAttempt = 0, accountGeneration = 0, verifiedToken = ''
 const draftKey = id => `campus-loop-publish-draft-${id}`
-const hasDraftContent = value => value.title || value.description || value.categoryId || value.tags || value.wantedCategoryId || value.wantedTags || value.imageUrl
+const hasDraftContent = value => value.imageUrls?.length || value.title || value.description || value.categoryId || value.tags || value.wantedCategoryId || value.wantedTags || value.imageUrl
 function clearAccountState() {
   accountGeneration++
   loggedIn.value = false; currentUser.value = null; verifiedToken = ''; hydratedUserId = null
@@ -48,7 +50,7 @@ function restoreDraft(user) {
   form.value = empty(); pendingFile.value = ''; uploadError.value = ''; draftNotice.value = ''
   const saved = uni.getStorageSync(draftKey(user.id))
   if (saved?.form && typeof saved.form === 'object') {
-    form.value = {...empty(), ...saved.form}
+    form.value = {...empty(), ...saved.form,imageUrls:saved.form.imageUrls|| (saved.form.imageUrl?[saved.form.imageUrl]:[])}
     draftNotice.value = form.value.imageUrl
       ? '已恢复上次填写的内容和照片。'
       : '已恢复上次填写的内容。'
@@ -57,7 +59,7 @@ function restoreDraft(user) {
 }
 watch(form, value => {
   if (!currentUser.value || hydratedUserId !== currentUser.value.id || verifiedToken !== uni.getStorageSync(TOKEN_KEY)) return
-  if (hasDraftContent(value)) uni.setStorageSync(draftKey(currentUser.value.id), {form:{...value},savedAt:Date.now()})
+  if (hasDraftContent(value)) uni.setStorageSync(draftKey(currentUser.value.id), {form:{...value,imageUrls:[...(value.imageUrls||[])]},savedAt:Date.now()})
   else uni.removeStorageSync(draftKey(currentUser.value.id))
 }, {deep:true, flush:'sync'})
 async function loadCategories() {
@@ -112,41 +114,7 @@ onUnload(() => { verificationAttempt++; categoriesAttempt++; clearAccountState()
 const login = () => uni.navigateTo({url:'/pages/login/login?redirect=publish'})
 const categoryName = id => categories.value.find(c => c.id === id)?.name || '请选择分类'
 const selectCategory = (event,key) => { if (captureAccount() && !busy.value) form.value[key] = categories.value[Number(event.detail.value)]?.id || '' }
-async function startUpload(filePath, scope = captureAccount()) {
-  if (!isCurrentAccount(scope) || busy.value || uploading.value) return
-  const attempt = ++uploadAttempt
-  uploading.value = true; uploadProgress.value=0; uploadError.value = ''; removedUpload.value = false
-  try {
-    uploadRequest = http.upload(filePath,{silent:true,onProgress:value=>{if(attempt===uploadAttempt&&isCurrentAccount(scope))uploadProgress.value=value}})
-    const result = await uploadRequest
-    if (attempt !== uploadAttempt || !isCurrentAccount(scope)) return
-    form.value.imageUrl = result.url; pendingFile.value = ''; uploadProgress.value=100; uni.showToast({title:'图片上传成功',icon:'success'})
-  } catch(e) {
-    if (attempt === uploadAttempt) requestFailed(e, scope, uploadError)
-  } finally {
-    if (attempt === uploadAttempt && ownsAccountState(scope)) { uploading.value = false; uploadRequest = null }
-  }
-}
-function pickImage() {
-  const scope = captureAccount()
-  if (!scope || uploading.value || busy.value) return
-  uni.chooseImage({count:1,sizeType:['compressed'],sourceType:['album','camera'],success(res) {
-    if (!isCurrentAccount(scope) || busy.value || uploading.value || !res.tempFilePaths?.[0]) return
-    pendingFile.value = res.tempFilePaths[0]; form.value.imageUrl = ''; startUpload(pendingFile.value, scope)
-  }})
-}
-function cancelUpload() {
-  if (!uploading.value) return
-  uploadAttempt++
-  uploadRequest?.abort?.(); uploadRequest = null
-  uploading.value = false; uploadError.value = '上传已取消，可保留预览后重试。'
-}
-function removeImage() {
-  if (!captureAccount() || busy.value) return
-  cancelUpload()
-  removedUpload.value = !!form.value.imageUrl
-  pendingFile.value = ''; form.value.imageUrl = ''; uploadError.value = ''
-}
+function applyDraft(draft){if(!captureAccount()||busy.value)return;form.value.title=draft.title;form.value.description=draft.description;form.value.tags=draft.tags.join(',');if(categories.value.some(c=>c.id===draft.categoryId))form.value.categoryId=draft.categoryId}
 async function publish() {
   const scope = captureAccount()
   if (!scope || busy.value || uploading.value) return
@@ -157,7 +125,7 @@ async function publish() {
   if (itemTags.length > 8 || wantedTags.length > 8 || [...itemTags,...wantedTags].some(tag => tag.length > 20)) { error.value = '每组最多 8 个标签，每个标签最多 20 个字'; return }
   busy.value = true
   try {
-    const data = await http.post('/api/items', {...form.value,title:form.value.title.trim(),description:form.value.description.trim(),tags:itemTags,wantedTags},{silent:true})
+    const data = await http.post('/api/items', {...form.value,imageUrls:[...(form.value.imageUrls||[])],imageUrl:form.value.imageUrls?.[0]||null,title:form.value.title.trim(),description:form.value.description.trim(),tags:itemTags,wantedTags},{silent:true})
     if (!isCurrentAccount(scope)) return
     uni.removeStorageSync(draftKey(scope.userId)); form.value = empty(); pendingFile.value='';uploadProgress.value=0;uploadError.value=''
     submitted.value=data; uni.showToast({title:'提交成功',icon:'success'})
@@ -172,7 +140,7 @@ const openSubmitted = () => uni.navigateTo({url:`/pages/detail/detail?id=${submi
     <LoopSkeleton v-if="verifyingSession"/>
     <view v-else-if="!loggedIn" class="cl-panel cl-empty"><text class="cl-empty-symbol">↗</text><text>{{ error || sessionError || '登录后发布你的闲置' }}</text><LoopButton v-if="sessionError" class="cl-btn" @click="verifySession">重试验证</LoopButton><LoopButton class="cl-btn cl-btn--primary" @click="login">{{ error ? '重新登录' : '登录' }}</LoopButton></view>
     <view v-else-if="!submitted" class="publish-layout">
-      <form class="cl-panel cl-form" @submit="publish">
+      <form class="cl-panel cl-form" @submit="publish"><ItemDraftAssistant :description="form.description" :disabled="busy||uploading" @apply="applyDraft"/>
         <view v-if="draftNotice" class="cl-notice" role="status">{{ draftNotice }}</view>
         <view v-if="categoriesError" class="inline-error" role="alert"><text class="cl-error">分类加载失败：{{ categoriesError }}</text><LoopButton class="cl-btn" @click="loadCategories">重试分类</LoopButton></view>
         <view class="cl-field"><text class="cl-field-title">物品标题 *</text><input v-model="form.title" class="cl-input" aria-label="物品标题" placeholder="例如：陪我度过大一的阅读台灯" maxlength="100" :disabled="busy" /></view>
@@ -184,7 +152,7 @@ const openSubmitted = () => uni.navigateTo({url:`/pages/detail/detail?id=${submi
         <view class="cl-field"><text class="cl-field-title">想换什么（关键词）</text><input v-model="form.wantedTags" class="cl-input" aria-label="偏好标签" placeholder="例如：台灯，宿舍照明" maxlength="200" :disabled="busy" /></view>
         <text v-if="error" class="cl-error" role="alert">{{ error }}</text><LoopButton class="cl-btn cl-btn--primary cl-btn--wide" form-type="submit" :disabled="busy || uploading || !!categoriesError" :loading="busy">{{ busy ? '正在提交…' : uploading ? '请等待图片上传' : '提交审核' }}</LoopButton>
       </form>
-      <view class="cl-stack"><view class="cl-panel photo-panel"><text class="cl-field-title">给物品拍张照片</text><view v-if="pendingFile || form.imageUrl" class="photo-preview"><image :src="pendingFile || imageUrl(form.imageUrl)" mode="aspectFill"/><LoopButton class="cl-icon-btn photo-remove" aria-label="移除照片引用" :disabled="busy" @click="removeImage"><LoopIcon name="close"/></LoopButton></view><LoopButton v-else class="upload-zone" :disabled="busy" @click="pickImage"><LoopIcon name="plus" tone="primary" :size="32"/><text>选择一张照片</text><text class="cl-hint">JPG / PNG / GIF / WebP，最大 5 MB</text></LoopButton><view v-if="uploading || uploadError" class="upload-actions"><text :class="uploadError ? 'cl-error' : 'cl-hint'">{{ uploading ? (uploadProgress>=100?'正在处理图片…':`图片上传中 ${uploadProgress}%`) : uploadError }}</text><LoopButton v-if="uploading" class="cl-btn" @click="cancelUpload">取消上传</LoopButton><LoopButton v-else-if="uploadError && pendingFile" class="cl-btn" @click="startUpload(pendingFile)">重试上传</LoopButton></view><text v-if="removedUpload" class="cl-hint" role="status">照片已移除。</text><view v-if="form.imageUrl&&!uploading&&!uploadError" class="upload-success" role="status"><text>✓ 图片上传成功</text><LoopButton class="cl-btn" :disabled="busy" @click="pickImage">更换照片</LoopButton></view></view><view class="cl-panel"><text class="cl-field-title">交换的一点小默契</text><text class="publish-tip">如实说明成色与瑕疵<br/>在校园公共区域交接<br/>正式确认前，物品仍可被发现</text></view></view>
+      <view class="cl-stack"><view class="cl-panel photo-panel"><ItemGalleryUpload :key="currentUser?.id" v-model="form.imageUrls" :disabled="busy" @busy="uploading=$event"/></view><view class="cl-panel"><text class="cl-field-title">交换的一点小默契</text><text class="publish-tip">如实说明成色与瑕疵<br/>在校园公共区域交接<br/>正式确认前，物品仍可被发现</text></view></view>
     </view>
     <view v-if="loggedIn&&submitted" class="cl-panel publish-receipt" role="status"><text class="receipt-check">✓</text><text class="cl-title">提交成功，正在等待审核</text><text class="cl-subtitle">「{{submitted.title}}」通过审核后就会公开，你填写的求换需求已保存，会自动参与匹配。</text><view class="receipt-steps"><text>1 填写物品与需求 ✓</text><text>2 等待审核</text><text>3 查看匹配，邀请交换</text></view><LoopButton class="cl-btn cl-btn--primary" @click="openMatches">去交换灵感看看</LoopButton><LoopButton class="cl-btn" @click="openSubmitted">查看物品与审核进度</LoopButton><LoopButton class="cl-btn cl-btn--quiet" @click="submitted=null">继续发布</LoopButton></view>
   </LoopLayout>

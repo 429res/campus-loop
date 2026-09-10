@@ -107,8 +107,11 @@ class ItemReviewMigrationCheck {
         List<Map<String,Object>> after=jdbc.queryForList("SELECT * FROM cl_item ORDER BY id");
         for(int i=0;i<after.size();i++) {
             assertEquals(i<3?"LEGACY_DIRECT":"UNREVIEWED",after.get(i).remove("review_basis"));
+            assertTrue(after.get(i).containsKey("image_urls_json"));
+            assertNull(after.get(i).remove("image_urls_json"),"V20 preserves the legacy cover without inventing gallery images");
             assertEquals(before.get(i),after.get(i));
         }
+        assertEquals(1,jdbc.queryForObject("SELECT COUNT(*) FROM cl_user WHERE id=91001 AND legacy_exchange_access=TRUE AND email IS NULL AND email_verified=FALSE AND mail_notifications=FALSE AND last_login_address IS NULL",Integer.class),"V20/V21 preserve legacy access without inventing verified email or opting users into security mail");
         assertEquals(holds,jdbc.queryForList("SELECT * FROM cl_item_hold"));
         assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_review_audit",Integer.class));
         jdbc.update("INSERT INTO cl_item(owner_id,title,description,category_id,condition_level,tags_json,wanted_category_id,wanted_tags_json) VALUES (91001,'默认状态','默认值验证',1,3,'[]',2,'[]')");

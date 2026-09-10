@@ -15,6 +15,7 @@ public class Item {
     private Long wantedCategoryId;
     private String wantedTagsJson;
     private String imageUrl;
+    private String imageUrlsJson;
     private String status;
     private Integer version;
     private String reviewBasis;

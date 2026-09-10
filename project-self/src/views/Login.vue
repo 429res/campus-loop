@@ -3,8 +3,11 @@ import { ref, reactive } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useAuth } from "@/stores/auth";
 import { User, Lock, ArrowRight } from "@element-plus/icons-vue";
+import http from "@/http";
 import Brand from "@/components/Brand.vue";
-const form = reactive({ username: "", password: "" }),
+const captcha=ref(null),failures=ref(0);
+async function refreshCaptcha(){try{captcha.value=(await http.get("/api/auth/captcha",{skipAuth:true,silent:true})).data;form.captchaId=captcha.value.id;form.captchaAnswer=""}catch(e){error.value=e.message}}
+const form = reactive({ username: "", password: "",captchaId:null,captchaAnswer:"" }),
   formRef = ref(),
   busy = ref(false),
   error = ref("");
@@ -35,6 +38,7 @@ async function submit() {
     await router.replace(redirect);
   } catch (e) {
     error.value = e.response?.data?.msg || e.message;
+    if((e.response?.status||e.status)===401)failures.value++;if((e.response?.status||e.status)===428||failures.value>=2||captcha.value)await refreshCaptcha();
   } finally {
     busy.value = false;
   }
@@ -79,7 +83,7 @@ async function submit() {
               placeholder="请输入密码"
               :prefix-icon="Lock"
               size="large" /></el-form-item
-          ><el-alert
+          ><el-form-item v-if="captcha" label="安全验证"><el-button @click="refreshCaptcha"><img :src="captcha.image" alt="点击刷新验证码" width="180" height="60"/></el-button><el-input v-model="form.captchaAnswer" maxlength="5" placeholder="输入图片中的字符"/></el-form-item><el-alert
             v-if="error"
             :title="error"
             type="error"

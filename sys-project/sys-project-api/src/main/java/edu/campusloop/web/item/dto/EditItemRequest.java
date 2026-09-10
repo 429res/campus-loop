@@ -12,11 +12,11 @@ public record EditItemRequest(@NotNull @Min(0) Integer version,
     @JsonCreator(mode = JsonCreator.Mode.DELEGATING)
     public static EditItemRequest from(JsonNode body) {
         ItemWriteJson.fields(body, Set.of("version", "title", "description", "categoryId", "conditionLevel",
-            "tags", "wantedCategoryId", "wantedTags", "imageUrl"));
+            "tags", "wantedCategoryId", "wantedTags", "imageUrl", "imageUrls"));
         return new EditItemRequest(ItemWriteJson.integer(body, "version"), new PublishItemRequest(
             ItemWriteJson.string(body, "title"), ItemWriteJson.string(body, "description"),
             ItemWriteJson.number(body, "categoryId"), ItemWriteJson.integer(body, "conditionLevel"),
             ItemWriteJson.tags(body, "tags"), ItemWriteJson.number(body, "wantedCategoryId"),
-            ItemWriteJson.tags(body, "wantedTags"), ItemWriteJson.string(body, "imageUrl")));
+            ItemWriteJson.tags(body, "wantedTags"), ItemWriteJson.string(body, "imageUrl"),body.has("imageUrls")?ItemWriteJson.tags(body,"imageUrls"):null));
     }
 }

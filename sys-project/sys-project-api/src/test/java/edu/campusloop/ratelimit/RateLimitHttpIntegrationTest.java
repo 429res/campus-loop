@@ -88,7 +88,7 @@ class RateLimitHttpIntegrationTest {
         password = "rate-limit riser password";
         User user = new User();
         user.setUsername(username); user.setPasswordHash(passwords.encode(password)); user.setDisplayName("限流测试同学");
-        user.setRole("USER"); user.setStatus("ACTIVE"); user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
+        user.setLegacyExchangeAccess(true);user.setRole("USER"); user.setStatus("ACTIVE"); user.setCreatedAt(LocalDateTime.now(ZoneOffset.UTC));
         users.insert(user);
         token = json.readTree(mvc.perform(remote(post("/api/auth/login"), "192.0.2.20")
             .contentType("application/json").content(json.writeValueAsString(Map.of("username", username, "password", password))))
@@ -118,9 +118,10 @@ class RateLimitHttpIntegrationTest {
             .andExpect(header().string("Access-Control-Expose-Headers", "Retry-After, X-RateLimit-Reset"))
             .andExpect(jsonPath("$.code").value(429))
             .andExpect(jsonPath("$.msg").value("请求过于频繁，请稍后重试"));
+        // Request-rate window resets, but password failures still require a CAPTCHA.
         clock.advance(Duration.ofMinutes(1));
         mvc.perform(remote(post("/api/auth/login"), "203.0.113.9").contentType("application/json").content(body))
-            .andExpect(status().isUnauthorized());
+            .andExpect(status().is(428));
     }
 
     @Test void authenticatedUploadSharesQuotaAcrossAddresses() throws Exception {

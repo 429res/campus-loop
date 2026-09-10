@@ -11,7 +11,7 @@ const open = id => uni.navigateTo({url:`/pages/detail/detail?id=${id}`})
 <template>
   <view class="cl-card item-card">
     <LoopButton class="item-open" :aria-label="`查看 ${item.title}`" @click="open(item.id)">
-    <view class="item-image-wrap"><image class="item-image" :src="imageUrl(item.imageUrl,item.title)" mode="aspectFill" /><text class="item-condition">{{ ['','有使用痕迹','正常使用','成色良好','几乎全新','全新未用'][item.conditionLevel] || '成色待补充' }}</text></view>
+    <view class="item-image-wrap"><image class="item-image" :src="imageUrl(item.imageUrl,item.title)" mode="aspectFit" /><text class="item-condition">{{ ['','有使用痕迹','正常使用','成色良好','几乎全新','全新未用'][item.conditionLevel] || '成色待补充' }}</text></view>
     <view class="item-content"><text class="item-title">{{ item.title }}</text><text class="item-want">想换 <text class="item-want-value">{{ item.wantedCategoryName || '合适的校园好物' }}</text></text></view>
     </LoopButton>
     <view class="item-bottom owner-row"><MemberLink :id="item.ownerId" :name="item.ownerName" :avatar="item.ownerAvatarUrl" :size="26"/><text class="item-state" :class="{muted:item.status!=='AVAILABLE'}">{{itemStatusLabel(item.status)}}</text></view>
