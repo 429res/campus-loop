@@ -23,11 +23,14 @@ public class ExchangeCandidateReader {
         this.items=items;this.demands=demands;this.json=json;
     }
     @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ)
-    public IndependentMatchingInput snapshot(List<Long> itemIds) {
+    public IndependentMatchingInput snapshot(List<Long> itemIds) { return snapshot(itemIds,true); }
+    @Transactional(readOnly=true, isolation=Isolation.REPEATABLE_READ)
+    public IndependentMatchingInput snapshot(List<Long> itemIds, boolean includeDemands) {
         if (itemIds==null || itemIds.size()<2 || itemIds.size()>3 || itemIds.stream().anyMatch(id -> id==null || id<1)
             || new HashSet<>(itemIds).size()!=itemIds.size()) throw new ApiException(400,"仅接受2或3个不同物品ID");
         var offers=items.items(itemIds).stream().map(i -> new IndependentMatchingInput.Offer(i.getId(),i.getOwnerId(),i.getOwnerName(),
             i.getTitle(),i.getCategoryId(),i.getCategoryName(),tags(i.getTagsJson()),i.getStatus(),i.getUserStatus(),i.isBlocked(),i.getVersion())).toList();
+        if(!includeDemands)return new IndependentMatchingInput(offers,List.of());
         var rows=demands.activeAssociations(itemIds,IndependentMatchingSnapshotService.MAX_ACTIVE_ASSOCIATIONS+1);
         if (rows.size()>IndependentMatchingSnapshotService.MAX_ACTIVE_ASSOCIATIONS) throw new ApiException(422,"有效需求关联超过20000条");
         var grouped=rows.stream().collect(Collectors.groupingBy(MatchingDemandAssociation::getDemandId,TreeMap::new,Collectors.toList()));

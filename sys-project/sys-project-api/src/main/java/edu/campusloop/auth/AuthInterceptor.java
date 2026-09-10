@@ -9,7 +9,7 @@ import java.util.Set;
 public class AuthInterceptor implements HandlerInterceptor {
     public static final String USER="campusUser";
     private final AuthService auth;
-    private static final Set<String> PUBLIC=Set.of("POST /api/auth/login", "POST /api/auth/register", "GET /api/categories", "GET /api/items", "GET /api/items/{id}", "GET /api/matches", "GET /api/health");
+    private static final Set<String> PUBLIC=Set.of("POST /api/auth/login", "POST /api/auth/register", "GET /api/categories", "GET /api/items", "GET /api/items/{id}", "GET /api/matches", "GET /api/health", "GET /api/members/{id}", "GET /api/members/{id}/items");
     private static final Set<String> OPTIONAL=Set.of("GET /api/items/{id}/history","GET /api/items/{id}/history/{eventId}","GET /api/community/posts","GET /api/community/posts/{id}","GET /api/community/posts/{id}/replies");
     public AuthInterceptor(AuthService auth) { this.auth=auth; }
     @Override public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {

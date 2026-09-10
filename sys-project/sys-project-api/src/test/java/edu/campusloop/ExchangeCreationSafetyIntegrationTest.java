@@ -202,6 +202,66 @@ class ExchangeCreationSafetyIntegrationTest {
         }
     }
 
+
+    private ExchangeCreationCommand direct(long first,long second,String key) {
+        return new ExchangeCreationCommand("direct-v1",key,List.of(
+            new ExchangeCreationCommand.ExpectedFlow(first,0,0,0),
+            new ExchangeCreationCommand.ExpectedFlow(second,0,0,0)));
+    }
+    @Test void voluntaryExchangeCompletesWithoutMatchingOrFulfillingAnUnrelatedDemand() {
+        jdbc.update("UPDATE cl_demand SET status='INACTIVE' WHERE owner_id IN (?,?)",a,b);
+        var demands=jdbc.queryForList("SELECT * FROM cl_demand WHERE owner_id IN (?,?) ORDER BY id",a,b);
+        var request=direct(firstOffer,bOffer,"voluntary-complete");
+        long id=creation.create(a,request);
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_exchange_demand WHERE exchange_id=?",Integer.class,id));
+        lifecycle.confirm(a,id,0);lifecycle.confirm(b,id,1);
+        lifecycle.handoff(a,id,2,HandoffKind.HANDED_OFF,"已交付");
+        lifecycle.handoff(b,id,3,HandoffKind.RECEIVED,"已收到");
+        lifecycle.handoff(b,id,4,HandoffKind.HANDED_OFF,"已交付");
+        lifecycle.handoff(a,id,5,HandoffKind.RECEIVED,"已收到");
+        assertEquals("COMPLETED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));
+        assertEquals(b,jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,firstOffer));
+        assertEquals(a,jdbc.queryForObject("SELECT owner_id FROM cl_item WHERE id=?",Long.class,bOffer));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+        assertEquals(demands,jdbc.queryForList("SELECT * FROM cl_demand WHERE owner_id IN (?,?) ORDER BY id",a,b));
+        var before=businessRows();assertEquals(id,creation.create(a,request));assertEquals(before,businessRows());
+    }
+    @Test void voluntaryExchangeCannotBypassOwnershipReviewVersionOrOccupancy() {
+        var request=direct(firstOffer,bOffer,"voluntary-reject");var before=businessRows();
+        assertEquals(403,assertThrows(ApiException.class,()->creation.create(c,request)).getStatus());assertEquals(before,businessRows());
+        assertEquals(400,assertThrows(ApiException.class,()->creation.create(a,direct(firstOffer,otherOffer,"same-owner"))).getStatus());
+        jdbc.update("UPDATE cl_item SET status='PENDING_REVIEW' WHERE id=?",bOffer);
+        assertEquals(409,assertThrows(ApiException.class,()->creation.create(a,request)).getStatus());
+        jdbc.update("UPDATE cl_item SET status='AVAILABLE',version=1 WHERE id=?",bOffer);
+        assertEquals(409,assertThrows(ApiException.class,()->creation.create(a,request)).getStatus());
+        jdbc.update("UPDATE cl_item SET version=0 WHERE id=?",bOffer);
+        long id=creation.create(a,request);
+        assertEquals(409,assertThrows(ApiException.class,()->creation.create(a,direct(firstOffer,cOffer,"occupied-direct"))).getStatus());
+        assertEquals(409,assertThrows(ApiException.class,()->creation.create(a,command(firstOffer,0,bOffer,bDemand,sharedDemand,"voluntary-reject"))).getStatus());
+        lifecycle.cancel(a,id,0,"取消自主交换");
+        assertEquals("AVAILABLE",jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?",String.class,bOffer));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+    }
+    @Test void voluntaryExchangeExpiresThroughTheSharedLifecycle() {
+        long id=creation.create(a,direct(firstOffer,bOffer,"voluntary-expiry"));
+        jdbc.update("UPDATE cl_exchange SET expires_at=? WHERE id=?",java.time.LocalDateTime.now(java.time.ZoneOffset.UTC).minusDays(1),id);
+        assertTrue(lifecycle.expire(id));
+        assertEquals("EXPIRED",jdbc.queryForObject("SELECT status FROM cl_exchange WHERE id=?",String.class,id));
+        assertEquals("AVAILABLE",jdbc.queryForObject("SELECT status FROM cl_item WHERE id=?",String.class,bOffer));
+        assertEquals(0,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold WHERE exchange_id=?",Integer.class,id));
+    }
+    @Test void mysqlConcurrentVoluntaryExchangesHaveOneWinner() throws Exception {
+        Assumptions.assumeTrue(Boolean.getBoolean("campus.mysql-test"));
+        var start=new CountDownLatch(1);var pool=Executors.newFixedThreadPool(2);
+        try{
+            var first=pool.submit(()->concurrentCreate(start,direct(firstOffer,bOffer,"direct-race-first")));
+            var second=pool.submit(()->concurrentCreate(start,direct(firstOffer,cOffer,"direct-race-second")));
+            start.countDown();
+            assertEquals(List.of(200,409),List.of(first.get(15,TimeUnit.SECONDS),second.get(15,TimeUnit.SECONDS)).stream().sorted().toList());
+            assertEquals(2,jdbc.queryForObject("SELECT COUNT(*) FROM cl_item_hold h JOIN cl_exchange e ON e.id=h.exchange_id WHERE e.initiator_id=?",Integer.class,a));
+        }finally{start.countDown();pool.shutdownNow();assertTrue(pool.awaitTermination(5,TimeUnit.SECONDS));}
+    }
+
     private int concurrentCreate(CountDownLatch start, ExchangeCreationCommand command) throws InterruptedException {
         assertTrue(start.await(5, TimeUnit.SECONDS));
         try { creation.create(a, command); return 200; }

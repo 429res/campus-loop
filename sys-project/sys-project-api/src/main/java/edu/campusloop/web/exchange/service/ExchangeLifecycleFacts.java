@@ -10,7 +10,7 @@ import java.util.*;
 public final class ExchangeLifecycleFacts {
     private ExchangeLifecycleFacts() {}
     public static boolean supported(ExchangeRecord row) {
-        return "independent-v2".equals(row.getRuleVersion()) && row.getRequestDigest()!=null && row.getCreationSnapshot()!=null;
+        return ("independent-v2".equals(row.getRuleVersion()) || "direct-v1".equals(row.getRuleVersion())) && row.getRequestDigest()!=null && row.getCreationSnapshot()!=null;
     }
     public static Snapshot snapshot(ExchangeRecord row,List<ExchangeParticipantRecord> people) {
         Set<Long> participants=new HashSet<>(),recipients=new HashSet<>(),confirmed=new HashSet<>(),items=new HashSet<>();

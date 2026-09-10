@@ -75,7 +75,7 @@ public class ExchangeLifecycleService {
         Decision decision=decide(operation,current,people,row,actor,version,reason,clock.now());
         if(!decision.changed()) return false; // Completed retries must not touch released holds or append events.
         var demandIds=writes.demandIds(id);
-        if(demandIds.size()!=people.size()) throw incomplete();
+        if(demandIds.size()!=("direct-v1".equals(row.getRuleVersion())?0:people.size())) throw incomplete();
         Map<Long,Demand> lockedDemands=new HashMap<>();
         for(long demandId:demandIds) {
             var demand=demands.selectForUpdate(demandId);if(demand==null) throw incomplete();lockedDemands.put(demandId,demand);
@@ -88,7 +88,7 @@ public class ExchangeLifecycleService {
         boolean handoff=operation==Operation.HANDED_OFF || operation==Operation.RECEIVED;
         if(handoff) {
             if(lockedItems.stream().anyMatch(i -> i.getVersion()==Integer.MAX_VALUE)) throw incomplete();
-            validateDemands(row,people,lockedItems,lockedDemands);
+            if(!"direct-v1".equals(row.getRuleVersion()))validateDemands(row,people,lockedItems,lockedDemands);
         }
         if(operation==Operation.HANDED_OFF && writes.handOff(id,actor,decision.event().reason(),now)!=1) throw incomplete();
         if(operation==Operation.RECEIVED && writes.receive(id,actor,decision.event().reason(),now)!=1) throw incomplete();
@@ -136,7 +136,7 @@ public class ExchangeLifecycleService {
             snapshot(row,people);
             if("CANCEL".equals(request.decision())&&!request.returnConfirmed())throw new ApiException(400,"取消前需要确认全部物品已归还原主");
             if("RESUME".equals(request.decision())&&request.returnConfirmed())throw new ApiException(400,"恢复交接不接受归还确认");
-            var demandIds=writes.demandIds(id);if(demandIds.size()!=people.size())throw incomplete();
+            var demandIds=writes.demandIds(id);if(demandIds.size()!=("direct-v1".equals(row.getRuleVersion())?0:people.size()))throw incomplete();
             for(long demandId:demandIds)if(demands.selectForUpdate(demandId)==null)throw incomplete();
             var offers=lockOffers(row,people);if(offers.stream().anyMatch(i->i.getVersion()==Integer.MAX_VALUE))throw incomplete();
             var now=clock.now();boolean cancel="CANCEL".equals(request.decision());String next=cancel?"CANCELLED":"READY";

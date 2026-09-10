@@ -56,3 +56,11 @@ test('client countdown never changes server status and handoff removes its expir
   assert.match(expiryText(exchange),/刷新服务器/);assert.equal(exchange.status,'READY')
   exchange.participants=[{receivedAt:'2019-12-31T00:00:00Z'}];assert.match(expiryText(exchange),/交接已开始/)
 })
+test('voluntary two-party plans retain item versions and never invent demand identity',()=>{
+ const voluntary={ruleVersion:'direct-v1',participants:[{userId:1,itemId:30,itemVersion:4},{userId:2,itemId:10,itemVersion:6}],flows:[{itemId:30,fromUserId:1,toUserId:2,demandId:0,demandVersion:0},{itemId:10,fromUserId:2,toUserId:1,demandId:0,demandVersion:0}]}
+ assert.equal(creationSnapshot(voluntary).ruleVersion,'direct-v1')
+ assert.deepEqual(creationSnapshot(voluntary).flows,[{itemId:10,itemVersion:6,demandId:0,demandVersion:0},{itemId:30,itemVersion:4,demandId:0,demandVersion:0}])
+ const journal=createExchangeJournal(storage(),1),entry=journal.prepare(voluntary);assert.equal(journal.prepare(voluntary).body.idempotencyKey,entry.body.idempotencyKey)
+ const invalid=structuredClone(voluntary);invalid.flows[0].demandId=123;assert.throws(()=>creationSnapshot(invalid))
+ const three=match();three.ruleVersion='direct-v1';assert.throws(()=>creationSnapshot(three))
+})

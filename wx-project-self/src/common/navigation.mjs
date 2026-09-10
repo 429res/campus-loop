@@ -1,10 +1,10 @@
 const tabs = new Set(['home','matches','publish','profile'])
-const pages = new Set([...tabs,'demands','favorites','exchanges','notifications','community','detail','my-items','governance','history'])
+const pages = new Set([...tabs,'demands','favorites','exchanges','notifications','community','detail','my-items','governance','history','profile-settings','member'])
 export function loginDestination(options={}) {
  const page=pages.has(options.redirect)?options.redirect:'profile'
  const candidate=options.id||options.exchangeId
  const id=/^[1-9][0-9]*$/.test(String(candidate||''))&&Number.isSafeInteger(Number(candidate))?String(candidate):''
- return {page,url:`/pages/${page}/${page}${id&&['exchanges','community','detail','history'].includes(page)?`?id=${id}`:''}`,tab:tabs.has(page)}
+ return {page,url:`/pages/${page}/${page}${id&&['exchanges','community','detail','history','member'].includes(page)?`?id=${id}`:''}`,tab:tabs.has(page)}
 }
 export function finishLogin(uni,options={}) {
  const target=loginDestination(options)
