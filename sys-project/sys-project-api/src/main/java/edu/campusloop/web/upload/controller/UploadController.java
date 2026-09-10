@@ -17,4 +17,8 @@ public class UploadController {
     @PostMapping("/api/uploads/evidence") public ResultVo<Map<String,String>> evidence(@RequestAttribute(AuthInterceptor.USER) User user,@RequestParam("file") MultipartFile file) throws IOException {
         return ResultVo.success(Map.of("uploadId",files.store(user.getId(),file,true).getId()));
     }
+    public record RotateRequest(@jakarta.validation.constraints.NotBlank String url) {}
+    @PostMapping("/api/uploads/rotate") public ResultVo<Map<String,String>> rotate(@RequestAttribute(AuthInterceptor.USER) User user,@jakarta.validation.Valid @RequestBody RotateRequest request) throws IOException {
+        return ResultVo.success(Map.of("url",files.rotate(user.getId(),request.url()).getUrl()));
+    }
 }

@@ -78,7 +78,7 @@ version 必须是 JSON 非负整数，不接受字符串或小数。未声明字
 
 编辑/下架在事务内锁定物品，复核归属、状态、占用与 version，按 id/owner/status/version 条件更新并将 version 加1，再从数据库回读。旧版本、并发编辑/下架和版本上限均409，不覆盖已提交数据；相同字段的有效编辑也加1。D 应保存版本与完整本人表单；409保留当前用户输入，GET /items/mine/{id} 回读并提示重新判断，不自动使用新版本覆盖。400显示msg并保留输入，401按会话归属恢复，403/404停止提交并回到本人列表。具体状态矩阵、示例与验证见 [A-02 接入说明](a02-own-items.md)，协作已同步 [Issue #15](https://github.com/429res/campus-loop/issues/15)，D 消费确认与页面联调仍待完成。
 
-上传仅接受有效PNG/JPEG/GIF、最大10MiB、最多1600万像素；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。每物品最多9张图，imageUrls 保持顺序，首张兼容 imageUrl 封面，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
+上传仅接受有效PNG/JPEG/GIF、最大10MiB；不按输入像素数拒绝，高分辨率图片在解码时采样优化以控制内存；后端重新编码PNG、随机文件名、验证本人拥有的上传URL后才允许发布引用。使用`/uploads/<随机文件名>.png`；禁止任意服务器路径、外链或别人的上传。每物品最多9张图，imageUrls 保持顺序，首张兼容 imageUrl 封面，移除表单图片只移除引用，不假称服务器已删除。未引用图片清理策略属后续。
 
 推荐：`[{id,length,score,participants:[{userId,displayName,itemId,itemTitle}],flows:[{fromUserId,fromName,toUserId,toName,itemId,itemTitle,reason}],explanation}]`。流向是提供者→接收者；category为硬条件，wantedTags仅偏好排序；每个方案的用户和物品唯一。评分60–100及去重规则见架构/后端契约。读取不创建交换或占用；最多200件AVAILABLE候选、1000条推荐，任一超限返回422，前端显示错误而非“没有结果”；不返回截断的部分结果。
 
@@ -392,3 +392,6 @@ COMMUNITY 管理权限：`GET /api/admin/community/posts?page&size&reported&keyw
 ## 自动审核
 
 启用后服务端异步处理待审物品及未受理的物品/动态举报，明确结论自动执行；不确定、服务不可用、图片缺失或内容版本改变时保留管理员处理。`GET /api/admin/items/{id}/auto-review`、`/api/admin/community/posts/{id}/auto-review`、`/api/admin/reports/{id}/auto-review` 返回当前开关与该对象最近一次审核状态、reason、decision、confidence、model。人工审核接口不变；自动结果复用原有事务及站内通知，详见 `docs/ai-auto-review.md`。
+
+### 图片旋转
+`POST /api/uploads/rotate`，请求 `{ "url": "/uploads/<id>.png" }`，仅允许旋转本人 PUBLIC 上传；顺时针旋转 90 度，返回新 `{ "url": "..." }`。原文件及旧发布引用保持不变；客户端保存资料、物品或动态后应用新图。证据图片不支持旋转。无数据库迁移。
